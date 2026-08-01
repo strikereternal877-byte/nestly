@@ -20,6 +20,12 @@ builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddJwtAuthentication(builder.Configuration);
 builder.Services.AddNestlyCors(builder.Configuration);
 
+// Task 175: wallet credit expiry sweep, registered once here (not inside
+// AddInfrastructure, which admin-api/partner-api also call) - see
+// WalletCreditExpirySweepHostedService's doc comment for why consumer-api
+// is the single owner of this recurring job.
+builder.Services.AddHostedService<Nestly.Infrastructure.Services.WalletCreditExpirySweepHostedService>();
+
 // API surface.
 builder.Services.AddControllers();
 builder.Services
