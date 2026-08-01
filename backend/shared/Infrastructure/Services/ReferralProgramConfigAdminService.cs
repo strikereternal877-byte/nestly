@@ -1,3 +1,5 @@
+using System.Text.Json;
+using Nestly.Application.Abstractions.Auditing;
 using Nestly.Application.Referral;
 using Nestly.BuildingBlocks.Results;
 using Nestly.Domain;
@@ -7,15 +9,20 @@ namespace Nestly.Infrastructure.Services;
 /// <summary>See <see cref="IReferralProgramConfigAdminService"/>.</summary>
 public class ReferralProgramConfigAdminService : IReferralProgramConfigAdminService
 {
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
     private readonly IReferralProgramConfigRepository _configRepository;
     private readonly IReferralMilestoneRepository _milestoneRepository;
+    private readonly IAuditLogWriter _auditLogWriter;
 
     public ReferralProgramConfigAdminService(
         IReferralProgramConfigRepository configRepository,
-        IReferralMilestoneRepository milestoneRepository)
+        IReferralMilestoneRepository milestoneRepository,
+        IAuditLogWriter auditLogWriter)
     {
         _configRepository = configRepository;
         _milestoneRepository = milestoneRepository;
+        _auditLogWriter = auditLogWriter;
     }
 
     public async Task<Result<ReferralProgramConfigResponse>> GetAsync()
@@ -37,6 +44,8 @@ public class ReferralProgramConfigAdminService : IReferralProgramConfigAdminServ
             return Error.NotFound("ReferralProgramConfig.NotFound", "No referral program config exists yet.");
         }
 
+        string oldValueJson = JsonSerializer.Serialize(ToResponse(config), JsonOptions);
+
         try
         {
             config.Update(
@@ -54,6 +63,16 @@ public class ReferralProgramConfigAdminService : IReferralProgramConfigAdminServ
         {
             return Error.Validation("ReferralProgramConfig.Invalid", ex.Message);
         }
+
+        string newValueJson = JsonSerializer.Serialize(ToResponse(config), JsonOptions);
+
+        // Same "audit entry staged into the same unit of work the repository
+        // commits" contract SystemSettingsService.UpdateGroupAsync relies on
+        // (IAuditLogWriter.WriteAsync's documented contract) - one
+        // SaveChangesAsync below commits both the config change and its
+        // audit row together.
+        await _auditLogWriter.WriteAsync(
+            new AuditEntry("ReferralProgramConfig", config.Id.ToString(), "Updated", oldValueJson, newValueJson));
 
         await _configRepository.UpdateAsync(config);
         return Result.Success(ToResponse(config));

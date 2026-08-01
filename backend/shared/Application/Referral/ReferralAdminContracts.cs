@@ -80,3 +80,6 @@ public record ReferralCostReportResponse(
     int MilestoneBonusCount,
     DateTime? FromUtc,
     DateTime? ToUtc);
+
+/// <summary>Body for the fraud approve/reject actions (task 170, task 166's <see cref="IReferralFraudReviewService"/>). Note is optional context recorded on the audit trail.</summary>
+public record FraudReviewActionRequest(string? Note);
