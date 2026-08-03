@@ -6,10 +6,10 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { cx } from "@/components/ui";
 import { API_V1, apiFetch } from "@/lib/api";
 import { clearSession, getRefreshToken } from "@/lib/auth";
-import type { PartnerSessionClaims } from "@/lib/types";
+import type { ProviderSessionClaims } from "@/lib/types";
 
-/** Top chrome bar for the authenticated partner shell. Mirrors admin-web's AdminHeader. */
-export function PartnerHeader({ claims }: { claims: PartnerSessionClaims | null }) {
+/** Top chrome bar for the authenticated provider shell. Mirrors admin-web's AdminHeader. */
+export function ProviderHeader({ claims }: { claims: ProviderSessionClaims | null }) {
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -35,7 +35,7 @@ export function PartnerHeader({ claims }: { claims: PartnerSessionClaims | null 
   const signOut = async () => {
     const refreshToken = getRefreshToken();
 
-    // Clear locally regardless of the server's answer: the partner asked to
+    // Clear locally regardless of the server's answer: the provider asked to
     // be signed out, and a network failure must not leave the token behind.
     try {
       if (refreshToken) {
@@ -69,7 +69,7 @@ export function PartnerHeader({ claims }: { claims: PartnerSessionClaims | null 
           </svg>
         </span>
         <span className="text-[0.9375rem] font-semibold tracking-tight text-fg">
-          Nestly <span className="text-fg-muted">Partner</span>
+          Nestly <span className="text-fg-muted">Provider</span>
         </span>
       </span>
 

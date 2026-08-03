@@ -2,24 +2,24 @@
 
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import { PartnerHeader } from "@/components/PartnerHeader";
-import { PartnerSidebar, PartnerTabBar } from "@/components/PartnerSidebar";
-import { RequirePartnerAuth } from "@/components/RequirePartnerAuth";
+import { ProviderHeader } from "@/components/ProviderHeader";
+import { ProviderSidebar, ProviderTabBar } from "@/components/ProviderSidebar";
+import { RequireProviderAuth } from "@/components/RequireProviderAuth";
 import { getSessionClaims, subscribeToAuthChanges } from "@/lib/auth";
-import type { PartnerSessionClaims } from "@/lib/types";
+import type { ProviderSessionClaims } from "@/lib/types";
 
 /**
  * Authenticated app shell: header + navigation + content area, shown once
- * signed in. Every route nested under the `(partner)` route group (this
+ * signed in. Every route nested under the `(provider)` route group (this
  * segment does not appear in the URL) automatically gets this chrome and
- * the RequirePartnerAuth guard. Mirrors admin-web's `(admin)/layout.tsx`.
+ * the RequireProviderAuth guard. Mirrors admin-web's `(admin)/layout.tsx`.
  *
  * Navigation is a side rail from `md` up and a bottom tab bar below it -
- * partners work from a phone in the field, so the four sections stay one
+ * providers work from a phone in the field, so the four sections stay one
  * thumb-tap away rather than behind a drawer.
  */
 export default function AuthenticatedLayout({ children }: { children: ReactNode }) {
-  const [claims, setClaims] = useState<PartnerSessionClaims | null>(null);
+  const [claims, setClaims] = useState<ProviderSessionClaims | null>(null);
 
   useEffect(() => {
     const sync = () => setClaims(getSessionClaims());
@@ -28,12 +28,12 @@ export default function AuthenticatedLayout({ children }: { children: ReactNode 
   }, []);
 
   return (
-    <RequirePartnerAuth>
+    <RequireProviderAuth>
       <div className="flex min-h-screen flex-col bg-bg">
-        <PartnerHeader claims={claims} />
+        <ProviderHeader claims={claims} />
 
         <div className="flex flex-1">
-          <PartnerSidebar />
+          <ProviderSidebar />
 
           {/* Bottom padding clears the fixed tab bar so the last element on a
               page is never trapped underneath it. */}
@@ -42,8 +42,8 @@ export default function AuthenticatedLayout({ children }: { children: ReactNode 
           </main>
         </div>
 
-        <PartnerTabBar />
+        <ProviderTabBar />
       </div>
-    </RequirePartnerAuth>
+    </RequireProviderAuth>
   );
 }

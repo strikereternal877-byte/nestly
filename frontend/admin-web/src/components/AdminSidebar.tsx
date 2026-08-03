@@ -23,7 +23,7 @@ const GROUPS: readonly { label: string; keys: readonly NavModuleKey[] }[] = [
   { label: "Overview", keys: ["dashboard", "reports"] },
   { label: "Operations", keys: ["bookings", "slots", "support", "reviews"] },
   { label: "Catalog", keys: ["catalog", "pricing", "serviceability"] },
-  { label: "People", keys: ["customers", "partner", "admin-users"] },
+  { label: "People", keys: ["customers", "provider", "admin-users"] },
   { label: "Growth", keys: ["coupons", "referral", "nestly-coins", "subscription"] },
   { label: "Content", keys: ["cms", "notifications"] },
   { label: "System", keys: ["settings", "audit"] },

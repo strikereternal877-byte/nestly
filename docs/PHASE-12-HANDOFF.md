@@ -22,7 +22,7 @@ without a real passing `npm run build` (all three frontends are Next projects;
 | 211 | Dark mode + theme toggle | **done** |
 | 212 | Customer app shell | **done** |
 | 213 | Admin app shell | **done** |
-| 214 | Partner app shell | **done** |
+| 214 | Provider app shell | **done** |
 | 216 | Customer home & discovery | **done** |
 | 215 | Auth screens | **partial** — customer-web only, see below |
 | 217 | Service detail & slots | **partial** — see below |
@@ -69,7 +69,7 @@ shared `components/auth-ui.tsx` (`AuthShell`, `Segmented`, `OtpField`,
 `useResendCountdown`, `ResendRow`).
 
 **Still on old styling:** `admin-web/src/app/login/page.tsx`,
-`partner-web/src/app/login/page.tsx`, `partner-web/src/app/register/page.tsx`.
+`provider-web/src/app/login/page.tsx`, `provider-web/src/app/register/page.tsx`.
 Both apps' own `/login` pages are deliberately kept (row 206) for direct or
 bookmarked origin access — restyle them, don't delete them.
 
@@ -142,7 +142,7 @@ file trees never touch and can be worked simultaneously:
 |---|---|---|
 | A | `frontend/customer-web/` | 217, 218, 219, 220 |
 | B | `frontend/admin-web/` | 221, 222 |
-| C | `frontend/partner-web/` | 223 |
+| C | `frontend/provider-web/` | 223 |
 
 Row 215 (auth screens) spans all three — split it, each session does its own
 app's login/register/OTP/forgot-password. Preserve row 206's unified-login mode

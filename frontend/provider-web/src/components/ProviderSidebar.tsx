@@ -6,12 +6,12 @@ import type { ReactNode } from "react";
 import { cx } from "@/components/ui";
 
 /**
- * Navigation for the partner portal. Unlike admin-web's AdminSidebar, there
- * is no role/permission model to filter by - every signed-in partner sees
- * the same fixed set of sections (docs/PARTNER.md's partner-facing API
+ * Navigation for the provider portal. Unlike admin-web's AdminSidebar, there
+ * is no role/permission model to filter by - every signed-in provider sees
+ * the same fixed set of sections (docs/PROVIDER.md's provider-facing API
  * surface: profile, availability, jobs, earnings).
  *
- * Two presentations of one list. Partners work from a phone in the field, so
+ * Two presentations of one list. Providers work from a phone in the field, so
  * below `md` this renders as a thumb-reachable bottom tab bar rather than a
  * drawer they would have to open to reach the job they are standing in front
  * of; from `md` up it is a conventional side rail.
@@ -29,12 +29,12 @@ function useActiveMatcher() {
 }
 
 /** Side rail, `md` and up. */
-export function PartnerSidebar() {
+export function ProviderSidebar() {
   const isActive = useActiveMatcher();
 
   return (
     <nav
-      aria-label="Partner sections"
+      aria-label="Provider sections"
       className="hidden w-60 shrink-0 flex-col gap-0.5 border-r border-line bg-surface p-4 md:flex"
     >
       {NAV_ITEMS.map((item) => {
@@ -70,12 +70,12 @@ export function PartnerSidebar() {
  * Bottom tab bar, below `md`. Sits above the safe-area inset so it clears the
  * iOS home indicator instead of hiding behind it.
  */
-export function PartnerTabBar() {
+export function ProviderTabBar() {
   const isActive = useActiveMatcher();
 
   return (
     <nav
-      aria-label="Partner sections"
+      aria-label="Provider sections"
       className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 border-t border-line bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md md:hidden"
     >
       {NAV_ITEMS.map((item) => {
