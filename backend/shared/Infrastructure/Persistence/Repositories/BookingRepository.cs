@@ -45,7 +45,7 @@ public class BookingRepository : IBookingRepository
     // read-modify-write flows load through and then save back on this same
     // context), every call site of the three methods below is read-only
     // display/reporting - a customer's booking list, admin search, and a
-    // partner's assigned-jobs view. None of them ever call UpdateAsync on
+    // provider's assigned-jobs view. None of them ever call UpdateAsync on
     // what they load.
 
     public async Task<IReadOnlyList<Booking>> ListByCustomerAsync(Guid customerId, IReadOnlyList<BookingStatus> statuses) =>
@@ -153,11 +153,11 @@ public class BookingRepository : IBookingRepository
         return new BookingSearchResult(rows, totalCount);
     }
 
-    /// <summary>Bookings currently assigned to a partner (task 150c performance view).</summary>
-    public async Task<IReadOnlyList<Booking>> ListByAssignedPartnerAsync(Guid partnerId) =>
+    /// <summary>Bookings currently assigned to a provider (task 150c performance view).</summary>
+    public async Task<IReadOnlyList<Booking>> ListByAssignedProviderAsync(Guid providerId) =>
         await FullyLoaded()
             .AsNoTracking()
-            .Where(b => b.AssignedPartnerId == partnerId)
+            .Where(b => b.AssignedProviderId == providerId)
             .OrderByDescending(b => b.CreatedAtUtc)
             .ToListAsync();
 
@@ -165,9 +165,9 @@ public class BookingRepository : IBookingRepository
         _context.Bookings.CountAsync(b =>
             b.CustomerId == customerId && b.Status == BookingStatus.Completed && b.Id != excludingBookingId);
 
-    public Task<int> CountCompletedByAssignedPartnerAsync(Guid partnerId, Guid excludingBookingId) =>
+    public Task<int> CountCompletedByAssignedProviderAsync(Guid providerId, Guid excludingBookingId) =>
         _context.Bookings.CountAsync(b =>
-            b.AssignedPartnerId == partnerId && b.Status == BookingStatus.Completed && b.Id != excludingBookingId);
+            b.AssignedProviderId == providerId && b.Status == BookingStatus.Completed && b.Id != excludingBookingId);
 
     private IQueryable<Booking> FullyLoaded() =>
         _context.Bookings

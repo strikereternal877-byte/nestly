@@ -17,12 +17,12 @@ public interface IBookingRepository
     /// <summary>Filterable, paginated admin search across every booking (SRS 12.11.1, task 115a).</summary>
     Task<BookingSearchResult> SearchAsync(BookingSearchFilter filter);
 
-    /// <summary>Bookings currently assigned to a partner (<see cref="Booking.AssignedPartnerId"/>), for the admin performance view (task 150c). Reflects the live assignment only - a booking whose assignment was later rejected/reassigned away from this partner will no longer appear here, even though <c>BookingPartnerAssignment</c> retains that history.</summary>
-    Task<IReadOnlyList<Booking>> ListByAssignedPartnerAsync(Guid partnerId);
+    /// <summary>Bookings currently assigned to a provider (<see cref="Booking.AssignedProviderId"/>), for the admin performance view (task 150c). Reflects the live assignment only - a booking whose assignment was later rejected/reassigned away from this provider will no longer appear here, even though <c>BookingProviderAssignment</c> retains that history.</summary>
+    Task<IReadOnlyList<Booking>> ListByAssignedProviderAsync(Guid providerId);
 
     /// <summary>Nestly Coins' reorder check (docs/NESTLY-COINS.md GUIDELINES #2, task 201): does this customer have any OTHER Completed booking besides <paramref name="excludingBookingId"/>? A dedicated count query, mirroring <c>IReferralRepository.CountRewardedByReferrerAsync</c>'s convention, rather than listing and filtering full booking rows client-side.</summary>
     Task<int> CountCompletedByCustomerAsync(Guid customerId, Guid excludingBookingId);
 
-    /// <summary>Nestly Coins' reorder check, partner side (docs/NESTLY-COINS.md GUIDELINES #2, task 201): does this partner have any OTHER Completed booking besides <paramref name="excludingBookingId"/>?</summary>
-    Task<int> CountCompletedByAssignedPartnerAsync(Guid partnerId, Guid excludingBookingId);
+    /// <summary>Nestly Coins' reorder check, provider side (docs/NESTLY-COINS.md GUIDELINES #2, task 201): does this provider have any OTHER Completed booking besides <paramref name="excludingBookingId"/>?</summary>
+    Task<int> CountCompletedByAssignedProviderAsync(Guid providerId, Guid excludingBookingId);
 }

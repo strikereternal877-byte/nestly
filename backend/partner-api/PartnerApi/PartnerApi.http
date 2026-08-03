@@ -1,7 +1,0 @@
-@PartnerApi_HostAddress = http://localhost:5337
-
-# Health check
-GET {{PartnerApi_HostAddress}}/health/live
-Accept: application/json
-
-###

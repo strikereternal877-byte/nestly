@@ -105,7 +105,7 @@ This SRS covers:
 
 ### 2.3 Out of Scope for Current Phase (but architecture should remain extensible)
 
-- Dedicated service partner mobile app / panel
+- Dedicated service provider mobile app / panel
 - Real-time professional dispatch optimization
 - Advanced AI recommendation engine
 - Loyalty program and subscription model
@@ -136,7 +136,7 @@ The platform must: 1. Allow customers to discover and book services with minimal
 ### 4.2 Excluded Direct End-User Interfaces in Current Scope
 
 - Native customer mobile apps
-- Partner / professional app
+- Provider / professional app
 - Third-party vendor portal
 
 ### 4.3 Supported Service Models
@@ -2141,10 +2141,10 @@ handled throughout this backlog.
    free/paid switch: `ReschedulePolicyOptions` + `RescheduleFeeCalculator`
    (Phase 5, task 82) compute the fee from the configured policy window and
    category.
-1. **Partner assignment.** Deferred out of the Phase 1 admin workflow, then
+1. **Provider assignment.** Deferred out of the Phase 1 admin workflow, then
    delivered as its own phase: reordered 2026-07-31 to run as Phase 7
-   (`docs/PARTNER.md`), landed 2026-08-01 — `BookingPartnerAssignment`,
-   admin assignment/reassignment (task 159), partner-api.
+   (`docs/PROVIDER.md`), landed 2026-08-01 — `BookingProviderAssignment`,
+   admin assignment/reassignment (task 159), provider-api.
 1. **Support ticket visibility.** Full timeline, not summary-only:
    `SupportTicketComment` history is returned to the customer via
    `SupportTicketsController` (consumer-api), matching the same

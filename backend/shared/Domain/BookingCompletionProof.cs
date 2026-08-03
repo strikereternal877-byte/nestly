@@ -7,21 +7,21 @@ namespace Nestly.Domain;
 public sealed record CompletionChecklistAnswer(string Item, bool Completed, string? Notes);
 
 /// <summary>
-/// Evidence a partner submits that a job was actually completed
+/// Evidence a provider submits that a job was actually completed
 /// (PRODUCT-ENHANCEMENTS.md "Service Completion Verification", tasks
 /// 195-198): one or more photo references plus a checklist.
 /// <see cref="BookingLifecycle"/>'s InProgress -&gt; Completed transition is
 /// conditional on a row like this existing for the booking (task 196) -
 /// enforced in the application layer
-/// (<c>PartnerJobService.CompleteAsync</c>,
+/// (<c>ProviderJobService.CompleteAsync</c>,
 /// <c>BookingManagementService.UpdateStatusAsync</c>), not here or on
 /// <see cref="Booking"/> itself, since checking another aggregate's
 /// existence is not this entity's (or Booking's) own invariant to know
 /// about - it needs a repository, which a domain entity does not have.
 /// <para>
 /// <see cref="PhotoRefs"/> are storage keys/URLs to already-uploaded files
-/// (matching <see cref="PartnerKycDocument.FileRef"/> and
-/// <see cref="BookingPartnerAssignment.CompletionProofRef"/> - never binary
+/// (matching <see cref="ProviderKycDocument.FileRef"/> and
+/// <see cref="BookingProviderAssignment.CompletionProofRef"/> - never binary
 /// content). Both collections are persisted as JSON strings (matching how
 /// <see cref="AuditLog.OldValues"/>/<see cref="AuditLog.NewValues"/> already
 /// store structured data this codebase has no dedicated child table for) -
@@ -37,7 +37,7 @@ public sealed record CompletionChecklistAnswer(string Item, bool Completed, stri
 public class BookingCompletionProof : Entity<Guid>
 {
     public Guid BookingId { get; private set; }
-    public Guid SubmittedByPartnerId { get; private set; }
+    public Guid SubmittedByProviderId { get; private set; }
     public DateTime SubmittedAtUtc { get; private set; }
 
     /// <summary>JSON-serialized <c>List&lt;string&gt;</c> - the persisted form of <see cref="PhotoRefs"/>.</summary>
@@ -51,13 +51,13 @@ public class BookingCompletionProof : Entity<Guid>
     public BookingCompletionProof(
         Guid id,
         Guid bookingId,
-        Guid submittedByPartnerId,
+        Guid submittedByProviderId,
         IReadOnlyList<string> photoRefs,
         IReadOnlyList<CompletionChecklistAnswer> checklistAnswers)
         : base(id)
     {
         BookingId = bookingId;
-        SubmittedByPartnerId = submittedByPartnerId;
+        SubmittedByProviderId = submittedByProviderId;
         Apply(photoRefs, checklistAnswers);
     }
 
@@ -67,7 +67,7 @@ public class BookingCompletionProof : Entity<Guid>
     public IReadOnlyList<CompletionChecklistAnswer> ChecklistAnswers =>
         JsonSerializer.Deserialize<List<CompletionChecklistAnswer>>(ChecklistAnswersJson) ?? [];
 
-    /// <summary>Replaces this proof's evidence with a resubmission (e.g. the partner adds a missed photo before the job is actually marked Completed).</summary>
+    /// <summary>Replaces this proof's evidence with a resubmission (e.g. the provider adds a missed photo before the job is actually marked Completed).</summary>
     public void Update(IReadOnlyList<string> photoRefs, IReadOnlyList<CompletionChecklistAnswer> checklistAnswers) =>
         Apply(photoRefs, checklistAnswers);
 

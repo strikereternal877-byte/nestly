@@ -333,7 +333,7 @@ function Row({ label, value }: { label: string; value: number }) {
   );
 }
 
-/** Photo + checklist evidence the partner submitted at job completion (tasks 195-198). */
+/** Photo + checklist evidence the provider submitted at job completion (tasks 195-198). */
 function CompletionProofCard({ bookingId }: { bookingId: string }) {
   const query = useQuery({
     queryKey: ["booking-completion-proof", bookingId],

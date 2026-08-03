@@ -3,10 +3,10 @@ import { execFileSync } from "node:child_process";
 /**
  * Test-only shortcut: forces a booking straight to BookingStatus.Completed
  * so the review-submission spec (140d) can exercise the review API/UI
- * without also standing up the partner-api + partner KYC + assignment +
- * job-completion chain (PartnerJobService.CompleteAsync is the only real
- * path to Completed - backend/shared/Infrastructure/Services/PartnerJobService.cs:169).
- * That fulfilment chain has its own coverage (Phase 7's partner tests); this
+ * without also standing up the provider-api + provider KYC + assignment +
+ * job-completion chain (ProviderJobService.CompleteAsync is the only real
+ * path to Completed - backend/shared/Infrastructure/Services/ProviderJobService.cs:169).
+ * That fulfilment chain has its own coverage (Phase 7's provider tests); this
  * suite's job is the customer-facing review flow, not proving how a booking
  * gets fulfilled. Matches BookingConfiguration's `HasConversion<string>()`
  * (stores the bare enum member name) and inserts a matching

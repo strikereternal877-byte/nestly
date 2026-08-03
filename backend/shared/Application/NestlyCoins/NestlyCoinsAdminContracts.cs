@@ -36,7 +36,7 @@ public sealed record NestlyCoinsProgramConfigUpsertRequest(
 /// a date range", mirrors Referral's funnel/cost report). Scoped to what's
 /// honestly computable from the existing ledgers: "issued" and "clawed back"
 /// are both a real ledger SourceType sum; a true "redeemed" (spent) figure
-/// would need per-entry consumption tracking the partner earning ledger
+/// would need per-entry consumption tracking the provider earning ledger
 /// doesn't have (see NestlyCoinsService's doc comments), so this reports the
 /// net cost instead of a redemption rate.
 /// </summary>

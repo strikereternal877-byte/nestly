@@ -19,7 +19,7 @@ public sealed class NestlyCoinsAdminServiceTests : IClassFixture<TestDatabase>
         new(
             new NestlyCoinsProgramConfigRepository(context),
             new WalletLedgerRepository(context),
-            new PartnerEarningLedgerRepository(context));
+            new ProviderEarningLedgerRepository(context));
 
     private static void ClearConfig(Nestly.Infrastructure.Persistence.NestlyDbContext context, NestlyCoinsAudience audience)
     {
@@ -43,19 +43,19 @@ public sealed class NestlyCoinsAdminServiceTests : IClassFixture<TestDatabase>
     public async Task UpsertAsync_creates_the_row_when_the_audience_has_never_been_configured()
     {
         using var context = _db.CreateContext();
-        ClearConfig(context, NestlyCoinsAudience.Partner);
+        ClearConfig(context, NestlyCoinsAudience.Provider);
 
         var request = new NestlyCoinsProgramConfigUpsertRequest(
             EarnRatePer100: 5m, MinimumOrderAmount: 300m, RequireReorder: true,
             MaxCoinsPerMonth: 200m, ExpiryDays: 60, ClawbackWindowDays: 5, IsActive: true);
 
-        var result = await BuildService(context).UpsertAsync(NestlyCoinsAudience.Partner, request, Guid.NewGuid());
+        var result = await BuildService(context).UpsertAsync(NestlyCoinsAudience.Provider, request, Guid.NewGuid());
 
         result.IsSuccess.Should().BeTrue();
-        result.Value.Audience.Should().Be(NestlyCoinsAudience.Partner);
+        result.Value.Audience.Should().Be(NestlyCoinsAudience.Provider);
         result.Value.EarnRatePer100.Should().Be(5m);
 
-        context.Set<NestlyCoinsProgramConfig>().Count(c => c.Audience == NestlyCoinsAudience.Partner).Should().Be(1);
+        context.Set<NestlyCoinsProgramConfig>().Count(c => c.Audience == NestlyCoinsAudience.Provider).Should().Be(1);
     }
 
     [Fact]

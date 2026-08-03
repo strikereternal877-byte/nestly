@@ -50,7 +50,7 @@ export type NavModuleKey =
   | "audit"
   | "settings"
   | "admin-users"
-  | "partner"
+  | "provider"
   | "referral"
   | "nestly-coins"
   | "subscription";
@@ -81,7 +81,7 @@ export const NAV_MODULES: readonly NavModule[] = [
   { key: "audit", label: "Audit Log", href: "/audit", srsRef: "SRS 12.1.2, 12.2.3, 21", requiredPermission: "audit.read" },
   { key: "settings", label: "System Settings", href: "/settings", srsRef: "SRS 12.19", requiredPermission: "settings.read" },
   { key: "admin-users", label: "Admin Users", href: "/admin-users", srsRef: "SRS 12.2", requiredPermission: "settings.read" },
-  { key: "partner", label: "Partners", href: "/partners", srsRef: "PARTNER.md", requiredPermission: "partner.read" },
+  { key: "provider", label: "Providers", href: "/providers", srsRef: "PROVIDER.md", requiredPermission: "provider.read" },
   { key: "referral", label: "Referral Program", href: "/referral", srsRef: "REFERRAL.md", requiredPermission: "referral.read" },
   { key: "nestly-coins", label: "Nestly Coins", href: "/nestly-coins", srsRef: "NESTLY-COINS.md", requiredPermission: "nestly-coins.read" },
   { key: "subscription", label: "Subscription Plans", href: "/subscription-plans", srsRef: "PRODUCT-ENHANCEMENTS.md #1", requiredPermission: "subscription.read" },
@@ -110,13 +110,13 @@ export function canWriteModule(claims: AdminSessionClaims | null, moduleKey: Nav
  */
 const ROLE_MODULE_FALLBACK: Record<string, NavModuleKey[] | "*"> = {
   "Super Admin": "*",
-  "Operations Admin": ["dashboard", "customers", "bookings", "serviceability", "slots", "support", "partner"],
+  "Operations Admin": ["dashboard", "customers", "bookings", "serviceability", "slots", "support", "provider"],
   "Booking Admin": ["dashboard", "bookings", "slots", "serviceability"],
   "Support Admin": ["dashboard", "support", "customers", "reviews"],
   "Catalog Admin": ["dashboard", "catalog", "pricing"],
   "Pricing Admin": ["dashboard", "pricing", "coupons"],
   "Marketing Admin": ["dashboard", "coupons", "cms", "notifications", "reviews", "referral", "nestly-coins", "subscription"],
-  "Finance Admin": ["dashboard", "bookings", "reports", "partner", "nestly-coins", "subscription"],
+  "Finance Admin": ["dashboard", "bookings", "reports", "provider", "nestly-coins", "subscription"],
   "Read-only Analyst": ["dashboard", "reports"],
 };
 

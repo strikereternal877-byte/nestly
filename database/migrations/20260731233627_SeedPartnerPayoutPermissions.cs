@@ -36,7 +36,7 @@ namespace Nestly.Infrastructure.Migrations
         // two migrations' rows are trivially distinguishable by created_at.
         private static readonly DateTime SeedTimestamp = new(2026, 7, 31, 23, 36, 0, DateTimeKind.Utc);
 
-        private static readonly string[] NewModules = [AdminModules.Partner, AdminModules.Payout];
+        private static readonly string[] NewModules = [AdminModules.Provider, AdminModules.Payout];
 
         private static Guid DeterministicId(string seed)
         {
@@ -105,8 +105,8 @@ namespace Nestly.Infrastructure.Migrations
         {
             migrationBuilder.Sql(
                 "DELETE FROM role_permission_mapping WHERE permission_id IN " +
-                "(SELECT id FROM admin_permission WHERE module IN ('partner', 'payout'));");
-            migrationBuilder.Sql("DELETE FROM admin_permission WHERE module IN ('partner', 'payout');");
+                "(SELECT id FROM admin_permission WHERE module IN ('provider', 'payout'));");
+            migrationBuilder.Sql("DELETE FROM admin_permission WHERE module IN ('provider', 'payout');");
         }
     }
 }

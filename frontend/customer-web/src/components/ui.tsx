@@ -18,7 +18,7 @@ import type {
  * Restyling the product happens in the token layer, not here.
  *
  * This file is replicated verbatim across customer-web, admin-web and
- * partner-web (the three apps are independent Next projects with no shared
+ * provider-web (the three apps are independent Next projects with no shared
  * package), so it is a deliberate superset: an app that never renders a
  * `Table` still ships the identical file, and the three stay in step by being
  * literally the same bytes. Changing it in one app means porting to all three.

@@ -64,7 +64,7 @@ The full documentation suite lives in [docs/](docs/README.md):
 - [ARCHITECTURE.md](docs/ARCHITECTURE.md) — system architecture blueprint
 - [API.md](docs/API.md) · [DATABASE.md](docs/DATABASE.md) · [DOTNET.md](docs/DOTNET.md) · [FRONTEND.md](docs/FRONTEND.md)
 - [SECURITY.md](docs/SECURITY.md) · [TESTING.md](docs/TESTING.md) · [CODING-STANDARDS.md](docs/CODING-STANDARDS.md) · [DEVOPS.md](docs/DEVOPS.md)
-- [PARTNER.md](docs/PARTNER.md) — deferred Partner/Vendor module design
+- [PROVIDER.md](docs/PROVIDER.md) — deferred Provider/Vendor module design
 - [tasks.csv](docs/tasks.csv) — phased development backlog
 
 ## Development Status

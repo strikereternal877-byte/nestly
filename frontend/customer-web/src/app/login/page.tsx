@@ -12,11 +12,11 @@ import { storeSession } from "@/lib/auth";
 import type { LoginResponse } from "@/lib/types";
 import {
   ADMIN_WEB_URL,
-  PARTNER_WEB_URL,
+  PROVIDER_WEB_URL,
   loginAdmin,
   redirectWithSession,
-  requestPartnerLoginOtp,
-  verifyPartnerLoginOtp,
+  requestProviderLoginOtp,
+  verifyProviderLoginOtp,
 } from "@/lib/unified-login-api";
 
 // Mirrors the server-side FluentValidation rules (LoginValidators.cs) so the
@@ -36,28 +36,28 @@ const passwordSchema = z.object({
   password: z.string().min(1, "Password is required"),
 });
 const adminPasswordSchema = passwordSchema;
-const partnerMobileSchema = z.object({ mobile: mobileSchema });
-const partnerOtpSchema = z.object({
+const providerMobileSchema = z.object({ mobile: mobileSchema });
+const providerOtpSchema = z.object({
   mobile: mobileSchema,
   otpCode: z.string().min(4, "Enter the code you received").max(8, "Enter the code you received"),
 });
 
 type Mode = "otp" | "password";
-type AccountType = "customer" | "admin" | "partner";
+type AccountType = "customer" | "admin" | "provider";
 
 const ACCOUNT_TYPES: { value: AccountType; label: string }[] = [
   { value: "customer", label: "Customer" },
   { value: "admin", label: "Admin" },
-  { value: "partner", label: "Partner" },
+  { value: "provider", label: "Provider" },
 ];
 
 /**
  * Single sign-in entry point for all three Nestly apps (task 206). Before
- * this, customer-web, admin-web and partner-web each had their own
+ * this, customer-web, admin-web and provider-web each had their own
  * independent `/login` at their own origin with no way to reach the other
  * two from one place. There is no shared parent domain across the three
  * origins yet (docs/DEVOPS.md's hosting/domain decisions are still open),
- * so admin/partner sign-in still authenticates against admin-api/partner-api
+ * so admin/provider sign-in still authenticates against admin-api/provider-api
  * directly from here, then hands the browser off to that app's own origin
  * with the session in the URL fragment (see lib/unified-login-api.ts)
  * rather than a subdomain-gateway/shared-cookie approach, which real infra
@@ -65,7 +65,7 @@ const ACCOUNT_TYPES: { value: AccountType; label: string }[] = [
  * independently-audienced token exactly as before - only the routing to
  * reach it is shared.
  *
- * admin-web's and partner-web's own `/login` pages are intentionally left in
+ * admin-web's and provider-web's own `/login` pages are intentionally left in
  * place (not removed) so a bookmarked/direct visit to either app's own
  * origin still works.
  */
@@ -75,7 +75,7 @@ export default function LoginPage() {
 
   return (
     <main className="mx-auto w-full max-w-md px-6 py-12">
-      <PageHeading title="Sign in" subtitle="One sign-in page for customers, admins and partners." />
+      <PageHeading title="Sign in" subtitle="One sign-in page for customers, admins and providers." />
 
       <div className="mb-5 flex gap-2" role="tablist" aria-label="Account type">
         {ACCOUNT_TYPES.map((type) => (
@@ -124,7 +124,7 @@ export default function LoginPage() {
       ) : accountType === "admin" ? (
         <AdminLoginUnified />
       ) : (
-        <PartnerLoginUnified />
+        <ProviderLoginUnified />
       )}
     </main>
   );
@@ -325,27 +325,27 @@ function AdminLoginUnified() {
   );
 }
 
-/** Partner sign-in from the unified entry point - calls partner-api directly, then hands off to partner-web's own origin. */
-function PartnerLoginUnified() {
+/** Provider sign-in from the unified entry point - calls provider-api directly, then hands off to provider-web's own origin. */
+function ProviderLoginUnified() {
   const [step, setStep] = useState<"request" | "verify">("request");
   const [mobile, setMobile] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const requestForm = useForm<z.infer<typeof partnerMobileSchema>>({
-    resolver: zodResolver(partnerMobileSchema),
+  const requestForm = useForm<z.infer<typeof providerMobileSchema>>({
+    resolver: zodResolver(providerMobileSchema),
     defaultValues: { mobile: "" },
   });
 
-  const verifyForm = useForm<z.infer<typeof partnerOtpSchema>>({
-    resolver: zodResolver(partnerOtpSchema),
+  const verifyForm = useForm<z.infer<typeof providerOtpSchema>>({
+    resolver: zodResolver(providerOtpSchema),
     defaultValues: { mobile: "", otpCode: "" },
   });
 
   const onRequest = requestForm.handleSubmit(async ({ mobile: value }) => {
     setError(null);
     try {
-      await requestPartnerLoginOtp(value);
+      await requestProviderLoginOtp(value);
       setMobile(value);
       verifyForm.setValue("mobile", value);
       setNotice(`We sent a verification code to ${value}.`);
@@ -358,15 +358,15 @@ function PartnerLoginUnified() {
   const onVerify = verifyForm.handleSubmit(async (values) => {
     setError(null);
     try {
-      const session = await verifyPartnerLoginOtp(values.mobile, values.otpCode);
-      redirectWithSession(PARTNER_WEB_URL, "/jobs", session);
+      const session = await verifyProviderLoginOtp(values.mobile, values.otpCode);
+      redirectWithSession(PROVIDER_WEB_URL, "/jobs", session);
     } catch (err) {
       setError(describeError(err));
     }
   });
 
   return (
-    <Card title={step === "request" ? "Partner sign in" : "Enter your code"}>
+    <Card title={step === "request" ? "Provider sign in" : "Enter your code"}>
       <div className="flex flex-col gap-4">
         {error ? <Alert>{error}</Alert> : null}
         {step === "verify" && notice ? <Alert tone="info">{notice}</Alert> : null}

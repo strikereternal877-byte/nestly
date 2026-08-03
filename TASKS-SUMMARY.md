@@ -11,7 +11,7 @@ Auto-generated from `tasks.csv` at phase boundaries. Do not hand-edit — regene
 | Phase 4 - Payments & Financial | 40 | 0 | 6 | 0 | 46 |
 | Phase 5 - Post-Booking | 40 | 0 | 7 | 0 | 47 |
 | Phase 6 - Admin Panel | 104 | 0 | 15 | 0 | 119 |
-| Phase 7 - Partner | 23 | 0 | 4 | 0 | 27 |
+| Phase 7 - Provider | 23 | 0 | 4 | 0 | 27 |
 | Phase 8 - Hardening & Launch | 35 | 0 | 6 | 0 | 41 |
 | Phase 9 - Referral & Growth | 16 | 0 | 0 | 0 | 16 |
 | Phase 10 - Product Enhancements | 22 | 0 | 0 | 0 | 22 |
@@ -49,7 +49,7 @@ addition's own dedicated incremental seed migration. Both fixed in the
 migration files only (no application-code change), full suite unaffected.
 18 of 21 `docs/UI-GUIDE.md` screenshots captured against the resulting clean
 database (using one minimal real catalog record created live through the
-admin UI, and one real partner account registered live through partner-web's
+admin UI, and one real provider account registered live through provider-web's
 OTP flow); the 3 remaining need a real `Completed` booking, documented as an
 explicit, deliberately out-of-scope gap rather than dropped silently.
 
@@ -182,7 +182,7 @@ declare `[Authorize(Policy = "referral.write")]`, the same ordering task
 Admin=read, Super Admin=full - referral sits with the coupon/notification
 campaign cluster Marketing Admin already owns), migration
 `20260801150655_SeedReferralPermissions` (mirrors
-`20260731233627_SeedPartnerPayoutPermissions`'s incremental-seed pattern
+`20260731233627_SeedProviderPayoutPermissions`'s incremental-seed pattern
 exactly), and collapsed REFERRAL.md's requested four permission tiers
 (View/Configure/Approve-Fraud/Export) to this codebase's existing two
 (Read/Write) - `AdminPermissionAction`'s own doc comment explicitly
@@ -289,7 +289,7 @@ DevOps: CD pipeline + backup/restore) on `phase-8-hardening-launch`. Extended
 the existing GitHub Actions CI/CD setup (`.github/workflows/ci.yml`, PR/push
 gate) with real deployment workflows rather than duplicating it:
 `.github/workflows/cd-staging.yml` (push to `develop` → build/test gate →
-build+push consumer-api/admin-api/partner-api images to GHCR → `dotnet ef
+build+push consumer-api/admin-api/provider-api images to GHCR → `dotnet ef
 database update` → deploy, `environment: staging`) and
 `.github/workflows/cd-production.yml` (same shape on push to `main`,
 `environment: production` so GitHub's Required-reviewers protection rule
@@ -344,7 +344,7 @@ implemented by `NestlyMetricsService`
 (Counter/Histogram on a `"Nestly"` Meter), exported via
 `OpenTelemetry.Extensions.Hosting` + `OpenTelemetry.Exporter.Prometheus.AspNetCore`
 on a self-hosted, unauthenticated `/metrics` scrape endpoint on all three
-APIs (consumer/admin/partner) - a scrape endpoint rather than an OTLP push
+APIs (consumer/admin/provider) - a scrape endpoint rather than an OTLP push
 since DEVOPS.md's OPEN DECISIONS still lists the monitoring/alerting stack
 as unresolved and no OTel collector exists anywhere in this repo yet; the
 Prometheus AspNetCore exporter package is still versioned as beta upstream
@@ -406,20 +406,20 @@ single-column one, and capped `CatalogSearchService.SearchAsync` at 20
 results per type (previously unbounded) without touching the several admin
 "list all active" call sites that legitimately reuse the same repository
 method with an empty query. Other reviewed areas (booking admin search
-pagination, partner performance-summary N+1, review-by-service listing) were
+pagination, provider performance-summary N+1, review-by-service listing) were
 found already paginated, already low-volume/admin-scoped by design, or
 unused in production - documented as sound rather than changed. 14 of Phase
 8's 38 rows are now `done`; the remaining 18 `todo` rows and 6 `decomposed`
 parent placeholders are unstarted.
 
-Previously, 2026-08-01: completed Phase 7 (Partner) on `phase-7-partner`:
-assignment bridge (147), earnings/payouts (148), partner-api jobs/earnings
-endpoints (149a/149c), admin partner CRUD/KYC/performance + Partner/Payout
+Previously, 2026-08-01: completed Phase 7 (Provider) on `phase-7-provider`:
+assignment bridge (147), earnings/payouts (148), provider-api jobs/earnings
+endpoints (149a/149c), admin provider CRUD/KYC/performance + Provider/Payout
 RBAC (150a-150c), provider reassignment on rejection (159), and background
 verification (160). All 25 Phase 7 rows are now `done` except the four
 `decomposed` parent placeholders (145, 146, 149, 150 - superseded by their
 own lettered subtasks, all of which are done). Phase order changed
-2026-07-31: Partner now runs as Phase 7 (before Hardening & Launch, now
+2026-07-31: Provider now runs as Phase 7 (before Hardening & Launch, now
 Phase 8); Phase 9 (Referral & Growth) and Phase 10 (Product Enhancements)
 were added.
 

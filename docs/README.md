@@ -35,10 +35,10 @@ Every topic has exactly **one authoritative document**.
 | [TESTING.md](TESTING.md) | Unit, integration, API and end-to-end testing strategy |
 | [DEVOPS.md](DEVOPS.md) | Docker, CI/CD, deployment, monitoring and operations |
 | [RUNBOOK-BACKUP-RESTORE.md](RUNBOOK-BACKUP-RESTORE.md) | Tested PostgreSQL backup/restore procedure (companion to DEVOPS.md's backup requirement) |
-| [PARTNER.md](PARTNER.md) | Partner / Vendor module specification (Phase 7 — scheduled before launch) |
+| [PROVIDER.md](PROVIDER.md) | Provider / Vendor module specification (Phase 7 — scheduled before launch) |
 | [REFERRAL.md](REFERRAL.md) | Referral (Refer & Earn) module specification (Phase 9) |
 | [PRODUCT-ENHANCEMENTS.md](PRODUCT-ENHANCEMENTS.md) | Subscription, Recurring Bookings, In-App Chat, Completion Verification specification (Phase 10) |
-| [NESTLY-COINS.md](NESTLY-COINS.md) | Nestly Coins (reorder loyalty currency for customers and partners) specification (Phase 11) |
+| [NESTLY-COINS.md](NESTLY-COINS.md) | Nestly Coins (reorder loyalty currency for customers and providers) specification (Phase 11) |
 | [tasks.csv](tasks.csv) | Development backlog — phased tasks, priorities and dependencies |
 | [archive/](archive/) | Original Word-format versions of these documents (historical) |
 
@@ -91,7 +91,7 @@ Every topic has exactly **one authoritative document**.
 | CI/CD | DEVOPS.md |
 | Deployment | DEVOPS.md |
 | Monitoring | DEVOPS.md |
-| Partner module design | PARTNER.md |
+| Provider module design | PROVIDER.md |
 | Development backlog | tasks.csv |
 
 ## OWNERSHIP RULES

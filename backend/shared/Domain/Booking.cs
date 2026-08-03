@@ -82,15 +82,15 @@ public class Booking : AggregateRoot<Guid>
     public DateTime CreatedAtUtc { get; private set; }
 
     /// <summary>
-    /// Denormalized display field only (PARTNER.md SCOPE BOUNDARY: "one
-    /// denormalized display field (assigned_partner_id) on booking"). The
+    /// Denormalized display field only (PROVIDER.md SCOPE BOUNDARY: "one
+    /// denormalized display field (assigned_provider_id) on booking"). The
     /// authoritative record of who was assigned, by whom, and how they
-    /// responded lives in <see cref="BookingPartnerAssignment"/> (task 147) -
-    /// this field is only ever set through <see cref="AssignPartner"/> by
-    /// <c>IBookingPartnerAssignmentService</c>, never mutated directly, and
+    /// responded lives in <see cref="BookingProviderAssignment"/> (task 147) -
+    /// this field is only ever set through <see cref="AssignProvider"/> by
+    /// <c>IBookingProviderAssignmentService</c>, never mutated directly, and
     /// carries no invariant of its own (unlike <see cref="Status"/>).
     /// </summary>
-    public Guid? AssignedPartnerId { get; private set; }
+    public Guid? AssignedProviderId { get; private set; }
 
     public IReadOnlyList<BookingItem> Items => _items;
     public IReadOnlyList<BookingStatusHistory> StatusHistory => _statusHistory;
@@ -248,17 +248,17 @@ public class Booking : AggregateRoot<Guid>
     }
 
     /// <summary>
-    /// Sets or clears the denormalized <see cref="AssignedPartnerId"/> display
+    /// Sets or clears the denormalized <see cref="AssignedProviderId"/> display
     /// field (task 147). The one and only writer of this property - kept as a
     /// dedicated method rather than a public setter so nothing outside
-    /// <c>IBookingPartnerAssignmentService</c> can mutate it directly (SCOPE
-    /// BOUNDARY: Booking must not read Partner internals). Deliberately does
+    /// <c>IBookingProviderAssignmentService</c> can mutate it directly (SCOPE
+    /// BOUNDARY: Booking must not read Provider internals). Deliberately does
     /// not touch <see cref="Status"/> - the caller decides separately whether
     /// the status transition to/from <see cref="BookingStatus.Assigned"/> is
     /// also warranted, since a reassignment while already Assigned changes
     /// only this field.
     /// </summary>
-    public void AssignPartner(Guid? partnerId) => AssignedPartnerId = partnerId;
+    public void AssignProvider(Guid? providerId) => AssignedProviderId = providerId;
 
     private void EnsureStillMutable()
     {

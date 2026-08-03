@@ -16,10 +16,10 @@
       "port": 3001
     },
     {
-      "name": "partner-web",
+      "name": "provider-web",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
-      "cwd": "frontend/partner-web",
+      "cwd": "frontend/provider-web",
       "port": 3002
     }
   ]

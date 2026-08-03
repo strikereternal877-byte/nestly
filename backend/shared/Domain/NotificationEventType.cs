@@ -29,7 +29,7 @@ public enum NotificationEventType
     /// connection (PRODUCT-ENHANCEMENTS.md IN-APP CHAT, task 194). Only ever
     /// dispatched for the customer side of a thread today - see
     /// <c>ChatNotificationTriggerHandler</c>'s doc comment for the documented
-    /// scope gap on the admin/partner side.
+    /// scope gap on the admin/provider side.
     /// </summary>
     NewChatMessage,
 

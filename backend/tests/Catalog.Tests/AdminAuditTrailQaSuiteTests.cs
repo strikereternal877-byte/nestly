@@ -221,7 +221,7 @@ public sealed class AdminAuditTrailQaSuiteTests : IClassFixture<TestDatabase>
                 new BookingRepository(context), new PaymentTransactionRepository(context), new RefundTransactionRepository(context),
                 new WalletService(new WalletLedgerRepository(context)), new EscrowService(new PlatformEscrowLedgerRepository(context)),
                 new SandboxPaymentGateway(Options.Create(new SandboxGatewayOptions { WebhookSigningSecret = "unit-test-signing-secret-value" })), context),
-            new BookingCancellationRepository(context), new BookingPartnerAssignmentRepository(context), TimeProvider.System, Options.Create(new CancellationPolicyOptions())),
+            new BookingCancellationRepository(context), new BookingProviderAssignmentRepository(context), TimeProvider.System, Options.Create(new CancellationPolicyOptions())),
         new RescheduleService(
             new BookingRepository(context), new PaymentTransactionRepository(context), new RefundTransactionRepository(context),
             new SlotAvailabilityService(

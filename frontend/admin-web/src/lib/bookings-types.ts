@@ -268,6 +268,6 @@ export interface BookingCompletionProofResponse {
   bookingId: string;
   photoRefs: string[];
   checklistAnswers: CompletionChecklistAnswerResponse[];
-  submittedByPartnerId: string;
+  submittedByProviderId: string;
   submittedAtUtc: string;
 }

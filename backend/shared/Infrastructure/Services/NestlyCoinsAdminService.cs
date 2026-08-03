@@ -12,16 +12,16 @@ public class NestlyCoinsAdminService : INestlyCoinsAdminService
 {
     private readonly INestlyCoinsProgramConfigRepository _configRepository;
     private readonly IWalletLedgerRepository _walletLedgerRepository;
-    private readonly IPartnerEarningLedgerRepository _partnerEarningLedgerRepository;
+    private readonly IProviderEarningLedgerRepository _providerEarningLedgerRepository;
 
     public NestlyCoinsAdminService(
         INestlyCoinsProgramConfigRepository configRepository,
         IWalletLedgerRepository walletLedgerRepository,
-        IPartnerEarningLedgerRepository partnerEarningLedgerRepository)
+        IProviderEarningLedgerRepository providerEarningLedgerRepository)
     {
         _configRepository = configRepository;
         _walletLedgerRepository = walletLedgerRepository;
-        _partnerEarningLedgerRepository = partnerEarningLedgerRepository;
+        _providerEarningLedgerRepository = providerEarningLedgerRepository;
     }
 
     public async Task<Result<NestlyCoinsProgramConfigResponse>> GetAsync(NestlyCoinsAudience audience)
@@ -75,8 +75,8 @@ public class NestlyCoinsAdminService : INestlyCoinsAdminService
         }
         else
         {
-            issued = await _partnerEarningLedgerRepository.SumBySourceTypeInRangeAsync(PartnerEarningSourceType.NestlyCoinsReward, PartnerEarningEntryType.Credit, fromUtc, toUtc);
-            clawedBack = await _partnerEarningLedgerRepository.SumBySourceTypeInRangeAsync(PartnerEarningSourceType.NestlyCoinsClawback, PartnerEarningEntryType.Debit, fromUtc, toUtc);
+            issued = await _providerEarningLedgerRepository.SumBySourceTypeInRangeAsync(ProviderEarningSourceType.NestlyCoinsReward, ProviderEarningEntryType.Credit, fromUtc, toUtc);
+            clawedBack = await _providerEarningLedgerRepository.SumBySourceTypeInRangeAsync(ProviderEarningSourceType.NestlyCoinsClawback, ProviderEarningEntryType.Debit, fromUtc, toUtc);
         }
 
         return new NestlyCoinsReportResponse(audience, fromUtc, toUtc, issued, clawedBack, issued - clawedBack);

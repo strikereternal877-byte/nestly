@@ -211,7 +211,7 @@ Business modules must not duplicate these capabilities.
 
 ## UNIFIED LOGIN (task 206, resolved 2026-08-02)
 
-Before this, `customer-web`, `admin-web` and `partner-web` each had an
+Before this, `customer-web`, `admin-web` and `provider-web` each had an
 independent `/login` at their own origin, with no way to reach the other two
 apps from one place. Task 206 asked for "a single login entry point shared
 by all three apps, redirecting to the correct app/dashboard based on account
@@ -226,11 +226,11 @@ Reasoning, verified against the actual repository state rather than assumed:
    lists cloud provider, hosting platform and registry as unresolved — there
    is no production domain for a subdomain-gateway approach
    (`login.nestly.com` issuing a cookie scoped to `.nestly.com`, shared by
-   `app.`/`admin.`/`partner.nestly.com`) to be validated against. Even in
+   `app.`/`admin.`/`provider.nestly.com`) to be validated against. Even in
    local development the three apps run on unrelated `localhost` ports, not
    subdomains of one parent.
 2. **Account type cannot be derived from an identifier alone.**
-   `CustomerAuthIdentity`, `AdminUser` and `PartnerAuthIdentity` are three
+   `CustomerAuthIdentity`, `AdminUser` and `ProviderAuthIdentity` are three
    independent tables, each with its own uniqueness scope — nothing stops
    the same email/mobile existing in more than one. A gateway that tried to
    auto-detect "which app does this identifier belong to" would need to
@@ -244,22 +244,22 @@ Reasoning, verified against the actual repository state rather than assumed:
    picking a shared cookie domain) for a feature that doesn't need it.
 
 **Implementation**: `customer-web`'s `/login` gained an account-type
-selector (Customer / Admin / Partner). Selecting Admin or Partner still
-authenticates directly against `admin-api`/`partner-api` (each keeps issuing
+selector (Customer / Admin / Provider). Selecting Admin or Provider still
+authenticates directly against `admin-api`/`provider-api` (each keeps issuing
 its own independently-audienced token exactly as before — no change to
-`JwtOptions`/`AdminJwtOptions`/`PartnerJwtOptions`), then hands the browser
+`JwtOptions`/`AdminJwtOptions`/`ProviderJwtOptions`), then hands the browser
 off via a full-page redirect to that app's own origin with the session
 carried in the URL fragment (`lib/unified-login-api.ts`), never a query
 string — a fragment is never sent to a server, so the token doesn't touch
 any access log on the hop, and the receiving `/auth/callback` page
-(`admin-web`, `partner-web`) strips it from history the instant it's read.
+(`admin-web`, `provider-web`) strips it from history the instant it's read.
 This is the standard technique for a same-token cross-origin handoff when
 there is no shared cookie domain to rely on instead. The only production
 config change this required was adding `customer-web`'s origin to
-`admin-api`'s and `partner-api`'s `Cors:AllowedOrigins` (`appsettings.*.json`)
+`admin-api`'s and `provider-api`'s `Cors:AllowedOrigins` (`appsettings.*.json`)
 — CORS remains credential-less throughout.
 
-`admin-web`'s and `partner-web`'s own `/login` pages are deliberately left
+`admin-web`'s and `provider-web`'s own `/login` pages are deliberately left
 in place, not removed — a bookmarked or direct visit to either app's own
 origin must keep working, and there is no reverse proxy/DNS layer yet to
 redirect one to the other. Fully retiring them in favor of the shared entry

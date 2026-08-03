@@ -30,7 +30,7 @@ public class PlatformEscrowLedger : Entity<Guid>
 
     /// <summary>
     /// Release-target placeholder (task 158): there is no Provider identity
-    /// in the domain yet (deferred to Phase 8/Partner), so a Release entry
+    /// in the domain yet (deferred to Phase 8/Provider), so a Release entry
     /// for BookingCompleted just records who it would be paid out to once
     /// that concept exists. Null on Hold entries, and on a RefundIssued
     /// Release (nothing was paid to a provider).

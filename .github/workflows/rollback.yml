@@ -155,7 +155,7 @@ jobs:
             cd /opt/nestly
             export CONSUMER_API_IMAGE=ghcr.io/${{ github.repository }}/consumer-api:${{ inputs.image_tag }}
             export ADMIN_API_IMAGE=ghcr.io/${{ github.repository }}/admin-api:${{ inputs.image_tag }}
-            export PARTNER_API_IMAGE=ghcr.io/${{ github.repository }}/partner-api:${{ inputs.image_tag }}
+            export PROVIDER_API_IMAGE=ghcr.io/${{ github.repository }}/provider-api:${{ inputs.image_tag }}
             docker compose pull
             docker compose up -d --remove-orphans
           EOF

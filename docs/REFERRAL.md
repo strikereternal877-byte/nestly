@@ -5,7 +5,7 @@ Referral (Refer & Earn) module specification.
 ## STATUS
 
 Not implemented. Scoped as **Phase 9**, after every core module (0–7) and the
-deferred Partner module (8). It has a real dependency on Partner's earning
+deferred Provider module (8). It has a real dependency on Provider's earning
 concepts existing first only in spirit — in practice it depends only on
 Wallet, Coupon, Customer, and Booking, all of which are Phase 0–4 modules
 already built. It is placed after Phase 8 because it's a growth feature on
@@ -193,7 +193,7 @@ proven out. Revisit only after the base loop and fraud queue are live.
 ## OPEN DECISIONS (CLOSED)
 
 Closed 2026-08-01, ahead of task 161, same convention as SRS §34 (`docs/SRS.md`)
-and PARTNER.md's open-decisions lists — resolved with a documented rationale
+and PROVIDER.md's open-decisions lists — resolved with a documented rationale
 rather than re-litigated per task.
 
 1. **Reward type default: admin's choice per campaign**, via `RewardType` on

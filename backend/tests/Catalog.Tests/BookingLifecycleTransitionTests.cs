@@ -19,10 +19,10 @@ namespace Nestly.Catalog.Tests;
 /// One intentional addition beyond the original SRS 13.1 matrix: Assigned
 /// -&gt; AwaitingFulfilment (task 159). SRS 31.1's transition list is
 /// explicitly "Examples", not exhaustive, so this does not contradict it -
-/// when the partner assigned to a booking rejects the job,
-/// <c>IBookingPartnerAssignmentService.RejectAsync</c> returns the booking to
+/// when the provider assigned to a booking rejects the job,
+/// <c>IBookingProviderAssignmentService.RejectAsync</c> returns the booking to
 /// AwaitingFulfilment so it re-enters the assignable pool for manual admin
-/// reassignment (PARTNER.md OPEN DECISIONS #1).
+/// reassignment (PROVIDER.md OPEN DECISIONS #1).
 /// </summary>
 public sealed class BookingLifecycleTransitionTests
 {

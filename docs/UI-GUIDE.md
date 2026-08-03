@@ -26,11 +26,11 @@ same way for any fresh checkout of this repo.
 
 The three screenshots that were missing as of the previous pass
 (`admin-web/booking-detail`, `customer-web/booking-detail`,
-`partner-web/job-detail`) needed one real `Completed` booking to exist. That
+`provider-web/job-detail`) needed one real `Completed` booking to exist. That
 booking was driven end-to-end through the real APIs/UIs for this pass: a
 `Weekday Morning` slot window created in admin-web, a booking placed and
-paid (sandbox gateway) in customer-web, the partner activated and assigned
-in admin-web, and accepted/started/completed in partner-web — see
+paid (sandbox gateway) in customer-web, the provider activated and assigned
+in admin-web, and accepted/started/completed in provider-web — see
 [Known issues found, not yet fixed](#known-issues-found-not-yet-fixed-2026-08-02)
 for two more real bugs this surfaced.
 
@@ -55,7 +55,7 @@ both now fixed in place:
    reading a live static catalog (`AdminPermissionCatalog.Permissions` /
    `NotificationTemplateSeedData.BuildDefaults()`) with no filter - correct
    when first authored, but those catalogs keep growing as later tasks add
-   modules/event types (Partner, Referral, Chat, Subscription, NestlyCoins;
+   modules/event types (Provider, Referral, Chat, Subscription, NestlyCoins;
    RecurringBooking, Referral, Subscription notifications). On a fresh
    database, both migrations now silently re-seed every later addition too,
    colliding with each addition's own dedicated incremental migration on a
@@ -74,25 +74,25 @@ Driving one booking to `Completed` end-to-end (to capture the three
 screenshots above) surfaced two more real gaps, left unfixed here since
 fixing them was out of scope for a docs/screenshot pass:
 
-1. **`POST /api/v1/profile/kyc/documents` (partner-api) rejects a
+1. **`POST /api/v1/profile/kyc/documents` (provider-api) rejects a
    well-formed request with a raw 400** — `The body field is required. The
    JSON value could not be converted to
-   Nestly.PartnerApi.Controllers.SubmitPartnerKycDocumentBody` — when
-   submitted from partner-web's own "Submit a document" form
-   (`frontend/partner-web/src/app/(partner)/profile/page.tsx`) with a
+   Nestly.ProviderApi.Controllers.SubmitProviderKycDocumentBody` — when
+   submitted from provider-web's own "Submit a document" form
+   (`frontend/provider-web/src/app/(provider)/profile/page.tsx`) with a
    populated document type, file reference URL and document number. This is
    a raw model-binding exception, not a validation problem response, so the
    root cause is a request-shape mismatch between the frontend and
-   `SubmitPartnerKycDocumentBody` (`backend/partner-api/PartnerApi/Controllers/ProfileController.cs`)
+   `SubmitProviderKycDocumentBody` (`backend/provider-api/ProviderApi/Controllers/ProfileController.cs`)
    rather than missing input. Not root-caused further here.
-2. **No admin path activates a partner without KYC docs.** A partner with a
+2. **No admin path activates a provider without KYC docs.** A provider with a
    passed background check but zero submitted KYC documents (the case above
    made unavoidable) has no "activate anyway" action anywhere in admin-web's
-   partner detail page — `PartnerStatus` stays `PendingVerification`
-   indefinitely, and `POST /api/v1/admin/bookings/{id}/assign-partner`
-   correctly refuses to assign a non-`Active` partner. For this pass the
-   partner used in the screenshots above (`Ravi K`, mobile `9888877766`) was
-   activated with a direct `UPDATE partner SET status = 'Active' WHERE id =
+   provider detail page — `ProviderStatus` stays `PendingVerification`
+   indefinitely, and `POST /api/v1/admin/bookings/{id}/assign-provider`
+   correctly refuses to assign a non-`Active` provider. For this pass the
+   provider used in the screenshots above (`Ravi K`, mobile `9888877766`) was
+   activated with a direct `UPDATE provider SET status = 'Active' WHERE id =
    …` against the local dev database only — not a real onboarding path, and
    not something to script or repeat outside local screenshot capture.
 
@@ -122,20 +122,20 @@ Prerequisites: Docker, the .NET 8 SDK, Node.js (see each frontend's
    re-run.
 4. **Run the three backend APIs** - either via Docker:
    ```bash
-   docker compose up -d consumer-api admin-api partner-api
+   docker compose up -d consumer-api admin-api provider-api
    ```
    or directly for faster local iteration (each on its own default port):
    ```bash
    dotnet run --project backend/consumer-api/ConsumerApi   # http://localhost:5257
    dotnet run --project backend/admin-api/AdminApi         # http://localhost:5177
-   dotnet run --project backend/partner-api/PartnerApi     # http://localhost:5337
+   dotnet run --project backend/provider-api/ProviderApi     # http://localhost:5337
    ```
 5. **Run the three frontends** (each reads `NEXT_PUBLIC_API_URL`, defaulting
    to the ports above if unset):
    ```bash
    npm --prefix frontend/customer-web run dev   # http://localhost:3000
    npm --prefix frontend/admin-web run dev      # http://localhost:3001
-   npm --prefix frontend/partner-web run dev    # http://localhost:3002
+   npm --prefix frontend/provider-web run dev    # http://localhost:3002
    ```
 6. **Sign in.**
 
@@ -143,13 +143,13 @@ Prerequisites: Docker, the .NET 8 SDK, Node.js (see each frontend's
    |---|---|---|
    | Customer web | `http://localhost:3000/login` → "Email & password" tab | `e2e-customer@nestly.local` / `E2eCustomer!Passw0rd` |
    | Admin web | `http://localhost:3001/login` | `dev-admin@nestly.local` / `E2eTest!Passw0rd` |
-   | Partner web | `http://localhost:3002/login` | No seed exists (docs/DEVOPS.md/database/seed has no `dev-partner-seed.sql`) - register a new partner via `/register`, then sign in with a real mobile-OTP code. The OTP is never logged or exposed via any dev bypass (see `dev-customer-seed.sql`'s header comment on the equivalent customer case); read the code directly from the `partner_otp` table in the local dev database if a UI walkthrough needs one without a real SMS provider configured. |
+   | Provider web | `http://localhost:3002/login` | No seed exists (docs/DEVOPS.md/database/seed has no `dev-provider-seed.sql`) - register a new provider via `/register`, then sign in with a real mobile-OTP code. The OTP is never logged or exposed via any dev bypass (see `dev-customer-seed.sql`'s header comment on the equivalent customer case); read the code directly from the `provider_otp` table in the local dev database if a UI walkthrough needs one without a real SMS provider configured. |
 
    All three passwords above are seeded local-dev-only values, never valid
    outside a local/CI database - see each seed script's own warning.
 
    Since task 206, `http://localhost:3000/login` alone can also sign in as
-   Admin or Partner via the account-type selector at the top of the page -
+   Admin or Provider via the account-type selector at the top of the page -
    no need to visit `:3001`/`:3002` directly except to exercise a direct
    bookmark to those origins.
 
@@ -163,8 +163,8 @@ category "Home Cleaning", service "Deep Home Cleaning" (₹1499), and the
 matching category/city + service/pincode serviceability mappings. The three
 `booking-detail`/`job-detail` screenshots additionally needed a `Weekday
 Morning` slot window (09:00–13:00, Mon–Fri), one real booking taken all the
-way to `Completed` (sandbox payment, partner assignment, accept/start/
-complete), and the partner activation workaround noted in
+way to `Completed` (sandbox payment, provider assignment, accept/start/
+complete), and the provider activation workaround noted in
 [Known issues found, not yet fixed](#known-issues-found-not-yet-fixed-2026-08-02).
 
 ### Customer web (`docs/assets/ui-guide/customer-web/`)
@@ -187,31 +187,31 @@ complete), and the partner activation workaround noted in
 | `login` | `/login` | ![login](assets/ui-guide/admin-web/login.png) |
 | `dashboard` | `/dashboard` | ![dashboard](assets/ui-guide/admin-web/dashboard.png) |
 | `bookings` | `/bookings` | ![bookings](assets/ui-guide/admin-web/bookings.png) Empty list - no bookings exist in this seed |
-| `booking-detail` | `/bookings/[bookingId]` | ![booking-detail](assets/ui-guide/admin-web/booking-detail.png) Same `Completed` booking - status timeline, payment, and partner assignment sections |
+| `booking-detail` | `/bookings/[bookingId]` | ![booking-detail](assets/ui-guide/admin-web/booking-detail.png) Same `Completed` booking - status timeline, payment, and provider assignment sections |
 | `catalog` | `/catalog` | ![catalog](assets/ui-guide/admin-web/catalog.png) |
-| `partners` | `/partners` | ![partners](assets/ui-guide/admin-web/partners.png) |
+| `providers` | `/providers` | ![providers](assets/ui-guide/admin-web/providers.png) |
 | `coupons` | `/coupons` | ![coupons](assets/ui-guide/admin-web/coupons.png) |
 | `reports` | `/reports` | ![reports](assets/ui-guide/admin-web/reports.png) |
 
-### Partner web (`docs/assets/ui-guide/partner-web/`)
+### Provider web (`docs/assets/ui-guide/provider-web/`)
 
-No dev seed exists for a partner account ([First-time setup](#first-time-setup)
-step 6) - the screenshots below use a real partner registered live through
+No dev seed exists for a provider account ([First-time setup](#first-time-setup)
+step 6) - the screenshots below use a real provider registered live through
 `/register` for this pass (mobile `9888877766`). OTP-verified two different
 ways across this pass's screenshots: by reading and SHA-256-brute-forcing
-`partner_otp.code_hash` for the first batch (6 digits, unsalted, ~instant
+`provider_otp.code_hash` for the first batch (6 digits, unsalted, ~instant
 locally), and for `job-detail` specifically (where the 5-minute OTP expiry
 made brute-forcing impractical) by temporarily adding, using, and reverting
 a one-line `Console.WriteLine` of the plaintext code in
-`PartnerOtpService.GenerateAsync` - the code itself is never logged or
+`ProviderOtpService.GenerateAsync` - the code itself is never logged or
 retrievable in plaintext in the actual application, same as the customer OTP
 path.
 
 | Screenshot | Route | Notes |
 |---|---|---|
-| `login` | `/login` | ![login](assets/ui-guide/partner-web/login.png) |
-| `profile-skills` | `/profile` | ![profile-skills](assets/ui-guide/partner-web/profile-skills.png) Real category/service dropdowns (task 205) - shows "Home Cleaning", not a raw GUID |
-| `profile-service-areas` | `/profile` | ![profile-service-areas](assets/ui-guide/partner-web/profile-service-areas.png) Real city/zone/pincode dropdowns (task 205) - shows "Bengaluru", not a raw GUID |
-| `jobs` | `/jobs` | ![jobs](assets/ui-guide/partner-web/jobs.png) Empty list - no bookings assigned in this seed |
-| `job-detail` | `/jobs/[id]` | ![job-detail](assets/ui-guide/partner-web/job-detail.png) Same booking, `Completed` from the partner's side - completion proof and verification checklist |
-| `earnings` | `/earnings` | ![earnings](assets/ui-guide/partner-web/earnings.png) |
+| `login` | `/login` | ![login](assets/ui-guide/provider-web/login.png) |
+| `profile-skills` | `/profile` | ![profile-skills](assets/ui-guide/provider-web/profile-skills.png) Real category/service dropdowns (task 205) - shows "Home Cleaning", not a raw GUID |
+| `profile-service-areas` | `/profile` | ![profile-service-areas](assets/ui-guide/provider-web/profile-service-areas.png) Real city/zone/pincode dropdowns (task 205) - shows "Bengaluru", not a raw GUID |
+| `jobs` | `/jobs` | ![jobs](assets/ui-guide/provider-web/jobs.png) Empty list - no bookings assigned in this seed |
+| `job-detail` | `/jobs/[id]` | ![job-detail](assets/ui-guide/provider-web/job-detail.png) Same booking, `Completed` from the provider's side - completion proof and verification checklist |
+| `earnings` | `/earnings` | ![earnings](assets/ui-guide/provider-web/earnings.png) |

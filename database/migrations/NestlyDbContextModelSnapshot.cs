@@ -479,9 +479,9 @@ namespace Nestly.Infrastructure.Migrations
                         .HasColumnType("character varying(100)")
                         .HasColumnName("address_state_snapshot");
 
-                    b.Property<Guid?>("AssignedPartnerId")
+                    b.Property<Guid?>("AssignedProviderId")
                         .HasColumnType("uuid")
-                        .HasColumnName("assigned_partner_id");
+                        .HasColumnName("assigned_provider_id");
 
                     b.Property<decimal>("BasePriceSnapshot")
                         .HasPrecision(12, 2)
@@ -605,8 +605,8 @@ namespace Nestly.Infrastructure.Migrations
                     b.HasKey("Id")
                         .HasName("pk_booking");
 
-                    b.HasIndex("AssignedPartnerId")
-                        .HasDatabaseName("ix_booking_assigned_partner_id");
+                    b.HasIndex("AssignedProviderId")
+                        .HasDatabaseName("ix_booking_assigned_provider_id");
 
                     b.HasIndex("CreatedAtUtc")
                         .HasDatabaseName("ix_booking_created_at_utc");
@@ -751,9 +751,9 @@ namespace Nestly.Infrastructure.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("submitted_at_utc");
 
-                    b.Property<Guid>("SubmittedByPartnerId")
+                    b.Property<Guid>("SubmittedByProviderId")
                         .HasColumnType("uuid")
-                        .HasColumnName("submitted_by_partner_id");
+                        .HasColumnName("submitted_by_provider_id");
 
                     b.HasKey("Id")
                         .HasName("pk_booking_completion_proof");
@@ -815,7 +815,7 @@ namespace Nestly.Infrastructure.Migrations
                     b.ToTable("booking_item", (string)null);
                 });
 
-            modelBuilder.Entity("Nestly.Domain.BookingPartnerAssignment", b =>
+            modelBuilder.Entity("Nestly.Domain.BookingProviderAssignment", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -850,9 +850,9 @@ namespace Nestly.Infrastructure.Migrations
                         .HasColumnType("character varying(500)")
                         .HasColumnName("notes");
 
-                    b.Property<Guid>("PartnerId")
+                    b.Property<Guid>("ProviderId")
                         .HasColumnType("uuid")
-                        .HasColumnName("partner_id");
+                        .HasColumnName("provider_id");
 
                     b.Property<DateTime?>("RespondedAt")
                         .HasColumnType("timestamp with time zone")
@@ -869,15 +869,15 @@ namespace Nestly.Infrastructure.Migrations
                         .HasColumnName("status");
 
                     b.HasKey("Id")
-                        .HasName("pk_booking_partner_assignment");
+                        .HasName("pk_booking_provider_assignment");
 
-                    b.HasIndex("PartnerId")
-                        .HasDatabaseName("ix_booking_partner_assignment_partner_id");
+                    b.HasIndex("ProviderId")
+                        .HasDatabaseName("ix_booking_provider_assignment_provider_id");
 
                     b.HasIndex("BookingId", "Status")
-                        .HasDatabaseName("ix_booking_partner_assignment_booking_id_status");
+                        .HasDatabaseName("ix_booking_provider_assignment_booking_id_status");
 
-                    b.ToTable("booking_partner_assignment", (string)null);
+                    b.ToTable("booking_provider_assignment", (string)null);
                 });
 
             modelBuilder.Entity("Nestly.Domain.BookingReschedule", b =>
@@ -2420,655 +2420,6 @@ namespace Nestly.Infrastructure.Migrations
                     b.ToTable("notification_template", (string)null);
                 });
 
-            modelBuilder.Entity("Nestly.Domain.Partner", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<string>("DisplayName")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
-                        .HasColumnName("display_name");
-
-                    b.Property<string>("Email")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
-                        .HasColumnName("email");
-
-                    b.Property<string>("LegalName")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
-                        .HasColumnName("legal_name");
-
-                    b.Property<string>("OnboardingStatus")
-                        .IsRequired()
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)")
-                        .HasColumnName("onboarding_status");
-
-                    b.Property<string>("PartnerType")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)")
-                        .HasColumnName("partner_type");
-
-                    b.Property<string>("Phone")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)")
-                        .HasColumnName("phone");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)")
-                        .HasColumnName("status");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_at");
-
-                    b.HasKey("Id")
-                        .HasName("pk_partner");
-
-                    b.HasIndex("Phone")
-                        .IsUnique()
-                        .HasDatabaseName("ix_partner_phone");
-
-                    b.ToTable("partner", (string)null);
-                });
-
-            modelBuilder.Entity("Nestly.Domain.PartnerAuthIdentity", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<string>("Identifier")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
-                        .HasColumnName("identifier");
-
-                    b.Property<bool>("IsPrimary")
-                        .HasColumnType("boolean")
-                        .HasColumnName("is_primary");
-
-                    b.Property<Guid>("PartnerId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("partner_id");
-
-                    b.Property<string>("PasswordHash")
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)")
-                        .HasColumnName("password_hash");
-
-                    b.Property<string>("Provider")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)")
-                        .HasColumnName("provider");
-
-                    b.HasKey("Id")
-                        .HasName("pk_partner_auth_identity");
-
-                    b.HasIndex("PartnerId")
-                        .HasDatabaseName("ix_partner_auth_identity_partner_id");
-
-                    b.HasIndex("Provider", "Identifier")
-                        .IsUnique()
-                        .HasDatabaseName("ix_partner_auth_identity_provider_identifier");
-
-                    b.ToTable("partner_auth_identity", (string)null);
-                });
-
-            modelBuilder.Entity("Nestly.Domain.PartnerAvailabilityWindow", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<string>("DayOfWeek")
-                        .IsRequired()
-                        .HasMaxLength(10)
-                        .HasColumnType("character varying(10)")
-                        .HasColumnName("day_of_week");
-
-                    b.Property<TimeSpan>("EndTime")
-                        .HasColumnType("interval")
-                        .HasColumnName("end_time");
-
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("boolean")
-                        .HasColumnName("is_active");
-
-                    b.Property<Guid>("PartnerId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("partner_id");
-
-                    b.Property<TimeSpan>("StartTime")
-                        .HasColumnType("interval")
-                        .HasColumnName("start_time");
-
-                    b.HasKey("Id")
-                        .HasName("pk_partner_availability_window");
-
-                    b.HasIndex("PartnerId", "DayOfWeek")
-                        .HasDatabaseName("ix_partner_availability_window_partner_id_day_of_week");
-
-                    b.ToTable("partner_availability_window", (string)null);
-                });
-
-            modelBuilder.Entity("Nestly.Domain.PartnerBackgroundCheck", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<DateTime>("CheckedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("checked_at");
-
-                    b.Property<Guid>("CheckedBy")
-                        .HasColumnType("uuid")
-                        .HasColumnName("checked_by");
-
-                    b.Property<string>("Notes")
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)")
-                        .HasColumnName("notes");
-
-                    b.Property<Guid>("PartnerId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("partner_id");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)")
-                        .HasColumnName("status");
-
-                    b.HasKey("Id")
-                        .HasName("pk_partner_background_check");
-
-                    b.HasIndex("PartnerId", "CheckedAt")
-                        .HasDatabaseName("ix_partner_background_check_partner_id_checked_at");
-
-                    b.ToTable("partner_background_check", (string)null);
-                });
-
-            modelBuilder.Entity("Nestly.Domain.PartnerBlackoutDate", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<DateOnly>("EndDate")
-                        .HasColumnType("date")
-                        .HasColumnName("end_date");
-
-                    b.Property<Guid>("PartnerId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("partner_id");
-
-                    b.Property<string>("Reason")
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)")
-                        .HasColumnName("reason");
-
-                    b.Property<DateOnly>("StartDate")
-                        .HasColumnType("date")
-                        .HasColumnName("start_date");
-
-                    b.HasKey("Id")
-                        .HasName("pk_partner_blackout_date");
-
-                    b.HasIndex("PartnerId", "StartDate", "EndDate")
-                        .HasDatabaseName("ix_partner_blackout_date_partner_id_start_date_end_date");
-
-                    b.ToTable("partner_blackout_date", (string)null);
-                });
-
-            modelBuilder.Entity("Nestly.Domain.PartnerCapacity", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<int?>("MaxJobsPerDay")
-                        .HasColumnType("integer")
-                        .HasColumnName("max_jobs_per_day");
-
-                    b.Property<int?>("MaxJobsPerSlot")
-                        .HasColumnType("integer")
-                        .HasColumnName("max_jobs_per_slot");
-
-                    b.Property<Guid>("PartnerId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("partner_id");
-
-                    b.HasKey("Id")
-                        .HasName("pk_partner_capacity");
-
-                    b.HasIndex("PartnerId")
-                        .IsUnique()
-                        .HasDatabaseName("ix_partner_capacity_partner_id");
-
-                    b.ToTable("partner_capacity", (string)null);
-                });
-
-            modelBuilder.Entity("Nestly.Domain.PartnerEarningLedgerEntry", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<decimal>("Amount")
-                        .HasPrecision(12, 2)
-                        .HasColumnType("numeric(12,2)")
-                        .HasColumnName("amount");
-
-                    b.Property<decimal>("BalanceAfter")
-                        .HasPrecision(12, 2)
-                        .HasColumnType("numeric(12,2)")
-                        .HasColumnName("balance_after");
-
-                    b.Property<DateTime>("CreatedAtUtc")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at_utc");
-
-                    b.Property<string>("Description")
-                        .IsRequired()
-                        .HasMaxLength(300)
-                        .HasColumnType("character varying(300)")
-                        .HasColumnName("description");
-
-                    b.Property<string>("EntryType")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)")
-                        .HasColumnName("entry_type");
-
-                    b.Property<Guid>("PartnerId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("partner_id");
-
-                    b.Property<Guid?>("SourceReferenceId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("source_reference_id");
-
-                    b.Property<string>("SourceType")
-                        .IsRequired()
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)")
-                        .HasColumnName("source_type");
-
-                    b.HasKey("Id")
-                        .HasName("pk_partner_earning_ledger");
-
-                    b.HasIndex("PartnerId", "CreatedAtUtc")
-                        .HasDatabaseName("ix_partner_earning_ledger_partner_id_created_at_utc");
-
-                    b.ToTable("partner_earning_ledger", (string)null);
-                });
-
-            modelBuilder.Entity("Nestly.Domain.PartnerKycDocument", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<string>("DocNumber")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("doc_number");
-
-                    b.Property<string>("DocType")
-                        .IsRequired()
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)")
-                        .HasColumnName("doc_type");
-
-                    b.Property<string>("FileRef")
-                        .IsRequired()
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)")
-                        .HasColumnName("file_ref");
-
-                    b.Property<Guid>("PartnerId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("partner_id");
-
-                    b.Property<DateTime>("SubmittedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("submitted_at");
-
-                    b.Property<string>("VerificationStatus")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)")
-                        .HasColumnName("verification_status");
-
-                    b.Property<DateTime?>("VerifiedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("verified_at");
-
-                    b.Property<Guid?>("VerifiedBy")
-                        .HasColumnType("uuid")
-                        .HasColumnName("verified_by");
-
-                    b.HasKey("Id")
-                        .HasName("pk_partner_kyc_document");
-
-                    b.HasIndex("PartnerId")
-                        .HasDatabaseName("ix_partner_kyc_document_partner_id");
-
-                    b.ToTable("partner_kyc_document", (string)null);
-                });
-
-            modelBuilder.Entity("Nestly.Domain.PartnerLoginAttempt", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<string>("Identifier")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
-                        .HasColumnName("identifier");
-
-                    b.Property<DateTime>("OccurredAtUtc")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("occurred_at_utc");
-
-                    b.Property<bool>("Succeeded")
-                        .HasColumnType("boolean")
-                        .HasColumnName("succeeded");
-
-                    b.HasKey("Id")
-                        .HasName("pk_partner_login_attempt");
-
-                    b.HasIndex("Identifier", "OccurredAtUtc")
-                        .HasDatabaseName("ix_partner_login_attempt_identifier_occurred_at_utc");
-
-                    b.ToTable("partner_login_attempt", (string)null);
-                });
-
-            modelBuilder.Entity("Nestly.Domain.PartnerOtp", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<int>("AttemptCount")
-                        .HasColumnType("integer")
-                        .HasColumnName("attempt_count");
-
-                    b.Property<string>("CodeHash")
-                        .IsRequired()
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)")
-                        .HasColumnName("code_hash");
-
-                    b.Property<DateTime?>("ConsumedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("consumed_at");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<DateTime>("ExpiresAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("expires_at");
-
-                    b.Property<Guid?>("PartnerId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("partner_id");
-
-                    b.Property<string>("Purpose")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)")
-                        .HasColumnName("purpose");
-
-                    b.Property<string>("Target")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
-                        .HasColumnName("target");
-
-                    b.HasKey("Id")
-                        .HasName("pk_partner_otp");
-
-                    b.HasIndex("PartnerId")
-                        .HasDatabaseName("ix_partner_otp_partner_id");
-
-                    b.HasIndex("Target")
-                        .HasDatabaseName("ix_partner_otp_target");
-
-                    b.ToTable("partner_otp", (string)null);
-                });
-
-            modelBuilder.Entity("Nestly.Domain.PartnerPayout", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<string>("Notes")
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)")
-                        .HasColumnName("notes");
-
-                    b.Property<Guid>("PartnerId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("partner_id");
-
-                    b.Property<string>("PayoutReference")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("payout_reference");
-
-                    b.Property<DateOnly>("PeriodEnd")
-                        .HasColumnType("date")
-                        .HasColumnName("period_end");
-
-                    b.Property<DateOnly>("PeriodStart")
-                        .HasColumnType("date")
-                        .HasColumnName("period_start");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)")
-                        .HasColumnName("status");
-
-                    b.Property<decimal>("TotalAmount")
-                        .HasPrecision(12, 2)
-                        .HasColumnType("numeric(12,2)")
-                        .HasColumnName("total_amount");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_at");
-
-                    b.HasKey("Id")
-                        .HasName("pk_partner_payout");
-
-                    b.HasIndex("Status")
-                        .HasDatabaseName("ix_partner_payout_status");
-
-                    b.HasIndex("PartnerId", "PeriodStart", "PeriodEnd")
-                        .HasDatabaseName("ix_partner_payout_partner_id_period_start_period_end");
-
-                    b.ToTable("partner_payout", (string)null);
-                });
-
-            modelBuilder.Entity("Nestly.Domain.PartnerServiceArea", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<Guid>("CityId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("city_id");
-
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("boolean")
-                        .HasColumnName("is_active");
-
-                    b.Property<Guid>("PartnerId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("partner_id");
-
-                    b.Property<Guid?>("PincodeId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("pincode_id");
-
-                    b.Property<Guid?>("ZoneId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("zone_id");
-
-                    b.HasKey("Id")
-                        .HasName("pk_partner_service_area");
-
-                    b.HasIndex("CityId")
-                        .HasDatabaseName("ix_partner_service_area_city_id");
-
-                    b.HasIndex("PincodeId")
-                        .HasDatabaseName("ix_partner_service_area_pincode_id");
-
-                    b.HasIndex("ZoneId")
-                        .HasDatabaseName("ix_partner_service_area_zone_id");
-
-                    b.HasIndex("PartnerId", "CityId", "ZoneId", "PincodeId")
-                        .IsUnique()
-                        .HasDatabaseName("ix_partner_service_area_partner_id_city_id_zone_id_pincode_id");
-
-                    b.ToTable("partner_service_area", (string)null);
-                });
-
-            modelBuilder.Entity("Nestly.Domain.PartnerSession", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<string>("DeviceInfo")
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)")
-                        .HasColumnName("device_info");
-
-                    b.Property<DateTime>("ExpiresAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("expires_at");
-
-                    b.Property<string>("IpAddress")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .HasColumnName("ip_address");
-
-                    b.Property<DateTime>("IssuedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("issued_at");
-
-                    b.Property<Guid>("PartnerId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("partner_id");
-
-                    b.Property<string>("RefreshTokenHash")
-                        .IsRequired()
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)")
-                        .HasColumnName("refresh_token_hash");
-
-                    b.Property<DateTime?>("RevokedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("revoked_at");
-
-                    b.HasKey("Id")
-                        .HasName("pk_partner_session");
-
-                    b.HasIndex("PartnerId")
-                        .HasDatabaseName("ix_partner_session_partner_id");
-
-                    b.HasIndex("RefreshTokenHash")
-                        .IsUnique()
-                        .HasDatabaseName("ix_partner_session_refresh_token_hash");
-
-                    b.ToTable("partner_session", (string)null);
-                });
-
-            modelBuilder.Entity("Nestly.Domain.PartnerSkillMapping", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<Guid>("CategoryId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("category_id");
-
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("boolean")
-                        .HasColumnName("is_active");
-
-                    b.Property<Guid>("PartnerId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("partner_id");
-
-                    b.Property<Guid?>("ServiceId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("service_id");
-
-                    b.HasKey("Id")
-                        .HasName("pk_partner_skill_mapping");
-
-                    b.HasIndex("CategoryId")
-                        .HasDatabaseName("ix_partner_skill_mapping_category_id");
-
-                    b.HasIndex("ServiceId")
-                        .HasDatabaseName("ix_partner_skill_mapping_service_id");
-
-                    b.HasIndex("PartnerId", "CategoryId", "ServiceId")
-                        .IsUnique()
-                        .HasDatabaseName("ix_partner_skill_mapping_partner_id_category_id_service_id");
-
-                    b.ToTable("partner_skill_mapping", (string)null);
-                });
-
             modelBuilder.Entity("Nestly.Domain.PaymentAttempt", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3346,6 +2697,655 @@ namespace Nestly.Infrastructure.Migrations
                         .HasDatabaseName("ix_promotional_price_service_id_city_id");
 
                     b.ToTable("promotional_price", (string)null);
+                });
+
+            modelBuilder.Entity("Nestly.Domain.Provider", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("display_name");
+
+                    b.Property<string>("Email")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("email");
+
+                    b.Property<string>("LegalName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("legal_name");
+
+                    b.Property<string>("OnboardingStatus")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("onboarding_status");
+
+                    b.Property<string>("Phone")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("phone");
+
+                    b.Property<string>("ProviderType")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("provider_type");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("status");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_provider");
+
+                    b.HasIndex("Phone")
+                        .IsUnique()
+                        .HasDatabaseName("ix_provider_phone");
+
+                    b.ToTable("provider", (string)null);
+                });
+
+            modelBuilder.Entity("Nestly.Domain.ProviderAuthIdentity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Identifier")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("identifier");
+
+                    b.Property<bool>("IsPrimary")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_primary");
+
+                    b.Property<string>("PasswordHash")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("password_hash");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("provider");
+
+                    b.Property<Guid>("ProviderId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("provider_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_provider_auth_identity");
+
+                    b.HasIndex("ProviderId")
+                        .HasDatabaseName("ix_provider_auth_identity_provider_id");
+
+                    b.HasIndex("Provider", "Identifier")
+                        .IsUnique()
+                        .HasDatabaseName("ix_provider_auth_identity_provider_identifier");
+
+                    b.ToTable("provider_auth_identity", (string)null);
+                });
+
+            modelBuilder.Entity("Nestly.Domain.ProviderAvailabilityWindow", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("DayOfWeek")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)")
+                        .HasColumnName("day_of_week");
+
+                    b.Property<TimeSpan>("EndTime")
+                        .HasColumnType("interval")
+                        .HasColumnName("end_time");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_active");
+
+                    b.Property<Guid>("ProviderId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("provider_id");
+
+                    b.Property<TimeSpan>("StartTime")
+                        .HasColumnType("interval")
+                        .HasColumnName("start_time");
+
+                    b.HasKey("Id")
+                        .HasName("pk_provider_availability_window");
+
+                    b.HasIndex("ProviderId", "DayOfWeek")
+                        .HasDatabaseName("ix_provider_availability_window_provider_id_day_of_week");
+
+                    b.ToTable("provider_availability_window", (string)null);
+                });
+
+            modelBuilder.Entity("Nestly.Domain.ProviderBackgroundCheck", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CheckedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("checked_at");
+
+                    b.Property<Guid>("CheckedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("checked_by");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("notes");
+
+                    b.Property<Guid>("ProviderId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("provider_id");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("status");
+
+                    b.HasKey("Id")
+                        .HasName("pk_provider_background_check");
+
+                    b.HasIndex("ProviderId", "CheckedAt")
+                        .HasDatabaseName("ix_provider_background_check_provider_id_checked_at");
+
+                    b.ToTable("provider_background_check", (string)null);
+                });
+
+            modelBuilder.Entity("Nestly.Domain.ProviderBlackoutDate", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateOnly>("EndDate")
+                        .HasColumnType("date")
+                        .HasColumnName("end_date");
+
+                    b.Property<Guid>("ProviderId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("provider_id");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("reason");
+
+                    b.Property<DateOnly>("StartDate")
+                        .HasColumnType("date")
+                        .HasColumnName("start_date");
+
+                    b.HasKey("Id")
+                        .HasName("pk_provider_blackout_date");
+
+                    b.HasIndex("ProviderId", "StartDate", "EndDate")
+                        .HasDatabaseName("ix_provider_blackout_date_provider_id_start_date_end_date");
+
+                    b.ToTable("provider_blackout_date", (string)null);
+                });
+
+            modelBuilder.Entity("Nestly.Domain.ProviderCapacity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int?>("MaxJobsPerDay")
+                        .HasColumnType("integer")
+                        .HasColumnName("max_jobs_per_day");
+
+                    b.Property<int?>("MaxJobsPerSlot")
+                        .HasColumnType("integer")
+                        .HasColumnName("max_jobs_per_slot");
+
+                    b.Property<Guid>("ProviderId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("provider_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_provider_capacity");
+
+                    b.HasIndex("ProviderId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_provider_capacity_provider_id");
+
+                    b.ToTable("provider_capacity", (string)null);
+                });
+
+            modelBuilder.Entity("Nestly.Domain.ProviderEarningLedgerEntry", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(12, 2)
+                        .HasColumnType("numeric(12,2)")
+                        .HasColumnName("amount");
+
+                    b.Property<decimal>("BalanceAfter")
+                        .HasPrecision(12, 2)
+                        .HasColumnType("numeric(12,2)")
+                        .HasColumnName("balance_after");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("description");
+
+                    b.Property<string>("EntryType")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("entry_type");
+
+                    b.Property<Guid>("ProviderId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("provider_id");
+
+                    b.Property<Guid?>("SourceReferenceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("source_reference_id");
+
+                    b.Property<string>("SourceType")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("source_type");
+
+                    b.HasKey("Id")
+                        .HasName("pk_provider_earning_ledger");
+
+                    b.HasIndex("ProviderId", "CreatedAtUtc")
+                        .HasDatabaseName("ix_provider_earning_ledger_provider_id_created_at_utc");
+
+                    b.ToTable("provider_earning_ledger", (string)null);
+                });
+
+            modelBuilder.Entity("Nestly.Domain.ProviderKycDocument", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("DocNumber")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("doc_number");
+
+                    b.Property<string>("DocType")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("doc_type");
+
+                    b.Property<string>("FileRef")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("file_ref");
+
+                    b.Property<Guid>("ProviderId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("provider_id");
+
+                    b.Property<DateTime>("SubmittedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("submitted_at");
+
+                    b.Property<string>("VerificationStatus")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("verification_status");
+
+                    b.Property<DateTime?>("VerifiedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("verified_at");
+
+                    b.Property<Guid?>("VerifiedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("verified_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_provider_kyc_document");
+
+                    b.HasIndex("ProviderId")
+                        .HasDatabaseName("ix_provider_kyc_document_provider_id");
+
+                    b.ToTable("provider_kyc_document", (string)null);
+                });
+
+            modelBuilder.Entity("Nestly.Domain.ProviderLoginAttempt", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Identifier")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("identifier");
+
+                    b.Property<DateTime>("OccurredAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("occurred_at_utc");
+
+                    b.Property<bool>("Succeeded")
+                        .HasColumnType("boolean")
+                        .HasColumnName("succeeded");
+
+                    b.HasKey("Id")
+                        .HasName("pk_provider_login_attempt");
+
+                    b.HasIndex("Identifier", "OccurredAtUtc")
+                        .HasDatabaseName("ix_provider_login_attempt_identifier_occurred_at_utc");
+
+                    b.ToTable("provider_login_attempt", (string)null);
+                });
+
+            modelBuilder.Entity("Nestly.Domain.ProviderOtp", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("attempt_count");
+
+                    b.Property<string>("CodeHash")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("code_hash");
+
+                    b.Property<DateTime?>("ConsumedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("consumed_at");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<Guid?>("ProviderId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("provider_id");
+
+                    b.Property<string>("Purpose")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("purpose");
+
+                    b.Property<string>("Target")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("target");
+
+                    b.HasKey("Id")
+                        .HasName("pk_provider_otp");
+
+                    b.HasIndex("ProviderId")
+                        .HasDatabaseName("ix_provider_otp_provider_id");
+
+                    b.HasIndex("Target")
+                        .HasDatabaseName("ix_provider_otp_target");
+
+                    b.ToTable("provider_otp", (string)null);
+                });
+
+            modelBuilder.Entity("Nestly.Domain.ProviderPayout", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("notes");
+
+                    b.Property<string>("PayoutReference")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("payout_reference");
+
+                    b.Property<DateOnly>("PeriodEnd")
+                        .HasColumnType("date")
+                        .HasColumnName("period_end");
+
+                    b.Property<DateOnly>("PeriodStart")
+                        .HasColumnType("date")
+                        .HasColumnName("period_start");
+
+                    b.Property<Guid>("ProviderId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("provider_id");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("status");
+
+                    b.Property<decimal>("TotalAmount")
+                        .HasPrecision(12, 2)
+                        .HasColumnType("numeric(12,2)")
+                        .HasColumnName("total_amount");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_provider_payout");
+
+                    b.HasIndex("Status")
+                        .HasDatabaseName("ix_provider_payout_status");
+
+                    b.HasIndex("ProviderId", "PeriodStart", "PeriodEnd")
+                        .HasDatabaseName("ix_provider_payout_provider_id_period_start_period_end");
+
+                    b.ToTable("provider_payout", (string)null);
+                });
+
+            modelBuilder.Entity("Nestly.Domain.ProviderServiceArea", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("CityId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("city_id");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_active");
+
+                    b.Property<Guid?>("PincodeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("pincode_id");
+
+                    b.Property<Guid>("ProviderId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("provider_id");
+
+                    b.Property<Guid?>("ZoneId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("zone_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_provider_service_area");
+
+                    b.HasIndex("CityId")
+                        .HasDatabaseName("ix_provider_service_area_city_id");
+
+                    b.HasIndex("PincodeId")
+                        .HasDatabaseName("ix_provider_service_area_pincode_id");
+
+                    b.HasIndex("ZoneId")
+                        .HasDatabaseName("ix_provider_service_area_zone_id");
+
+                    b.HasIndex("ProviderId", "CityId", "ZoneId", "PincodeId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_provider_service_area_provider_id_city_id_zone_id_pincode_id");
+
+                    b.ToTable("provider_service_area", (string)null);
+                });
+
+            modelBuilder.Entity("Nestly.Domain.ProviderSession", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("DeviceInfo")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("device_info");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<string>("IpAddress")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("ip_address");
+
+                    b.Property<DateTime>("IssuedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("issued_at");
+
+                    b.Property<Guid>("ProviderId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("provider_id");
+
+                    b.Property<string>("RefreshTokenHash")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("refresh_token_hash");
+
+                    b.Property<DateTime?>("RevokedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("revoked_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_provider_session");
+
+                    b.HasIndex("ProviderId")
+                        .HasDatabaseName("ix_provider_session_provider_id");
+
+                    b.HasIndex("RefreshTokenHash")
+                        .IsUnique()
+                        .HasDatabaseName("ix_provider_session_refresh_token_hash");
+
+                    b.ToTable("provider_session", (string)null);
+                });
+
+            modelBuilder.Entity("Nestly.Domain.ProviderSkillMapping", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("CategoryId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("category_id");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_active");
+
+                    b.Property<Guid>("ProviderId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("provider_id");
+
+                    b.Property<Guid?>("ServiceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("service_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_provider_skill_mapping");
+
+                    b.HasIndex("CategoryId")
+                        .HasDatabaseName("ix_provider_skill_mapping_category_id");
+
+                    b.HasIndex("ServiceId")
+                        .HasDatabaseName("ix_provider_skill_mapping_service_id");
+
+                    b.HasIndex("ProviderId", "CategoryId", "ServiceId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_provider_skill_mapping_provider_id_category_id_service_id");
+
+                    b.ToTable("provider_skill_mapping", (string)null);
                 });
 
             modelBuilder.Entity("Nestly.Domain.RecurringBookingOccurrence", b =>
@@ -4945,11 +4945,11 @@ namespace Nestly.Infrastructure.Migrations
 
             modelBuilder.Entity("Nestly.Domain.Booking", b =>
                 {
-                    b.HasOne("Nestly.Domain.Partner", null)
+                    b.HasOne("Nestly.Domain.Provider", null)
                         .WithMany()
-                        .HasForeignKey("AssignedPartnerId")
+                        .HasForeignKey("AssignedProviderId")
                         .OnDelete(DeleteBehavior.SetNull)
-                        .HasConstraintName("fk_booking_partners_assigned_partner_id");
+                        .HasConstraintName("fk_booking_providers_assigned_provider_id");
 
                     b.HasOne("Nestly.Application.Customer", null)
                         .WithMany()
@@ -4999,21 +4999,21 @@ namespace Nestly.Infrastructure.Migrations
                         .HasConstraintName("fk_booking_item_booking_booking_id");
                 });
 
-            modelBuilder.Entity("Nestly.Domain.BookingPartnerAssignment", b =>
+            modelBuilder.Entity("Nestly.Domain.BookingProviderAssignment", b =>
                 {
                     b.HasOne("Nestly.Domain.Booking", null)
                         .WithMany()
                         .HasForeignKey("BookingId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
-                        .HasConstraintName("fk_booking_partner_assignment_booking_booking_id");
+                        .HasConstraintName("fk_booking_provider_assignment_booking_booking_id");
 
-                    b.HasOne("Nestly.Domain.Partner", null)
+                    b.HasOne("Nestly.Domain.Provider", null)
                         .WithMany()
-                        .HasForeignKey("PartnerId")
+                        .HasForeignKey("ProviderId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
-                        .HasConstraintName("fk_booking_partner_assignment_partners_partner_id");
+                        .HasConstraintName("fk_booking_provider_assignment_providers_provider_id");
                 });
 
             modelBuilder.Entity("Nestly.Domain.BookingReschedule", b =>
@@ -5196,128 +5196,6 @@ namespace Nestly.Infrastructure.Migrations
                         .HasConstraintName("fk_notification_event_support_tickets_support_ticket_id");
                 });
 
-            modelBuilder.Entity("Nestly.Domain.PartnerAvailabilityWindow", b =>
-                {
-                    b.HasOne("Nestly.Domain.Partner", null)
-                        .WithMany()
-                        .HasForeignKey("PartnerId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired()
-                        .HasConstraintName("fk_partner_availability_window_partners_partner_id");
-                });
-
-            modelBuilder.Entity("Nestly.Domain.PartnerBackgroundCheck", b =>
-                {
-                    b.HasOne("Nestly.Domain.Partner", null)
-                        .WithMany()
-                        .HasForeignKey("PartnerId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired()
-                        .HasConstraintName("fk_partner_background_check_partners_partner_id");
-                });
-
-            modelBuilder.Entity("Nestly.Domain.PartnerBlackoutDate", b =>
-                {
-                    b.HasOne("Nestly.Domain.Partner", null)
-                        .WithMany()
-                        .HasForeignKey("PartnerId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired()
-                        .HasConstraintName("fk_partner_blackout_date_partners_partner_id");
-                });
-
-            modelBuilder.Entity("Nestly.Domain.PartnerCapacity", b =>
-                {
-                    b.HasOne("Nestly.Domain.Partner", null)
-                        .WithMany()
-                        .HasForeignKey("PartnerId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired()
-                        .HasConstraintName("fk_partner_capacity_partners_partner_id");
-                });
-
-            modelBuilder.Entity("Nestly.Domain.PartnerEarningLedgerEntry", b =>
-                {
-                    b.HasOne("Nestly.Domain.Partner", null)
-                        .WithMany()
-                        .HasForeignKey("PartnerId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired()
-                        .HasConstraintName("fk_partner_earning_ledger_partner_partner_id");
-                });
-
-            modelBuilder.Entity("Nestly.Domain.PartnerKycDocument", b =>
-                {
-                    b.HasOne("Nestly.Domain.Partner", null)
-                        .WithMany()
-                        .HasForeignKey("PartnerId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired()
-                        .HasConstraintName("fk_partner_kyc_document_partner_partner_id");
-                });
-
-            modelBuilder.Entity("Nestly.Domain.PartnerPayout", b =>
-                {
-                    b.HasOne("Nestly.Domain.Partner", null)
-                        .WithMany()
-                        .HasForeignKey("PartnerId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired()
-                        .HasConstraintName("fk_partner_payout_partner_partner_id");
-                });
-
-            modelBuilder.Entity("Nestly.Domain.PartnerServiceArea", b =>
-                {
-                    b.HasOne("Nestly.Domain.City", null)
-                        .WithMany()
-                        .HasForeignKey("CityId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired()
-                        .HasConstraintName("fk_partner_service_area_city_city_id");
-
-                    b.HasOne("Nestly.Domain.Partner", null)
-                        .WithMany()
-                        .HasForeignKey("PartnerId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired()
-                        .HasConstraintName("fk_partner_service_area_partner_partner_id");
-
-                    b.HasOne("Nestly.Domain.Pincode", null)
-                        .WithMany()
-                        .HasForeignKey("PincodeId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .HasConstraintName("fk_partner_service_area_pincodes_pincode_id");
-
-                    b.HasOne("Nestly.Domain.Zone", null)
-                        .WithMany()
-                        .HasForeignKey("ZoneId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .HasConstraintName("fk_partner_service_area_zones_zone_id");
-                });
-
-            modelBuilder.Entity("Nestly.Domain.PartnerSkillMapping", b =>
-                {
-                    b.HasOne("Nestly.Domain.Category", null)
-                        .WithMany()
-                        .HasForeignKey("CategoryId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired()
-                        .HasConstraintName("fk_partner_skill_mapping_category_category_id");
-
-                    b.HasOne("Nestly.Domain.Partner", null)
-                        .WithMany()
-                        .HasForeignKey("PartnerId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired()
-                        .HasConstraintName("fk_partner_skill_mapping_partner_partner_id");
-
-                    b.HasOne("Nestly.Domain.Service", null)
-                        .WithMany()
-                        .HasForeignKey("ServiceId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .HasConstraintName("fk_partner_skill_mapping_service_service_id");
-                });
-
             modelBuilder.Entity("Nestly.Domain.PaymentAttempt", b =>
                 {
                     b.HasOne("Nestly.Domain.PaymentTransaction", null)
@@ -5381,6 +5259,128 @@ namespace Nestly.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_promotional_price_service_service_id");
+                });
+
+            modelBuilder.Entity("Nestly.Domain.ProviderAvailabilityWindow", b =>
+                {
+                    b.HasOne("Nestly.Domain.Provider", null)
+                        .WithMany()
+                        .HasForeignKey("ProviderId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_provider_availability_window_providers_provider_id");
+                });
+
+            modelBuilder.Entity("Nestly.Domain.ProviderBackgroundCheck", b =>
+                {
+                    b.HasOne("Nestly.Domain.Provider", null)
+                        .WithMany()
+                        .HasForeignKey("ProviderId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_provider_background_check_providers_provider_id");
+                });
+
+            modelBuilder.Entity("Nestly.Domain.ProviderBlackoutDate", b =>
+                {
+                    b.HasOne("Nestly.Domain.Provider", null)
+                        .WithMany()
+                        .HasForeignKey("ProviderId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_provider_blackout_date_providers_provider_id");
+                });
+
+            modelBuilder.Entity("Nestly.Domain.ProviderCapacity", b =>
+                {
+                    b.HasOne("Nestly.Domain.Provider", null)
+                        .WithMany()
+                        .HasForeignKey("ProviderId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_provider_capacity_providers_provider_id");
+                });
+
+            modelBuilder.Entity("Nestly.Domain.ProviderEarningLedgerEntry", b =>
+                {
+                    b.HasOne("Nestly.Domain.Provider", null)
+                        .WithMany()
+                        .HasForeignKey("ProviderId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_provider_earning_ledger_provider_provider_id");
+                });
+
+            modelBuilder.Entity("Nestly.Domain.ProviderKycDocument", b =>
+                {
+                    b.HasOne("Nestly.Domain.Provider", null)
+                        .WithMany()
+                        .HasForeignKey("ProviderId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_provider_kyc_document_provider_provider_id");
+                });
+
+            modelBuilder.Entity("Nestly.Domain.ProviderPayout", b =>
+                {
+                    b.HasOne("Nestly.Domain.Provider", null)
+                        .WithMany()
+                        .HasForeignKey("ProviderId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_provider_payout_provider_provider_id");
+                });
+
+            modelBuilder.Entity("Nestly.Domain.ProviderServiceArea", b =>
+                {
+                    b.HasOne("Nestly.Domain.City", null)
+                        .WithMany()
+                        .HasForeignKey("CityId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_provider_service_area_city_city_id");
+
+                    b.HasOne("Nestly.Domain.Pincode", null)
+                        .WithMany()
+                        .HasForeignKey("PincodeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_provider_service_area_pincode_pincode_id");
+
+                    b.HasOne("Nestly.Domain.Provider", null)
+                        .WithMany()
+                        .HasForeignKey("ProviderId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_provider_service_area_provider_provider_id");
+
+                    b.HasOne("Nestly.Domain.Zone", null)
+                        .WithMany()
+                        .HasForeignKey("ZoneId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_provider_service_area_zones_zone_id");
+                });
+
+            modelBuilder.Entity("Nestly.Domain.ProviderSkillMapping", b =>
+                {
+                    b.HasOne("Nestly.Domain.Category", null)
+                        .WithMany()
+                        .HasForeignKey("CategoryId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_provider_skill_mapping_category_category_id");
+
+                    b.HasOne("Nestly.Domain.Provider", null)
+                        .WithMany()
+                        .HasForeignKey("ProviderId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_provider_skill_mapping_provider_provider_id");
+
+                    b.HasOne("Nestly.Domain.Service", null)
+                        .WithMany()
+                        .HasForeignKey("ServiceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_provider_skill_mapping_service_service_id");
                 });
 
             modelBuilder.Entity("Nestly.Domain.RecurringBookingOccurrence", b =>

@@ -10,7 +10,7 @@ namespace Nestly.Infrastructure.Services;
 /// <summary>
 /// Task 201 (docs/NESTLY-COINS.md "HOW IT WORKS"): when a booking reaches
 /// Completed, credits Nestly Coins to the customer and (if one was
-/// assigned) the partner, same timing as a completed job's earning credit.
+/// assigned) the provider, same timing as a completed job's earning credit.
 /// Independent handler on BookingStatusChangedEvent, same shape as
 /// EscrowReleaseOnCompletionHandler/ReferralQualifyingBookingHandler - each
 /// concern reacts to the event on its own rather than any of them knowing
@@ -42,6 +42,6 @@ public sealed class NestlyCoinsQualifyingOrderHandler : INotificationHandler<Dom
         }
 
         await _coinsService.CreditCustomerCoinsAsync(booking);
-        await _coinsService.CreditPartnerCoinsAsync(booking);
+        await _coinsService.CreditProviderCoinsAsync(booking);
     }
 }

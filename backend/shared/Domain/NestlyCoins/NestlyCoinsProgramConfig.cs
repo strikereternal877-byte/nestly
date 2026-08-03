@@ -5,7 +5,7 @@ namespace Nestly.Domain.NestlyCoins;
 /// <summary>
 /// Admin-editable Nestly Coins program settings (docs/NESTLY-COINS.md "DATA
 /// MODEL", task 200), one mutable row per <see cref="NestlyCoinsAudience"/>
-/// (GUIDELINES #5 - customer and partner are independently configured, never
+/// (GUIDELINES #5 - customer and provider are independently configured, never
 /// shared). Same single-mutable-row shape as <see cref="ReferralProgramConfig"/>,
 /// just keyed by audience instead of being a true singleton.
 ///
@@ -13,7 +13,7 @@ namespace Nestly.Domain.NestlyCoins;
 /// despite docs/NESTLY-COINS.md's data model section naming those columns -
 /// same reasoning <see cref="ReferralProgramConfig"/>'s doc comment already
 /// established for this exact situation: the amount actually credited to a
-/// <c>WalletLedgerEntry</c>/<c>PartnerEarningLedgerEntry</c> is computed once
+/// <c>WalletLedgerEntry</c>/<c>ProviderEarningLedgerEntry</c> is computed once
 /// at credit time and stored permanently on that entry, so a later admin
 /// change to this config can never retroactively alter a credit already
 /// issued. A versioned config would achieve the same non-retroactivity with
@@ -32,7 +32,7 @@ public class NestlyCoinsProgramConfig : Entity<Guid>
     /// <summary>True (the shipped default, task 199) = only a 2nd+ completed order qualifies. False = every order qualifies, including the first (GUIDELINES #2).</summary>
     public bool RequireReorder { get; private set; }
 
-    /// <summary>Fraud cap: max coins one customer/partner can earn per calendar month. Null = unlimited (FRAUD/ABUSE PREVENTION).</summary>
+    /// <summary>Fraud cap: max coins one customer/provider can earn per calendar month. Null = unlimited (FRAUD/ABUSE PREVENTION).</summary>
     public decimal? MaxCoinsPerMonth { get; private set; }
 
     /// <summary>Days after crediting before an unspent coin credit expires (GUIDELINES #3 - enforced via the existing wallet FIFO consumption/expiry model, see task 199's resolution).</summary>

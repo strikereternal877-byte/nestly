@@ -110,8 +110,8 @@ jobs:
             dockerfile: backend/consumer-api/ConsumerApi/Dockerfile
           - service: admin-api
             dockerfile: backend/admin-api/AdminApi/Dockerfile
-          - service: partner-api
-            dockerfile: backend/partner-api/PartnerApi/Dockerfile
+          - service: provider-api
+            dockerfile: backend/provider-api/ProviderApi/Dockerfile
     steps:
       - uses: actions/checkout@v4
 
@@ -190,7 +190,7 @@ jobs:
             cd /opt/nestly
             export CONSUMER_API_IMAGE=ghcr.io/${{ github.repository }}/consumer-api:${{ env.IMAGE_TAG }}
             export ADMIN_API_IMAGE=ghcr.io/${{ github.repository }}/admin-api:${{ env.IMAGE_TAG }}
-            export PARTNER_API_IMAGE=ghcr.io/${{ github.repository }}/partner-api:${{ env.IMAGE_TAG }}
+            export PROVIDER_API_IMAGE=ghcr.io/${{ github.repository }}/provider-api:${{ env.IMAGE_TAG }}
             docker compose pull
             docker compose up -d --remove-orphans
             docker image prune -f

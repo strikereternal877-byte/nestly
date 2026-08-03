@@ -2,7 +2,7 @@ using Microsoft.Extensions.Logging;
 using Nestly.Application;
 using Nestly.Application.Bookings;
 using Nestly.Application.NestlyCoins;
-using Nestly.Application.PartnerManagement;
+using Nestly.Application.ProviderManagement;
 using Nestly.Application.Wallet;
 using Nestly.Domain;
 using Nestly.Domain.NestlyCoins;
@@ -16,8 +16,8 @@ public class NestlyCoinsService : INestlyCoinsService
     private readonly IBookingRepository _bookingRepository;
     private readonly IWalletService _walletService;
     private readonly IWalletLedgerRepository _walletLedgerRepository;
-    private readonly IPartnerEarningLedgerService _partnerEarningLedgerService;
-    private readonly IPartnerEarningLedgerRepository _partnerEarningLedgerRepository;
+    private readonly IProviderEarningLedgerService _providerEarningLedgerService;
+    private readonly IProviderEarningLedgerRepository _providerEarningLedgerRepository;
     private readonly ILogger<NestlyCoinsService> _logger;
 
     public NestlyCoinsService(
@@ -25,16 +25,16 @@ public class NestlyCoinsService : INestlyCoinsService
         IBookingRepository bookingRepository,
         IWalletService walletService,
         IWalletLedgerRepository walletLedgerRepository,
-        IPartnerEarningLedgerService partnerEarningLedgerService,
-        IPartnerEarningLedgerRepository partnerEarningLedgerRepository,
+        IProviderEarningLedgerService providerEarningLedgerService,
+        IProviderEarningLedgerRepository providerEarningLedgerRepository,
         ILogger<NestlyCoinsService> logger)
     {
         _configRepository = configRepository;
         _bookingRepository = bookingRepository;
         _walletService = walletService;
         _walletLedgerRepository = walletLedgerRepository;
-        _partnerEarningLedgerService = partnerEarningLedgerService;
-        _partnerEarningLedgerRepository = partnerEarningLedgerRepository;
+        _providerEarningLedgerService = providerEarningLedgerService;
+        _providerEarningLedgerRepository = providerEarningLedgerRepository;
         _logger = logger;
     }
 
@@ -93,22 +93,22 @@ public class NestlyCoinsService : INestlyCoinsService
             expiresAtUtc: DateTime.UtcNow.AddDays(config.ExpiryDays));
     }
 
-    public async Task CreditPartnerCoinsAsync(Booking booking)
+    public async Task CreditProviderCoinsAsync(Booking booking)
     {
-        if (booking.AssignedPartnerId is not Guid partnerId)
+        if (booking.AssignedProviderId is not Guid providerId)
         {
             return;
         }
 
-        var config = await _configRepository.GetByAudienceAsync(NestlyCoinsAudience.Partner);
+        var config = await _configRepository.GetByAudienceAsync(NestlyCoinsAudience.Provider);
         if (config is null)
         {
             return;
         }
 
-        int priorCompleted = await _bookingRepository.CountCompletedByAssignedPartnerAsync(partnerId, booking.Id);
-        decimal creditedThisMonth = await _partnerEarningLedgerRepository.SumCreditsBySourceTypeInRangeAsync(
-            partnerId, PartnerEarningSourceType.NestlyCoinsReward, CurrentMonthStartUtc(), NextMonthStartUtc());
+        int priorCompleted = await _bookingRepository.CountCompletedByAssignedProviderAsync(providerId, booking.Id);
+        decimal creditedThisMonth = await _providerEarningLedgerRepository.SumCreditsBySourceTypeInRangeAsync(
+            providerId, ProviderEarningSourceType.NestlyCoinsReward, CurrentMonthStartUtc(), NextMonthStartUtc());
 
         if (!EvaluateQualifyingOrder(config, booking.TotalPayableSnapshot, priorCompleted, creditedThisMonth))
         {
@@ -117,18 +117,18 @@ public class NestlyCoinsService : INestlyCoinsService
 
         decimal amount = CalculateEarnAmount(config, booking.TotalPayableSnapshot);
 
-        // Unlike WalletLedgerEntry, PartnerEarningLedgerEntry has no
-        // ExpiresAtUtc/RemainingAmount - the partner earning ledger settles
-        // via periodic PartnerPayout batches rather than per-item spend-down,
+        // Unlike WalletLedgerEntry, ProviderEarningLedgerEntry has no
+        // ExpiresAtUtc/RemainingAmount - the provider earning ledger settles
+        // via periodic ProviderPayout batches rather than per-item spend-down,
         // so there is no equivalent per-entry expiry to set here. This is a
         // real architectural asymmetry, not an oversight: GUIDELINES #3's
         // FIFO-expiry prerequisite is specifically about WalletLedgerEntry.
-        var result = await _partnerEarningLedgerService.RecordAdjustmentAsync(
-            partnerId,
-            new RecordPartnerEarningAdjustmentRequest(
-                PartnerEarningEntryType.Credit,
+        var result = await _providerEarningLedgerService.RecordAdjustmentAsync(
+            providerId,
+            new RecordProviderEarningAdjustmentRequest(
+                ProviderEarningEntryType.Credit,
                 amount,
-                PartnerEarningSourceType.NestlyCoinsReward,
+                ProviderEarningSourceType.NestlyCoinsReward,
                 booking.Id,
                 $"Nestly Coins earned - booking {booking.Id}."));
 
@@ -139,15 +139,15 @@ public class NestlyCoinsService : INestlyCoinsService
             // already established for this exact call) - logged for admin
             // reconciliation rather than thrown.
             _logger.LogWarning(
-                "Failed to credit Nestly Coins to partner {PartnerId} for booking {BookingId}: {ErrorCode} {ErrorMessage}",
-                partnerId, booking.Id, result.Error.Code, result.Error.Message);
+                "Failed to credit Nestly Coins to provider {ProviderId} for booking {BookingId}: {ErrorCode} {ErrorMessage}",
+                providerId, booking.Id, result.Error.Code, result.Error.Message);
         }
     }
 
     public async Task ClawbackOnCancellationAsync(Guid bookingId)
     {
         await ClawbackCustomerCreditAsync(bookingId);
-        await ClawbackPartnerCreditAsync(bookingId);
+        await ClawbackProviderCreditAsync(bookingId);
     }
 
     private async Task ClawbackCustomerCreditAsync(Guid bookingId)
@@ -186,38 +186,38 @@ public class NestlyCoinsService : INestlyCoinsService
         }
     }
 
-    private async Task ClawbackPartnerCreditAsync(Guid bookingId)
+    private async Task ClawbackProviderCreditAsync(Guid bookingId)
     {
-        var credit = await _partnerEarningLedgerRepository.FindBySourceAsync(PartnerEarningSourceType.NestlyCoinsReward, bookingId);
+        var credit = await _providerEarningLedgerRepository.FindBySourceAsync(ProviderEarningSourceType.NestlyCoinsReward, bookingId);
         if (credit is null)
         {
             return;
         }
 
-        var config = await _configRepository.GetByAudienceAsync(NestlyCoinsAudience.Partner);
+        var config = await _configRepository.GetByAudienceAsync(NestlyCoinsAudience.Provider);
         if (config is null || DateTime.UtcNow > credit.CreatedAtUtc.AddDays(config.ClawbackWindowDays))
         {
             return;
         }
 
-        // No RemainingAmount concept on PartnerEarningLedgerEntry (see
-        // CreditPartnerCoinsAsync's comment) - the full originally credited
+        // No RemainingAmount concept on ProviderEarningLedgerEntry (see
+        // CreditProviderCoinsAsync's comment) - the full originally credited
         // amount is reversed, since there is no per-entry consumption
         // tracking to draw a partial figure from.
-        var debitResult = await _partnerEarningLedgerService.RecordAdjustmentAsync(
-            credit.PartnerId,
-            new RecordPartnerEarningAdjustmentRequest(
-                PartnerEarningEntryType.Debit,
+        var debitResult = await _providerEarningLedgerService.RecordAdjustmentAsync(
+            credit.ProviderId,
+            new RecordProviderEarningAdjustmentRequest(
+                ProviderEarningEntryType.Debit,
                 credit.Amount,
-                PartnerEarningSourceType.NestlyCoinsClawback,
+                ProviderEarningSourceType.NestlyCoinsClawback,
                 bookingId,
                 $"Nestly Coins clawed back - booking {bookingId} cancelled within the clawback window."));
 
         if (debitResult.IsFailure)
         {
             _logger.LogWarning(
-                "Failed to claw back Nestly Coins from partner {PartnerId} for cancelled booking {BookingId}: {ErrorCode} {ErrorMessage}",
-                credit.PartnerId, bookingId, debitResult.Error.Code, debitResult.Error.Message);
+                "Failed to claw back Nestly Coins from provider {ProviderId} for cancelled booking {BookingId}: {ErrorCode} {ErrorMessage}",
+                credit.ProviderId, bookingId, debitResult.Error.Code, debitResult.Error.Message);
         }
     }
 

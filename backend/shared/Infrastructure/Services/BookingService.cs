@@ -24,7 +24,7 @@ public class BookingService : IBookingService
     private readonly ICouponService _couponService;
     private readonly ISlotAvailabilityService _slotAvailabilityService;
     private readonly IMetricsService _metricsService;
-    private readonly IBookingPartnerAssignmentRepository _assignmentRepository;
+    private readonly IBookingProviderAssignmentRepository _assignmentRepository;
     private readonly ICustomerSubscriptionRepository _customerSubscriptionRepository;
 
     public BookingService(
@@ -34,7 +34,7 @@ public class BookingService : IBookingService
         ICouponService couponService,
         ISlotAvailabilityService slotAvailabilityService,
         IMetricsService metricsService,
-        IBookingPartnerAssignmentRepository assignmentRepository,
+        IBookingProviderAssignmentRepository assignmentRepository,
         ICustomerSubscriptionRepository customerSubscriptionRepository)
     {
         _summaryService = summaryService;
@@ -169,7 +169,7 @@ public class BookingService : IBookingService
         }
 
         _metricsService.RecordBookingCreated(succeeded: true);
-        return Result.Success(ToDetailResponse(booking, partnerAssignmentStatus: null));
+        return Result.Success(ToDetailResponse(booking, providerAssignmentStatus: null));
     }
 
     public async Task<Result<IReadOnlyList<BookingListItemResponse>>> ListAsync(Guid customerId, BookingStatusBucket? bucket)
@@ -205,7 +205,7 @@ public class BookingService : IBookingService
         BookingStatusMapper.LabelFor(booking.Status),
         booking.CreatedAtUtc);
 
-    private static BookingDetailResponse ToDetailResponse(Booking booking, BookingPartnerAssignmentStatus? partnerAssignmentStatus)
+    private static BookingDetailResponse ToDetailResponse(Booking booking, BookingProviderAssignmentStatus? providerAssignmentStatus)
     {
         var item = booking.Items.Count > 0 ? booking.Items[0] : null;
 
@@ -239,6 +239,6 @@ public class BookingService : IBookingService
             booking.CouponCodeSnapshot,
             booking.CouponDiscountAmountSnapshot,
             booking.TotalPayableSnapshot,
-            partnerAssignmentStatus);
+            providerAssignmentStatus);
     }
 }
