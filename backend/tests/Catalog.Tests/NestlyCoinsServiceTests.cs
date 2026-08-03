@@ -23,8 +23,8 @@ public sealed class NestlyCoinsServiceTests : IClassFixture<TestDatabase>
             new BookingRepository(context),
             new WalletService(new WalletLedgerRepository(context)),
             new WalletLedgerRepository(context),
-            new PartnerEarningLedgerService(new PartnerRepository(context), new PartnerEarningLedgerRepository(context)),
-            new PartnerEarningLedgerRepository(context),
+            new ProviderEarningLedgerService(new ProviderRepository(context), new ProviderEarningLedgerRepository(context)),
+            new ProviderEarningLedgerRepository(context),
             NullLogger<NestlyCoinsService>.Instance);
 
     private static NestlyCoinsQualifyingOrderHandler BuildQualifyingHandler(Nestly.Infrastructure.Persistence.NestlyDbContext context) =>
@@ -42,12 +42,12 @@ public sealed class NestlyCoinsServiceTests : IClassFixture<TestDatabase>
         return customer;
     }
 
-    private static Partner SeedPartner(Nestly.Infrastructure.Persistence.NestlyDbContext context)
+    private static Provider SeedProvider(Nestly.Infrastructure.Persistence.NestlyDbContext context)
     {
-        var partner = new Partner(Guid.NewGuid(), "Coins Partner Pvt Ltd", "Coins Partner", PartnerType.Individual, "9" + Guid.NewGuid().ToString("N")[..9]);
-        context.Add(partner);
+        var provider = new Provider(Guid.NewGuid(), "Coins Provider Pvt Ltd", "Coins Provider", ProviderType.Individual, "9" + Guid.NewGuid().ToString("N")[..9]);
+        context.Add(provider);
         context.SaveChanges();
-        return partner;
+        return provider;
     }
 
     private static NestlyCoinsProgramConfig SeedConfig(
@@ -77,7 +77,7 @@ public sealed class NestlyCoinsServiceTests : IClassFixture<TestDatabase>
     }
 
     /// <summary>Builds a Completed booking directly via the domain constructor + TransitionTo chain, same as ReferralQualificationAndRewardTests - the full BookingService orchestration is out of scope for what this test needs.</summary>
-    private static Booking SeedCompletedBooking(Nestly.Infrastructure.Persistence.NestlyDbContext context, Guid customerId, decimal totalPayable, Guid? assignedPartnerId = null)
+    private static Booking SeedCompletedBooking(Nestly.Infrastructure.Persistence.NestlyDbContext context, Guid customerId, decimal totalPayable, Guid? assignedProviderId = null)
     {
         var booking = new Booking(
             Guid.NewGuid(), customerId,
@@ -87,9 +87,9 @@ public sealed class NestlyCoinsServiceTests : IClassFixture<TestDatabase>
             new SlotSnapshot(Guid.NewGuid(), DateOnly.FromDateTime(DateTime.UtcNow), "Morning", TimeSpan.FromHours(9), TimeSpan.FromHours(13)),
             new PriceSnapshot(totalPayable, 1, totalPayable, 0, 0, totalPayable, 0, 0, 0, totalPayable));
 
-        if (assignedPartnerId is Guid partnerId)
+        if (assignedProviderId is Guid providerId)
         {
-            booking.AssignPartner(partnerId);
+            booking.AssignProvider(providerId);
         }
 
         booking.TransitionTo(BookingStatus.PaymentPending);
@@ -198,35 +198,35 @@ public sealed class NestlyCoinsServiceTests : IClassFixture<TestDatabase>
     }
 
     [Fact]
-    public async Task CreditPartnerCoinsAsync_credits_the_earning_ledger_for_the_assigned_partner()
+    public async Task CreditProviderCoinsAsync_credits_the_earning_ledger_for_the_assigned_provider()
     {
         using var context = _db.CreateContext();
-        SeedConfig(context, NestlyCoinsAudience.Partner, earnRatePer100: 5m, minimumOrderAmount: 200m, requireReorder: true);
+        SeedConfig(context, NestlyCoinsAudience.Provider, earnRatePer100: 5m, minimumOrderAmount: 200m, requireReorder: true);
         var customer = SeedCustomer(context);
-        var partner = SeedPartner(context);
+        var provider = SeedProvider(context);
 
-        SeedCompletedBooking(context, customer.Id, totalPayable: 500m, assignedPartnerId: partner.Id);
-        var secondBooking = SeedCompletedBooking(context, customer.Id, totalPayable: 1000m, assignedPartnerId: partner.Id);
+        SeedCompletedBooking(context, customer.Id, totalPayable: 500m, assignedProviderId: provider.Id);
+        var secondBooking = SeedCompletedBooking(context, customer.Id, totalPayable: 1000m, assignedProviderId: provider.Id);
 
         await BuildQualifyingHandler(context).Handle(Notification(secondBooking.Id, BookingStatus.InProgress, BookingStatus.Completed), CancellationToken.None);
 
-        var entry = context.Set<PartnerEarningLedgerEntry>().Single(e => e.SourceType == PartnerEarningSourceType.NestlyCoinsReward && e.SourceReferenceId == secondBooking.Id);
+        var entry = context.Set<ProviderEarningLedgerEntry>().Single(e => e.SourceType == ProviderEarningSourceType.NestlyCoinsReward && e.SourceReferenceId == secondBooking.Id);
         entry.Amount.Should().Be(50m); // 1000 * 5/100
-        entry.PartnerId.Should().Be(partner.Id);
+        entry.ProviderId.Should().Be(provider.Id);
     }
 
     [Fact]
-    public async Task CreditPartnerCoinsAsync_is_a_no_op_when_no_partner_is_assigned()
+    public async Task CreditProviderCoinsAsync_is_a_no_op_when_no_provider_is_assigned()
     {
         using var context = _db.CreateContext();
-        SeedConfig(context, NestlyCoinsAudience.Partner, requireReorder: false);
+        SeedConfig(context, NestlyCoinsAudience.Provider, requireReorder: false);
         var customer = SeedCustomer(context);
-        var booking = SeedCompletedBooking(context, customer.Id, totalPayable: 500m, assignedPartnerId: null);
+        var booking = SeedCompletedBooking(context, customer.Id, totalPayable: 500m, assignedProviderId: null);
 
         var act = async () => await BuildQualifyingHandler(context).Handle(Notification(booking.Id, BookingStatus.InProgress, BookingStatus.Completed), CancellationToken.None);
 
         await act.Should().NotThrowAsync();
-        context.Set<PartnerEarningLedgerEntry>().Any(e => e.SourceReferenceId == booking.Id && e.SourceType == PartnerEarningSourceType.NestlyCoinsReward).Should().BeFalse();
+        context.Set<ProviderEarningLedgerEntry>().Any(e => e.SourceReferenceId == booking.Id && e.SourceType == ProviderEarningSourceType.NestlyCoinsReward).Should().BeFalse();
     }
 
     [Fact]

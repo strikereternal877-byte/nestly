@@ -21,7 +21,7 @@ public static class CacheKeys
         public const string Catalog = "catalog";
         public const string Session = "session";
 
-        /// <summary>Chat presence (task 190) - shared across consumer-api/admin-api/partner-api, each its own process.</summary>
+        /// <summary>Chat presence (task 190) - shared across consumer-api/admin-api/provider-api, each its own process.</summary>
         public const string ChatPresence = "chat-presence";
     }
 

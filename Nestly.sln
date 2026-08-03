@@ -23,9 +23,9 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "consumer-api", "consumer-ap
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ConsumerApi", "backend\consumer-api\ConsumerApi\ConsumerApi.csproj", "{969A2E58-E5D8-4806-92A7-2F51C575A854}"
 EndProject
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "partner-api", "partner-api", "{A50A3BEC-F238-4100-8F8B-735D416E034C}"
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "provider-api", "provider-api", "{A50A3BEC-F238-4100-8F8B-735D416E034C}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PartnerApi", "backend\partner-api\PartnerApi\PartnerApi.csproj", "{754FA0B7-9253-48CD-86B3-86113363A891}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ProviderApi", "backend\provider-api\ProviderApi\ProviderApi.csproj", "{754FA0B7-9253-48CD-86B3-86113363A891}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{0D8EBA75-0215-408B-89CE-5B0D54369201}"
 EndProject

@@ -12,12 +12,12 @@ import { isoDateOffsetFromToday, todayIsoDate } from "@/lib/date";
 
 enum NestlyCoinsAudience {
   Customer = 0,
-  Partner = 1,
+  Provider = 1,
 }
 
 const AUDIENCE_OPTIONS = [
   { value: String(NestlyCoinsAudience.Customer), label: "Customer" },
-  { value: String(NestlyCoinsAudience.Partner), label: "Partner" },
+  { value: String(NestlyCoinsAudience.Provider), label: "Provider" },
 ] as const;
 
 interface NestlyCoinsProgramConfigResponse {

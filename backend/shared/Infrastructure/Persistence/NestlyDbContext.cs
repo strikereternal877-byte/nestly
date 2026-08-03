@@ -48,21 +48,21 @@ public sealed class NestlyDbContext : DbContext
     public DbSet<CmsMedia> CmsMediaAssets { get; set; }
     public DbSet<NotificationTemplate> NotificationTemplates { get; set; }
     public DbSet<ExportJob> ExportJobs { get; set; }
-    public DbSet<Partner> Partners { get; set; }
-    public DbSet<PartnerAuthIdentity> PartnerAuthIdentities { get; set; }
-    public DbSet<PartnerOtp> PartnerOtps { get; set; }
-    public DbSet<PartnerSession> PartnerSessions { get; set; }
-    public DbSet<PartnerLoginAttempt> PartnerLoginAttempts { get; set; }
-    public DbSet<PartnerKycDocument> PartnerKycDocuments { get; set; }
-    public DbSet<PartnerSkillMapping> PartnerSkillMappings { get; set; }
-    public DbSet<PartnerServiceArea> PartnerServiceAreas { get; set; }
-    public DbSet<PartnerAvailabilityWindow> PartnerAvailabilityWindows { get; set; }
-    public DbSet<PartnerBlackoutDate> PartnerBlackoutDates { get; set; }
-    public DbSet<PartnerCapacity> PartnerCapacities { get; set; }
-    public DbSet<BookingPartnerAssignment> BookingPartnerAssignments { get; set; }
-    public DbSet<PartnerEarningLedgerEntry> PartnerEarningLedgerEntries { get; set; }
-    public DbSet<PartnerPayout> PartnerPayouts { get; set; }
-    public DbSet<PartnerBackgroundCheck> PartnerBackgroundChecks { get; set; }
+    public DbSet<Provider> Providers { get; set; }
+    public DbSet<ProviderAuthIdentity> ProviderAuthIdentities { get; set; }
+    public DbSet<ProviderOtp> ProviderOtps { get; set; }
+    public DbSet<ProviderSession> ProviderSessions { get; set; }
+    public DbSet<ProviderLoginAttempt> ProviderLoginAttempts { get; set; }
+    public DbSet<ProviderKycDocument> ProviderKycDocuments { get; set; }
+    public DbSet<ProviderSkillMapping> ProviderSkillMappings { get; set; }
+    public DbSet<ProviderServiceArea> ProviderServiceAreas { get; set; }
+    public DbSet<ProviderAvailabilityWindow> ProviderAvailabilityWindows { get; set; }
+    public DbSet<ProviderBlackoutDate> ProviderBlackoutDates { get; set; }
+    public DbSet<ProviderCapacity> ProviderCapacities { get; set; }
+    public DbSet<BookingProviderAssignment> BookingProviderAssignments { get; set; }
+    public DbSet<ProviderEarningLedgerEntry> ProviderEarningLedgerEntries { get; set; }
+    public DbSet<ProviderPayout> ProviderPayouts { get; set; }
+    public DbSet<ProviderBackgroundCheck> ProviderBackgroundChecks { get; set; }
     public DbSet<Referral> Referrals { get; set; }
     public DbSet<ReferralProgramConfig> ReferralProgramConfigs { get; set; }
     public DbSet<RecurringBookingPlan> RecurringBookingPlans { get; set; }

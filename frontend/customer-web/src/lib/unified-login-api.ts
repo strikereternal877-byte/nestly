@@ -1,6 +1,6 @@
 /**
  * Cross-origin calls the unified login entry point (task 206) makes directly
- * against admin-api/partner-api - the two backends this app's own `apiFetch`
+ * against admin-api/provider-api - the two backends this app's own `apiFetch`
  * (lib/api.ts) can't reach, since it's hardcoded to consumer-api's base URL.
  *
  * This exists only because there is no shared parent domain across the
@@ -13,13 +13,13 @@
 import { ApiError, type ProblemDetails } from "./api";
 
 const ADMIN_API_BASE_URL = process.env.NEXT_PUBLIC_ADMIN_API_URL ?? "http://localhost:5177";
-const PARTNER_API_BASE_URL = process.env.NEXT_PUBLIC_PARTNER_API_URL ?? "http://localhost:5337";
+const PROVIDER_API_BASE_URL = process.env.NEXT_PUBLIC_PROVIDER_API_URL ?? "http://localhost:5337";
 
-/** The admin-web/partner-web origins this page hands the browser off to after a successful sign-in. */
+/** The admin-web/provider-web origins this page hands the browser off to after a successful sign-in. */
 export const ADMIN_WEB_URL = process.env.NEXT_PUBLIC_ADMIN_WEB_URL ?? "http://localhost:3001";
-export const PARTNER_WEB_URL = process.env.NEXT_PUBLIC_PARTNER_WEB_URL ?? "http://localhost:3002";
+export const PROVIDER_WEB_URL = process.env.NEXT_PUBLIC_PROVIDER_WEB_URL ?? "http://localhost:3002";
 
-/** Same shape every backend's login endpoint returns (AdminLoginResponse/PartnerLoginResponse/LoginResponse are structurally identical). */
+/** Same shape every backend's login endpoint returns (AdminLoginResponse/ProviderLoginResponse/LoginResponse are structurally identical). */
 export interface CrossOriginSession {
   accessToken: string;
   accessTokenExpiresAtUtc: string;
@@ -53,11 +53,11 @@ async function crossOriginFetch<T>(baseUrl: string, path: string, body: unknown)
 export const loginAdmin = (email: string, password: string) =>
   crossOriginFetch<CrossOriginSession>(ADMIN_API_BASE_URL, "/api/v1/admin/auth/login", { email, password });
 
-export const requestPartnerLoginOtp = (mobile: string) =>
-  crossOriginFetch<void>(PARTNER_API_BASE_URL, "/api/v1/auth/login/otp", { mobile });
+export const requestProviderLoginOtp = (mobile: string) =>
+  crossOriginFetch<void>(PROVIDER_API_BASE_URL, "/api/v1/auth/login/otp", { mobile });
 
-export const verifyPartnerLoginOtp = (mobile: string, otpCode: string) =>
-  crossOriginFetch<CrossOriginSession>(PARTNER_API_BASE_URL, "/api/v1/auth/login/otp/verify", { mobile, otpCode });
+export const verifyProviderLoginOtp = (mobile: string, otpCode: string) =>
+  crossOriginFetch<CrossOriginSession>(PROVIDER_API_BASE_URL, "/api/v1/auth/login/otp/verify", { mobile, otpCode });
 
 /**
  * Hands the browser off to the target app's own origin with the session in

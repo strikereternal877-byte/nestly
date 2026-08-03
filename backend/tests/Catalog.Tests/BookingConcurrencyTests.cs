@@ -76,7 +76,7 @@ public sealed class BookingConcurrencyTests : IClassFixture<TestDatabase>
                 new SlotCapacityRepository(context),
                 TimeProvider.System),
             new NoOpMetricsService(),
-            new BookingPartnerAssignmentRepository(context),
+            new BookingProviderAssignmentRepository(context),
             new CustomerSubscriptionRepository(context));
     }
 
@@ -136,7 +136,7 @@ public sealed class BookingConcurrencyTests : IClassFixture<TestDatabase>
     /// (see SlotCapacityRepository) - but only when a window actually has a
     /// capacity configured. This fixture's window never calls SetCapacity, so
     /// MaxBookingsPerSlot stays null ("unlimited", the same convention
-    /// PartnerCapacity uses), and reservation is a no-op. This test pins down
+    /// ProviderCapacity uses), and reservation is a no-op. This test pins down
     /// that an unlimited window still lets two different customers book the
     /// exact same slot - see Performance.Tests/ConcurrentSlotBookingPerformanceTests.cs
     /// for the capacity-configured, actually-contended case, which is where

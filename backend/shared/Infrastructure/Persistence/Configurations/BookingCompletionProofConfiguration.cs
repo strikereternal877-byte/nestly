@@ -22,7 +22,7 @@ public class BookingCompletionProofConfiguration : IEntityTypeConfiguration<Book
         // adding another - see BookingCompletionProof.Update).
         builder.HasIndex(x => x.BookingId).IsUnique();
 
-        builder.Property(x => x.SubmittedByPartnerId).IsRequired();
+        builder.Property(x => x.SubmittedByProviderId).IsRequired();
         builder.Property(x => x.SubmittedAtUtc).IsRequired();
 
         builder.Property(x => x.PhotoRefsJson).HasColumnType("jsonb").IsRequired();

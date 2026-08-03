@@ -10,7 +10,7 @@ duplicate them, only the operational steps that sit on top.
 ## 142a — Deploy
 
 Three services deploy independently: `consumer-api`, `admin-api`,
-`partner-api` (images built from `backend/*/Dockerfile`, pushed to GHCR per
+`provider-api` (images built from `backend/*/Dockerfile`, pushed to GHCR per
 `docs/DEVOPS.md` OPEN DECISIONS resolution in task 138a).
 
 **Normal path — fully automatic, no manual steps:**
@@ -96,9 +96,9 @@ good tag from the GHCR package list), optional `target_migration`.
    urgency; a single-channel `Notification.FailureRateAlert` (e.g. SMS
    provider down) is lower urgency since booking/payment still succeed.
 2. **Confirm scope.** Check whether the failure is isolated to one API
-   (consumer/admin/partner) or systemic (e.g. shared Postgres/Redis down) —
+   (consumer/admin/provider) or systemic (e.g. shared Postgres/Redis down) —
    the three APIs deploy and scale independently, so a bad `consumer-api`
-   deploy does not imply `admin-api`/`partner-api` are affected.
+   deploy does not imply `admin-api`/`provider-api` are affected.
 3. **Mitigate.** If the alert correlates with a recent deploy, roll back
    (142b) first — restoring service takes priority over root-causing during
    an active incident. If it does not correlate with a deploy (e.g.

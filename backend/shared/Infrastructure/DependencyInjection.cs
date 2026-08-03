@@ -28,12 +28,12 @@ using Nestly.Application.Geography;
 using Nestly.Application.Payments;
 using Nestly.Application.Pricing;
 using Nestly.Application.Notifications;
-using Nestly.Application.PartnerAvailability;
-using Nestly.Application.PartnerEarnings;
-using Nestly.Application.PartnerIdentity;
-using Nestly.Application.PartnerJobs;
-using Nestly.Application.PartnerManagement;
-using Nestly.Application.PartnerProfile;
+using Nestly.Application.ProviderAvailability;
+using Nestly.Application.ProviderEarnings;
+using Nestly.Application.ProviderIdentity;
+using Nestly.Application.ProviderJobs;
+using Nestly.Application.ProviderManagement;
+using Nestly.Application.ProviderProfile;
 using Nestly.Application.NestlyCoins;
 using Nestly.Application.Referral;
 using Nestly.Application.RecurringBookings;
@@ -89,10 +89,10 @@ public static class DependencyInjection
         // No ValidateOnStart here (task 152 fix): AddInfrastructure is shared
         // by all three APIs, but only consumer-api's Program.cs calls
         // AddJwtAuthentication (which already throws eagerly on a missing
-        // signing key) - admin-api and partner-api never resolve JwtOptions
+        // signing key) - admin-api and provider-api never resolve JwtOptions
         // at all, so validating it unconditionally at startup forced both to
         // carry a dummy customer-JWT secret they never use. Same reasoning
-        // as AdminJwtOptions/PartnerJwtOptions below.
+        // as AdminJwtOptions/ProviderJwtOptions below.
         services
             .AddOptions<JwtOptions>()
             .Bind(configuration.GetSection(JwtOptions.SectionName))
@@ -114,22 +114,22 @@ public static class DependencyInjection
             .Bind(configuration.GetSection(AdminAccountOptions.SectionName));
 
         // No ValidateOnStart here either, for the same reason as
-        // AdminJwtOptions: only the future partner-api (task 149) configures
-        // a "PartnerJwt" section - see PartnerJwtOptions' doc comment.
+        // AdminJwtOptions: only the future provider-api (task 149) configures
+        // a "ProviderJwt" section - see ProviderJwtOptions' doc comment.
         services
-            .AddOptions<PartnerJwtOptions>()
-            .Bind(configuration.GetSection(PartnerJwtOptions.SectionName))
+            .AddOptions<ProviderJwtOptions>()
+            .Bind(configuration.GetSection(ProviderJwtOptions.SectionName))
             .ValidateDataAnnotations();
 
         services
-            .AddOptions<PartnerAccountOptions>()
-            .Bind(configuration.GetSection(PartnerAccountOptions.SectionName));
+            .AddOptions<ProviderAccountOptions>()
+            .Bind(configuration.GetSection(ProviderAccountOptions.SectionName));
 
         // No ValidateOnStart here either (task 152 fix): SandboxPaymentGateway
         // is a singleton constructed lazily by the DI container, so its
         // IOptions<SandboxGatewayOptions> is only ever resolved by an API
         // that actually injects IPaymentGateway/ISandboxPaymentSimulator
-        // (consumer-api, admin-api) - partner-api never does, and shouldn't
+        // (consumer-api, admin-api) - provider-api never does, and shouldn't
         // need a placeholder webhook secret just to satisfy an eager check
         // for a gateway it never calls.
         services
@@ -320,65 +320,65 @@ public static class DependencyInjection
         services.AddScoped<ICustomerCommunicationPreferenceRepository, CustomerCommunicationPreferenceRepository>();
         services.AddScoped<ICustomerProfileService, CustomerProfileService>();
 
-        // Tasks 145a-146c: Partner module foundation (PARTNER.md). Own
+        // Tasks 145a-146c: Provider module foundation (PROVIDER.md). Own
         // repositories/OTP/session/lockout tables throughout, kept
         // independent of the customer identity registrations above per
-        // PARTNER.md's SCOPE BOUNDARY - see PartnerOtp/PartnerLoginAttempt's
+        // PROVIDER.md's SCOPE BOUNDARY - see ProviderOtp/ProviderLoginAttempt's
         // doc comments for why they are not shared with Customer's.
-        services.AddScoped<IPartnerRepository, PartnerRepository>();
-        services.AddScoped<IPartnerAuthIdentityRepository, PartnerAuthIdentityRepository>();
-        services.AddScoped<IPartnerSessionRepository, PartnerSessionRepository>();
-        services.AddScoped<IPartnerLoginAttemptRepository, PartnerLoginAttemptRepository>();
-        services.AddScoped<IPartnerKycDocumentRepository, PartnerKycDocumentRepository>();
-        services.AddScoped<IPartnerOtpService, PartnerOtpService>();
-        services.AddScoped<IPartnerTokenService, PartnerTokenService>();
-        services.AddScoped<IPartnerRegistrationService, PartnerRegistrationService>();
-        services.AddScoped<IPartnerLoginService, PartnerLoginService>();
-        services.AddScoped<IPartnerKycService, PartnerKycService>();
+        services.AddScoped<IProviderRepository, ProviderRepository>();
+        services.AddScoped<IProviderAuthIdentityRepository, ProviderAuthIdentityRepository>();
+        services.AddScoped<IProviderSessionRepository, ProviderSessionRepository>();
+        services.AddScoped<IProviderLoginAttemptRepository, ProviderLoginAttemptRepository>();
+        services.AddScoped<IProviderKycDocumentRepository, ProviderKycDocumentRepository>();
+        services.AddScoped<IProviderOtpService, ProviderOtpService>();
+        services.AddScoped<IProviderTokenService, ProviderTokenService>();
+        services.AddScoped<IProviderRegistrationService, ProviderRegistrationService>();
+        services.AddScoped<IProviderLoginService, ProviderLoginService>();
+        services.AddScoped<IProviderKycService, ProviderKycService>();
 
         // Task 149a: profile/service-area/skill management, reading and
-        // writing the entities above through the partner-api's own
+        // writing the entities above through the provider-api's own
         // controllers. Task 149b: availability windows and blackout dates -
         // own repositories since neither is shared with any other module's
         // service.
-        services.AddScoped<IPartnerServiceAreaRepository, PartnerServiceAreaRepository>();
-        services.AddScoped<IPartnerSkillMappingRepository, PartnerSkillMappingRepository>();
-        services.AddScoped<IPartnerProfileService, PartnerProfileService>();
-        services.AddScoped<IPartnerAvailabilityWindowRepository, PartnerAvailabilityWindowRepository>();
-        services.AddScoped<IPartnerBlackoutDateRepository, PartnerBlackoutDateRepository>();
-        services.AddScoped<IPartnerAvailabilityService, PartnerAvailabilityService>();
+        services.AddScoped<IProviderServiceAreaRepository, ProviderServiceAreaRepository>();
+        services.AddScoped<IProviderSkillMappingRepository, ProviderSkillMappingRepository>();
+        services.AddScoped<IProviderProfileService, ProviderProfileService>();
+        services.AddScoped<IProviderAvailabilityWindowRepository, ProviderAvailabilityWindowRepository>();
+        services.AddScoped<IProviderBlackoutDateRepository, ProviderBlackoutDateRepository>();
+        services.AddScoped<IProviderAvailabilityService, ProviderAvailabilityService>();
 
-        // Tasks 147, 148, 150a-c, 159, 160: admin-facing Partner management
-        // (PARTNER.md "Admin-Facing Additions") - assignment bridge, earning
+        // Tasks 147, 148, 150a-c, 159, 160: admin-facing Provider management
+        // (PROVIDER.md "Admin-Facing Additions") - assignment bridge, earning
         // ledger/payouts, CRUD, KYC approval and the background-check
         // activation gate, and the performance view. Kept apart from the
-        // partner-identity registrations above, which are the partner's own
+        // provider-identity registrations above, which are the provider's own
         // self-service auth/onboarding (tasks 145a-146c).
-        services.AddScoped<IBookingPartnerAssignmentRepository, BookingPartnerAssignmentRepository>();
-        services.AddScoped<IBookingPartnerAssignmentService, BookingPartnerAssignmentService>();
+        services.AddScoped<IBookingProviderAssignmentRepository, BookingProviderAssignmentRepository>();
+        services.AddScoped<IBookingProviderAssignmentService, BookingProviderAssignmentService>();
         // Task 195: completion verification (photo + checklist proof gating
         // the InProgress -> Completed transition, task 196) - registered
         // here rather than beside IBookingRepository above since every
-        // caller today is partner/admin booking-management code, matching
-        // where IBookingPartnerAssignmentRepository lives.
+        // caller today is provider/admin booking-management code, matching
+        // where IBookingProviderAssignmentRepository lives.
         services.AddScoped<IBookingCompletionProofRepository, BookingCompletionProofRepository>();
-        services.AddScoped<IPartnerEarningLedgerRepository, PartnerEarningLedgerRepository>();
-        services.AddScoped<IPartnerEarningLedgerService, PartnerEarningLedgerService>();
-        services.AddScoped<IPartnerPayoutRepository, PartnerPayoutRepository>();
-        services.AddScoped<IPartnerPayoutService, PartnerPayoutService>();
-        services.AddScoped<IPartnerBackgroundCheckRepository, PartnerBackgroundCheckRepository>();
-        services.AddScoped<IPartnerManagementService, PartnerManagementService>();
-        services.AddScoped<IPartnerKycApprovalService, PartnerKycApprovalService>();
+        services.AddScoped<IProviderEarningLedgerRepository, ProviderEarningLedgerRepository>();
+        services.AddScoped<IProviderEarningLedgerService, ProviderEarningLedgerService>();
+        services.AddScoped<IProviderPayoutRepository, ProviderPayoutRepository>();
+        services.AddScoped<IProviderPayoutService, ProviderPayoutService>();
+        services.AddScoped<IProviderBackgroundCheckRepository, ProviderBackgroundCheckRepository>();
+        services.AddScoped<IProviderManagementService, ProviderManagementService>();
+        services.AddScoped<IProviderKycApprovalService, ProviderKycApprovalService>();
 
-        // Tasks 149a/149c: partner-api's own self-service views over the
+        // Tasks 149a/149c: provider-api's own self-service views over the
         // same Assignment Bridge/Financial Domain entities as the admin
-        // registrations directly above - IPartnerJobService additionally
+        // registrations directly above - IProviderJobService additionally
         // owns the accept/reject IDOR checks and the start/complete booking
-        // transitions; IPartnerEarningsService is a read-only, ownership-
-        // scoped facade over IPartnerEarningLedgerService/IPartnerPayoutService,
+        // transitions; IProviderEarningsService is a read-only, ownership-
+        // scoped facade over IProviderEarningLedgerService/IProviderPayoutService,
         // not a second copy of the ledger/payout logic.
-        services.AddScoped<IPartnerJobService, PartnerJobService>();
-        services.AddScoped<IPartnerEarningsService, PartnerEarningsService>();
+        services.AddScoped<IProviderJobService, ProviderJobService>();
+        services.AddScoped<IProviderEarningsService, ProviderEarningsService>();
 
         // Tasks 95a-95g: admin panel authentication. Separate registrations
         // from the customer identity services above - see AdminLoginService's
@@ -692,28 +692,28 @@ public static class DependencyInjection
     }
 
     /// <summary>
-    /// JWT bearer authentication for partners (task 146b, PARTNER.md API
+    /// JWT bearer authentication for providers (task 146b, PROVIDER.md API
     /// surface). A distinct scheme name from the customer/admin ones, same
     /// reasoning as <see cref="AdminJwtBearerScheme"/>. Not called by either
-    /// existing API's Program.cs - the future partner-api (task 149) will
+    /// existing API's Program.cs - the future provider-api (task 149) will
     /// call this the same way admin-api calls <see cref="AddAdminJwtAuthentication"/>.
     /// </summary>
-    public const string PartnerJwtBearerScheme = "PartnerBearer";
+    public const string ProviderJwtBearerScheme = "ProviderBearer";
 
-    public static IServiceCollection AddPartnerJwtAuthentication(this IServiceCollection services, IConfiguration configuration)
+    public static IServiceCollection AddProviderJwtAuthentication(this IServiceCollection services, IConfiguration configuration)
     {
-        var jwtSection = configuration.GetSection(PartnerJwtOptions.SectionName);
-        var signingKey = jwtSection[nameof(PartnerJwtOptions.SigningKey)] ??
-            throw new InvalidOperationException($"Configuration section '{PartnerJwtOptions.SectionName}:{nameof(PartnerJwtOptions.SigningKey)}' is not configured.");
-        var issuer = jwtSection[nameof(PartnerJwtOptions.Issuer)] ?? "Nestly";
-        var audience = jwtSection[nameof(PartnerJwtOptions.Audience)] ?? "Nestly.Partners";
+        var jwtSection = configuration.GetSection(ProviderJwtOptions.SectionName);
+        var signingKey = jwtSection[nameof(ProviderJwtOptions.SigningKey)] ??
+            throw new InvalidOperationException($"Configuration section '{ProviderJwtOptions.SectionName}:{nameof(ProviderJwtOptions.SigningKey)}' is not configured.");
+        var issuer = jwtSection[nameof(ProviderJwtOptions.Issuer)] ?? "Nestly";
+        var audience = jwtSection[nameof(ProviderJwtOptions.Audience)] ?? "Nestly.Providers";
 
         services
-            .AddAuthentication(PartnerJwtBearerScheme)
-            .AddJwtBearer(PartnerJwtBearerScheme, options =>
+            .AddAuthentication(ProviderJwtBearerScheme)
+            .AddJwtBearer(ProviderJwtBearerScheme, options =>
             {
                 // Same reasoning as AddJwtAuthentication/AddAdminJwtAuthentication:
-                // keep claim types exactly as PartnerTokenService issued them.
+                // keep claim types exactly as ProviderTokenService issued them.
                 options.MapInboundClaims = false;
                 options.TokenValidationParameters = new TokenValidationParameters
                 {
@@ -743,7 +743,7 @@ public static class DependencyInjection
     /// failed the preflight check before ever reaching a controller).
     /// Credentials are not enabled: every API authenticates via a Bearer
     /// token in the Authorization header (see AddJwtAuthentication /
-    /// AddAdminJwtAuthentication / AddPartnerJwtAuthentication), never a
+    /// AddAdminJwtAuthentication / AddProviderJwtAuthentication), never a
     /// cookie, so there is nothing that needs
     /// Access-Control-Allow-Credentials - keeping it off is the safer
     /// default per docs/CLAUDE.md SECURITY ("least privilege").

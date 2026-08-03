@@ -66,7 +66,7 @@ public sealed class BookingMetricsTests : IClassFixture<TestDatabase>
                 new SlotCapacityRepository(context),
                 TimeProvider.System),
             metricsService,
-            new BookingPartnerAssignmentRepository(context),
+            new BookingProviderAssignmentRepository(context),
             new CustomerSubscriptionRepository(context));
     }
 

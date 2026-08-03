@@ -8,11 +8,11 @@ namespace Nestly.Application.Bookings;
 /// <see cref="BookingCompletionProof"/> needs (tasks 196, 198):
 /// <list type="bullet">
 /// <item>the task 196 guard - both writers of <see cref="BookingStatus.Completed"/>
-/// (<c>PartnerJobService.CompleteAsync</c> and
+/// (<c>ProviderJobService.CompleteAsync</c> and
 /// <c>BookingManagementService.UpdateStatusAsync</c>) call
 /// <see cref="EnsureCompletionProofExistsAsync"/> so "no proof, no
 /// Completed" is enforced once rather than re-implemented per caller;</item>
-/// <item>the read-side mapping every one of the three surfaces (partner,
+/// <item>the read-side mapping every one of the three surfaces (provider,
 /// customer, admin - task 198) needs to show the same proof.</item>
 /// </list>
 /// </summary>
@@ -37,7 +37,7 @@ public static class BookingCompletionProofSupport
                 proof.BookingId,
                 proof.PhotoRefs,
                 proof.ChecklistAnswers.Select(a => new CompletionChecklistAnswerResponse(a.Item, a.Completed, a.Notes)).ToList(),
-                proof.SubmittedByPartnerId,
+                proof.SubmittedByProviderId,
                 proof.SubmittedAtUtc);
 
     /// <summary>Customer-facing read (task 198): 404s if the booking doesn't exist or isn't the caller's own (SRS 28.3 IDOR), null value if the booking simply has no proof yet (not every booking reaches Completed).</summary>

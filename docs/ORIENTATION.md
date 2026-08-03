@@ -10,8 +10,8 @@ is the only one that describes **the current state of the repository** — so
 treat the others as the specification and this one as the map.
 
 Last verified: 2026-08-01. Phase numbering changed since the previous
-verification: Partner moved from Phase 8 (deferred, after everything) to
-Phase 7 (before Hardening & Launch, now Phase 8) — see PARTNER.md's STATUS
+verification: Provider moved from Phase 8 (deferred, after everything) to
+Phase 7 (before Hardening & Launch, now Phase 8) — see PROVIDER.md's STATUS
 section. Two new phases were added: 9 (Referral & Growth) and 10 (Product
 Enhancements — subscriptions, recurring bookings, in-app chat, service
 completion verification). See TASKS-SUMMARY.md for authoritative current
@@ -278,7 +278,7 @@ exists.
 | 4 | Payments & Financial | 40/46 |
 | 5 | Post-Booking — reviews, support, notifications | 40/47 |
 | 6 | Admin Panel | 104/119 |
-| 7 | Partner — service-provider identity, onboarding, assignment, earnings (PARTNER.md) | 21/25 |
+| 7 | Provider — service-provider identity, onboarding, assignment, earnings (PROVIDER.md) | 21/25 |
 | 8 | Hardening & Launch | 22/38 |
 | 9 | Referral & Growth — refer-and-earn, milestones, expiring wallet credit (REFERRAL.md) | 0/16 |
 | 10 | Product Enhancements — subscriptions, recurring bookings, in-app chat, completion verification (PRODUCT-ENHANCEMENTS.md) | 0/22 |
@@ -286,11 +286,11 @@ exists.
 Per-phase task counts grew as several tasks were decomposed into subtasks by
 an automated worker (e.g. `#35` → `#35a`..`#35d` → `#35ba`..`#35bx4`); the
 done/total ratio for a phase is only meaningful relative to its *current*
-total, not the number originally planned. **Partner was moved from Phase 8
+total, not the number originally planned. **Provider was moved from Phase 8
 to Phase 7 on 2026-07-31** — it now runs before Hardening & Launch, not after
-everything else — see PARTNER.md's STATUS section for why.
+everything else — see PROVIDER.md's STATUS section for why.
 
-**Phase 8 (Hardening & Launch) and Phase 7 (Partner) are both active**, with
+**Phase 8 (Hardening & Launch) and Phase 7 (Provider) are both active**, with
 Phases 0–6 fully or substantially complete. There is an authenticated
 principal throughout the system, RBAC is in place for the admin panel
 (Phase 6), and the payment/wallet/coupon infrastructure Phases 9 and 10

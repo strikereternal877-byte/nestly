@@ -15,10 +15,10 @@ public static class BookingLifecycle
         [BookingStatus.PaymentFailed] = [BookingStatus.PaymentPending, BookingStatus.CancelledByCustomer, BookingStatus.CancelledByAdmin],
         [BookingStatus.Confirmed] = [BookingStatus.AwaitingFulfilment, BookingStatus.Rescheduled, BookingStatus.CancelledByCustomer, BookingStatus.CancelledByAdmin],
         [BookingStatus.AwaitingFulfilment] = [BookingStatus.Assigned, BookingStatus.Rescheduled, BookingStatus.CancelledByCustomer, BookingStatus.CancelledByAdmin],
-        // AwaitingFulfilment added (task 159): when the assigned partner
-        // rejects the job, IBookingPartnerAssignmentService.RejectAsync moves
+        // AwaitingFulfilment added (task 159): when the assigned provider
+        // rejects the job, IBookingProviderAssignmentService.RejectAsync moves
         // the booking back to AwaitingFulfilment so it re-enters the
-        // assignable pool for manual admin reassignment (PARTNER.md OPEN
+        // assignable pool for manual admin reassignment (PROVIDER.md OPEN
         // DECISIONS #1 - no auto-match).
         [BookingStatus.Assigned] = [BookingStatus.InProgress, BookingStatus.AwaitingFulfilment, BookingStatus.Rescheduled, BookingStatus.CancelledByCustomer, BookingStatus.CancelledByAdmin],
         [BookingStatus.InProgress] = [BookingStatus.Completed, BookingStatus.CancelledByAdmin],

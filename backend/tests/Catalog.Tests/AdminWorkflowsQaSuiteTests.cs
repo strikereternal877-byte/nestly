@@ -215,7 +215,7 @@ public sealed class AdminWorkflowsQaSuiteTests : IClassFixture<TestDatabase>
                 new SlotCapacityRepository(context),
                 TimeProvider.System),
             new NoOpMetricsService(),
-            new BookingPartnerAssignmentRepository(context),
+            new BookingProviderAssignmentRepository(context),
             new CustomerSubscriptionRepository(context));
     }
 
@@ -231,7 +231,7 @@ public sealed class AdminWorkflowsQaSuiteTests : IClassFixture<TestDatabase>
                 new BookingRepository(context), new PaymentTransactionRepository(context), new RefundTransactionRepository(context),
                 new WalletService(new WalletLedgerRepository(context)), new EscrowService(new PlatformEscrowLedgerRepository(context)),
                 BuildGateway(), context),
-            new BookingCancellationRepository(context), new BookingPartnerAssignmentRepository(context), TimeProvider.System, Options.Create(new CancellationPolicyOptions())),
+            new BookingCancellationRepository(context), new BookingProviderAssignmentRepository(context), TimeProvider.System, Options.Create(new CancellationPolicyOptions())),
         new RescheduleService(
             new BookingRepository(context), new PaymentTransactionRepository(context), new RefundTransactionRepository(context),
             new SlotAvailabilityService(

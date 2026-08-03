@@ -6,7 +6,7 @@ In-App Chat, Service Completion Verification.
 ## STATUS
 
 Not implemented. Scoped as **Phase 10**, after Referral & Growth (Phase 9) —
-these build on Booking, Payments, Wallet, Notifications, and Partner
+these build on Booking, Payments, Wallet, Notifications, and Provider
 (Phase 7), all of which exist or are substantially done. Backlog: `tasks.csv`
 `#177`–`#198`.
 
@@ -122,7 +122,7 @@ messaging dependency for something the framework already provides.
 ### API surface
 
 Get-or-create thread for a booking/ticket; send message; mark read;
-paginated history (`consumer-api`). Admin support console and the partner
+paginated history (`consumer-api`). Admin support console and the provider
 app/portal (`#149`) get their own reply view.
 
 ### Offline delivery
@@ -138,14 +138,14 @@ delivery channel, only its own trigger into the one that exists.
 **Tasks:** `#195`–`#198`
 
 Photo proof and a checklist, required before a booking can be marked
-complete — not an optional attachment a partner may or may not bother with.
+complete — not an optional attachment a provider may or may not bother with.
 
 ### Design principle: this is a status-transition guard, not a form
 
 The existing booking status transition matrix (`BookingStatus`, SRS 13.1/31)
 allows `InProgress → Completed`. Task `#196` makes that transition
 **conditional on a submitted `booking_completion_proof` row existing** —
-enforced at the transition, not merely offered as a UI step a partner can
+enforced at the transition, not merely offered as a UI step a provider can
 skip. This is the single highest-leverage change in Phase 10 for reducing
 "did they even show up" disputes (`#155`), because it makes the evidence a
 precondition of the status the dispute would otherwise contest.
@@ -154,7 +154,7 @@ precondition of the status the dispute would otherwise contest.
 
 | Table | Purpose |
 |---|---|
-| `booking_completion_proof` | booking_id, photo_refs, checklist_answers, submitted_by (partner), submitted_at |
+| `booking_completion_proof` | booking_id, photo_refs, checklist_answers, submitted_by (provider), submitted_at |
 | `completion_checklist_template` (optional) | per-category/service checklist definition |
 
 ### Visibility
@@ -186,9 +186,9 @@ serves both, not two separate records of "what happened."
    retention policy tied to the booking/ticket's own lifecycle? (Not yet
    decided — has a direct SECURITY.md/data-retention angle.)
 4. Completion Verification: can an admin override the guard for an edge case
-   (partner's phone died mid-job, proof genuinely can't be captured), or is
+   (provider's phone died mid-job, proof genuinely can't be captured), or is
    there truly no path to `Completed` without proof? (This doc assumes an
-   admin override exists, logged and distinct from the normal partner-side
+   admin override exists, logged and distinct from the normal provider-side
    submission — a hard block with zero override risks a real booking being
    unable to close for a reason that has nothing to do with the dispute the
    guard exists to prevent.)
@@ -197,7 +197,7 @@ serves both, not two separate records of "what happened."
 
 1. Resolve the open decisions above, per feature.
 2. Add the new tables to DATABASE.md as each feature moves from documented
-   to implemented (not before — matches how PARTNER.md and REFERRAL.md
+   to implemented (not before — matches how PROVIDER.md and REFERRAL.md
    handle this).
 3. Add endpoint contracts to API.md.
 4. Extend the RBAC permission matrix for Subscription and Chat.

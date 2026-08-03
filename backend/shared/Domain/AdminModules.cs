@@ -26,12 +26,12 @@ public static class AdminModules
     public const string Settings = "settings";
 
     /// <summary>
-    /// Partner directory management: CRUD, KYC/background-check approval,
-    /// suspend, performance view (PARTNER.md RBAC ADDITIONS, task 150c).
+    /// Provider directory management: CRUD, KYC/background-check approval,
+    /// suspend, performance view (PROVIDER.md RBAC ADDITIONS, task 150c).
     /// </summary>
-    public const string Partner = "partner";
+    public const string Provider = "provider";
 
-    /// <summary>Partner payout batches: view, process (mark processing/paid/failed), approve (PARTNER.md RBAC ADDITIONS, task 150c).</summary>
+    /// <summary>Provider payout batches: view, process (mark processing/paid/failed), approve (PROVIDER.md RBAC ADDITIONS, task 150c).</summary>
     public const string Payout = "payout";
 
     /// <summary>
@@ -87,11 +87,11 @@ public static class AdminModules
     /// <summary>Subscription plan config CRUD (PRODUCT-ENHANCEMENTS.md #1 RBAC ADDITIONS "View / Configure", task 180). Read = View plan list/detail, Write = create/update/activate/deactivate a plan - the catalog's standard two-tier split matches this module's "View / Configure" spec exactly, no collapsing needed.</summary>
     public const string Subscription = "subscription";
 
-    /// <summary>Every module, in the order they appear in SRS section 12, followed by the Phase 7 Partner, Phase 9 Referral, Phase 10 Chat/Subscription, and Phase 11 Nestly Coins module additions (tasks 150c, 173, 194, 180, 202).</summary>
+    /// <summary>Every module, in the order they appear in SRS section 12, followed by the Phase 7 Provider, Phase 9 Referral, Phase 10 Chat/Subscription, and Phase 11 Nestly Coins module additions (tasks 150c, 173, 194, 180, 202).</summary>
     public static readonly IReadOnlyList<string> All =
     [
         Dashboard, Customers, Catalog, Pricing, Serviceability, Slots, Bookings,
         Coupons, Support, Reviews, Cms, Notifications, Reports, Audit, Settings,
-        Partner, Payout, Referral, Chat, NestlyCoins, Subscription
+        Provider, Payout, Referral, Chat, NestlyCoins, Subscription
     ];
 }

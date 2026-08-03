@@ -12,7 +12,7 @@ import { forceBookingCompleted } from "./setup/force-booking-completed";
  * through cancellation, then verified as visible on the booking detail
  * page, rather than through a dedicated refund submission form that
  * doesn't exist. Review requires a Completed booking, which normally only
- * happens via partner job completion (out of scope here - see
+ * happens via provider job completion (out of scope here - see
  * force-booking-completed.ts's doc comment).
  */
 test.describe("Refund and review submission", () => {

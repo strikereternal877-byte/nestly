@@ -4,7 +4,7 @@ Master project overview for AI agents and contributors.
 
 ## PROJECT
 
-Enterprise-grade, production-ready Urban Services Platform built using a modular monolith architecture. The platform provides customers with a seamless service booking experience while enabling administrators and service partners to manage operations efficiently.
+Enterprise-grade, production-ready Urban Services Platform built using a modular monolith architecture. The platform provides customers with a seamless service booking experience while enabling administrators and service providers to manage operations efficiently.
 
 The project prioritizes scalability, maintainability, security, performance, and long-term evolution.
 
@@ -40,7 +40,7 @@ Administrators manage the complete business lifecycle through a dedicated admin 
 
 - Customers
 - Administrators
-- Service Partners
+- Service Providers
 - Operations Team
 - Customer Support
 - Finance Team
@@ -50,7 +50,7 @@ Administrators manage the complete business lifecycle through a dedicated admin 
 
 - Identity
 - Customer
-- Partner
+- Provider
 - Catalog
 - Categories
 - Services

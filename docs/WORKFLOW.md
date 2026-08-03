@@ -9,8 +9,8 @@ this."
 
 This document is **not authoritative**. It is a diagram companion to the
 documents that already own these topics — [SRS.md](SRS.md) for functional
-requirements and the booking lifecycle, [PARTNER.md](PARTNER.md) for the
-provider/partner module, [tasks.csv](tasks.csv) for what's built vs.
+requirements and the booking lifecycle, [PROVIDER.md](PROVIDER.md) for the
+service-provider module, [tasks.csv](tasks.csv) for what's built vs.
 outstanding. Where a diagram here and the SRS disagree, the SRS is correct
 and this file is stale.
 
@@ -21,25 +21,22 @@ implied but the backlog didn't yet have tasks for were added to
 commission setup, escrow, provider reassignment, background verification) —
 they appear below as real flows, not aspirational ones.
 
-**One naming note up front:** the sketch and everyday conversation call the
-person doing the job a "Provider" or "Service Provider." Nestly's own backlog
-and domain model call the same role "Partner" (see PARTNER.md) — a deliberate
-rename made when the module was scoped, currently deferred to Phase 8. This
-document uses **Partner**, and calls out the sketch's term in parentheses the
-first time each diagram needs it.
+**One naming note up front:** the person doing the job is the **Service
+Provider** — called **Provider** throughout the code, database, and docs
+(see PROVIDER.md).
 
 ---
 
 ## 1. Entry Point
 
-Every visitor lands here before splitting into a Customer or a Partner.
+Every visitor lands here before splitting into a Customer or a Provider.
 
 ```mermaid
 flowchart TD
     A[Guest visits website] --> B[Browse services / categories]
     B --> C{Register as...}
     C -->|Customer| D[Customer workflow]
-    C -->|Partner, aka Provider| E[Partner workflow]
+    C -->|Provider| E[Provider workflow]
 ```
 
 ---
@@ -49,7 +46,7 @@ flowchart TD
 The core booking journey, from registration through to a closed booking.
 Provider acceptance is where SRS 13 branches: rejection returns the booking
 to the assignment pool for reassignment rather than jumping straight to
-refund (task #159) — refund is the fallback only if no partner picks it up in
+refund (task #159) — refund is the fallback only if no provider picks it up in
 time.
 
 ```mermaid
@@ -57,7 +54,7 @@ flowchart TD
     A[Register / Login] --> B[Create profile]
     B --> C[Select category]
     C --> D[Search services in serviceable area]
-    D --> E[View partner / service profile]
+    D --> E[View provider / service profile]
     E --> F[Check pricing & slot availability]
     F --> G[Choose date & time]
     G --> H[Create booking]
@@ -66,14 +63,14 @@ flowchart TD
     I -->|No, pay on completion| K[Booking created, payment deferred]
     J --> L[Booking confirmed]
     K --> L
-    L --> M[Partner notified]
-    M --> N{Partner accepts?}
+    L --> M[Provider notified]
+    M --> N{Provider accepts?}
     N -->|Yes| O[Service scheduled]
     N -->|No| P[Return to assignment pool #159]
     P --> Q{Reassigned in time?}
     Q -->|Yes| M
     Q -->|No| R[Refund initiated]
-    O --> S[Partner visits / service in progress]
+    O --> S[Provider visits / service in progress]
     S --> T[Service completed]
     T --> U[Customer confirms completion]
     U --> V[Review & rating]
@@ -83,22 +80,22 @@ flowchart TD
 
 ---
 
-## 3. Partner Workflow (Provider / Service Provider)
+## 3. Provider Workflow (Service Provider)
 
-Partner onboarding, going live, and earning. KYC document upload and
+Provider onboarding, going live, and earning. KYC document upload and
 background verification (#160) are two distinct steps in the real backlog,
 not one — a submitted Aadhaar/PAN scan being well-formed is not the same
 check as the person behind it having a clean background.
 
 ```mermaid
 flowchart TD
-    A[Partner registration] --> B[Mobile OTP verification]
+    A[Provider registration] --> B[Mobile OTP verification]
     B --> C[KYC document upload: Aadhaar / PAN / License]
     C --> D[Bank details for payout]
     D --> E[Background verification #160]
     E --> F[Admin review]
     F --> G{Approved?}
-    G -->|Yes| H[Create partner profile]
+    G -->|Yes| H[Create provider profile]
     G -->|No| I[Resubmit documents] --> F
     H --> J[Select service categories]
     J --> K[Set service area / serviceability]
@@ -153,7 +150,7 @@ stateDiagram-v2
 
 ## 5. Payment Workflow
 
-Money's path from customer to partner, including the platform's cut. The
+Money's path from customer to provider, including the platform's cut. The
 holding step and the commission step are each their own backlog item (#158,
 #157) — before those, the payments schema went straight from transaction to
 refund/wallet with no explicit holding period or platform-commission
@@ -165,8 +162,8 @@ flowchart TD
     B --> C[Escrow / platform holding account #158]
     C --> D[Service completed]
     D --> E[Commission calculated & deducted #157]
-    E --> F[Net amount credited to partner wallet]
-    F --> G[Partner withdraws to bank]
+    E --> F[Net amount credited to provider wallet]
+    F --> G[Provider withdraws to bank]
 
     C --> H{Booking cancelled instead?}
     H -->|Yes| I[Refund from escrow to customer]
@@ -200,7 +197,7 @@ flowchart TD
 flowchart TD
     A[Service completed] --> B[Customer submits rating]
     B --> C[Review submitted]
-    C --> D[Partner's aggregate rating updated]
+    C --> D[Provider's aggregate rating updated]
     D --> E[Admin moderation: hide / unhide / flag]
     E --> F[Published]
 ```
@@ -219,7 +216,7 @@ flowchart TD
     A --> B2[SMS]
     A --> B3[Push notification #156]
     C[Booking accepted] --> D1[Customer alert]
-    C --> D2[Partner alert]
+    C --> D2[Provider alert]
     E[Payment success] --> F1[Invoice]
     E --> F2[Confirmation]
     G[Service completed] --> H[Review request]
@@ -237,7 +234,7 @@ two sections tied to the previously-missing flows above.
 flowchart TD
     A[Admin login] --> B[Dashboard]
     B --> C[User management]
-    B --> D[Partner management incl. KYC/background approval]
+    B --> D[Provider management incl. KYC/background approval]
     B --> E[Category & service management]
     B --> F[Booking management]
     B --> G[Commission setup #157]
@@ -255,7 +252,7 @@ flowchart TD
 | Flow | Primary phase(s) | Key task IDs |
 |---|---|---|
 | Customer booking journey | Phase 3 — Booking Core | #50–#65 |
-| Partner onboarding & earnings | Phase 7 — Partner | #144–#149, #159, #160 |
+| Provider onboarding & earnings | Phase 7 — Provider | #144–#149, #159, #160 |
 | Payments, escrow, commission | Phase 4 — Payments & Financial | #67, #74, #157, #158 |
 | Dispute resolution | Phase 5 — Post-Booking | #84, #86, #155 |
 | Reviews & moderation | Phase 5 — Post-Booking | #85, #122, #123 |
@@ -265,14 +262,14 @@ flowchart TD
 | Subscription, recurring bookings, chat, completion verification (PRODUCT-ENHANCEMENTS.md) | Phase 10 — Product Enhancements | #177–#198 |
 | Nestly Coins reorder loyalty (NESTLY-COINS.md) | Phase 11 — Nestly Coins & Loyalty | #156–#160 |
 
-**Note on Partner's phase number**: moved from Phase 8 to Phase 7 on
+**Note on Provider's phase number**: moved from Phase 8 to Phase 7 on
 2026-07-31 — it now runs *before* Hardening & Launch (Phase 8), not after
-everything else. See PARTNER.md's STATUS section.
+everything else. See PROVIDER.md's STATUS section.
 
 **Known task-ID drift (flagged, not yet reconciled)**: this table's
 Referral/Product-Enhancements ID ranges (#155–#198) describe tasks that were
 never actually added as rows to [tasks.csv](tasks.csv) — that file's real
-IDs stop at T151 (Partner) before jumping to T152+ (hardening/bug-fix tasks
+IDs stop at T151 (Provider) before jumping to T152+ (hardening/bug-fix tasks
 added 2026-08-01/02, including T155–T165, which are unrelated to what this
 table's "#155" etc. describe). Reconciling the two is its own cleanup task —
 until then, treat this table's IDs as REFERRAL.md/PRODUCT-ENHANCEMENTS.md's

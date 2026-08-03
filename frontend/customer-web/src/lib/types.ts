@@ -878,7 +878,7 @@ export interface BookingCompletionProofResponse {
   bookingId: string;
   photoRefs: string[];
   checklistAnswers: CompletionChecklistAnswerResponse[];
-  submittedByPartnerId: string;
+  submittedByProviderId: string;
   submittedAtUtc: string;
 }
 
@@ -898,7 +898,7 @@ export enum ChatContextType {
 export enum ChatSenderType {
   Customer = 0,
   Admin = 1,
-  Partner = 2,
+  Provider = 2,
 }
 
 export interface GetOrCreateChatThreadRequestBody {

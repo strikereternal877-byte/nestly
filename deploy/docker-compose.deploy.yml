@@ -11,7 +11,7 @@
 # Deploy mechanics (see the `deploy` job in either CD workflow):
 #   1. CI copies this file to <host>:/opt/nestly/docker-compose.yml over SSH.
 #   2. CI SSHes in and runs, with CONSUMER_API_IMAGE / ADMIN_API_IMAGE /
-#      PARTNER_API_IMAGE exported for the tag just built:
+#      PROVIDER_API_IMAGE exported for the tag just built:
 #        docker compose pull && docker compose up -d --remove-orphans
 #
 # Everything below is a template, not live infrastructure - there is no real
@@ -34,7 +34,7 @@
 #     keys (see backend/*/appsettings.*.json for the section shapes - none
 #     of those files contain secret values, only structure/defaults).
 #
-# CONSUMER_API_IMAGE / ADMIN_API_IMAGE / PARTNER_API_IMAGE are exported by
+# CONSUMER_API_IMAGE / ADMIN_API_IMAGE / PROVIDER_API_IMAGE are exported by
 # the CD workflow's SSH deploy step for the specific tag being deployed (or
 # rolled back to); they are required here rather than defaulted so a missing
 # export fails loudly instead of silently reusing whatever was running.
@@ -66,8 +66,8 @@ services:
       - "5177:8080"
     restart: unless-stopped
 
-  partner-api:
-    image: ${PARTNER_API_IMAGE:?PARTNER_API_IMAGE is required, e.g. ghcr.io/OWNER/REPO/partner-api:staging-abc1234}
+  provider-api:
+    image: ${PROVIDER_API_IMAGE:?PROVIDER_API_IMAGE is required, e.g. ghcr.io/OWNER/REPO/provider-api:staging-abc1234}
     env_file:
       - .env
     environment:

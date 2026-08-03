@@ -100,7 +100,7 @@ public class AdminChatService : IAdminChatService
         // user id - MarkThreadReadAsync excludes messages sent by the
         // passed-in id, so Guid.Empty (never a real sender id, since every
         // ChatMessage requires a non-empty SenderId) reads every
-        // customer/partner-authored message as read without needing to
+        // customer/provider-authored message as read without needing to
         // track which specific admin viewed the thread.
         await _messageRepository.MarkThreadReadAsync(threadId, Guid.Empty, DateTime.UtcNow);
         return Result.Success();

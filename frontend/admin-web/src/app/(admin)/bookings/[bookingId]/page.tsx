@@ -21,8 +21,8 @@ import {
   RefundStatus,
   RescheduleActor,
 } from "@/lib/bookings-types";
-import { assignPartnerToBooking, getBookingAssignmentHistory, rejectBookingAssignment } from "@/lib/partners-api";
-import { BookingPartnerAssignmentStatus } from "@/lib/partners-types";
+import { assignProviderToBooking, getBookingAssignmentHistory, rejectBookingAssignment } from "@/lib/providers-api";
+import { BookingProviderAssignmentStatus } from "@/lib/providers-types";
 import type { AdminSessionClaims } from "@/lib/types";
 import { BookingStatus } from "@/lib/types";
 
@@ -86,12 +86,12 @@ const REFUND_STATUS_LABELS: Record<RefundStatus, string> = {
   [RefundStatus.Failed]: "Failed",
 };
 
-const ASSIGNMENT_STATUS_LABELS: Record<BookingPartnerAssignmentStatus, string> = {
-  [BookingPartnerAssignmentStatus.Assigned]: "Awaiting response",
-  [BookingPartnerAssignmentStatus.Accepted]: "Accepted",
-  [BookingPartnerAssignmentStatus.Rejected]: "Rejected",
-  [BookingPartnerAssignmentStatus.Reassigned]: "Superseded (reassigned)",
-  [BookingPartnerAssignmentStatus.Withdrawn]: "Withdrawn (booking cancelled)",
+const ASSIGNMENT_STATUS_LABELS: Record<BookingProviderAssignmentStatus, string> = {
+  [BookingProviderAssignmentStatus.Assigned]: "Awaiting response",
+  [BookingProviderAssignmentStatus.Accepted]: "Accepted",
+  [BookingProviderAssignmentStatus.Rejected]: "Rejected",
+  [BookingProviderAssignmentStatus.Reassigned]: "Superseded (reassigned)",
+  [BookingProviderAssignmentStatus.Withdrawn]: "Withdrawn (booking cancelled)",
 };
 
 /**
@@ -138,7 +138,7 @@ export default function BookingDetailPage() {
   const [refundReason, setRefundReason] = useState("");
   const [refundMethod, setRefundMethod] = useState(String(RefundMethod.Gateway));
 
-  const [assignPartnerId, setAssignPartnerId] = useState("");
+  const [assignProviderId, setAssignProviderId] = useState("");
   const [rejectReason, setRejectReason] = useState("");
 
   const invalidateDetail = () => {
@@ -207,12 +207,12 @@ export default function BookingDetailPage() {
     onError: (err) => setActionError(describeError(err)),
   });
 
-  const assignPartnerMutation = useMutation({
-    mutationFn: () => assignPartnerToBooking(bookingId, { partnerId: assignPartnerId }),
+  const assignProviderMutation = useMutation({
+    mutationFn: () => assignProviderToBooking(bookingId, { providerId: assignProviderId }),
     onSuccess: () => {
       setActionError(null);
-      setActionNotice("Partner assigned.");
-      setAssignPartnerId("");
+      setActionNotice("Provider assigned.");
+      setAssignProviderId("");
       invalidateDetail();
     },
     onError: (err) => setActionError(describeError(err)),
@@ -356,21 +356,21 @@ export default function BookingDetailPage() {
       </Card>
 
       <Card
-        title="Partner assignment"
-        description="Manual admin-driven assignment (PARTNER.md OPEN DECISIONS #1, tasks 147, 159)"
+        title="Provider assignment"
+        description="Manual admin-driven assignment (PROVIDER.md OPEN DECISIONS #1, tasks 147, 159)"
       >
         {assignmentHistoryQuery.isPending ? (
           <p className="text-sm text-neutral-500">Loading assignment history…</p>
         ) : assignmentHistoryQuery.isError ? (
           <Alert>{describeError(assignmentHistoryQuery.error)}</Alert>
         ) : assignmentHistoryQuery.data.length === 0 ? (
-          <p className="text-sm text-neutral-500">No partner has been assigned to this booking yet.</p>
+          <p className="text-sm text-neutral-500">No provider has been assigned to this booking yet.</p>
         ) : (
           <ul className="flex flex-col gap-2 text-sm">
             {assignmentHistoryQuery.data.map((assignment) => (
               <li key={assignment.id} className="rounded-lg border border-black/10 p-3 dark:border-white/15">
                 <div className="flex items-center justify-between">
-                  <span className="font-medium">{assignment.partnerDisplayName}</span>
+                  <span className="font-medium">{assignment.providerDisplayName}</span>
                   <span>{ASSIGNMENT_STATUS_LABELS[assignment.status]}</span>
                 </div>
                 <p className="mt-1 text-xs text-neutral-500">
@@ -387,14 +387,14 @@ export default function BookingDetailPage() {
           <div className="mt-5 flex flex-col gap-3 border-t border-black/10 pt-5 dark:border-white/15 sm:flex-row sm:items-end">
             <div className="flex-1">
               <Field
-                label="Partner ID to assign"
-                value={assignPartnerId}
-                onChange={(e) => setAssignPartnerId(e.target.value)}
-                placeholder="Partner GUID"
+                label="Provider ID to assign"
+                value={assignProviderId}
+                onChange={(e) => setAssignProviderId(e.target.value)}
+                placeholder="Provider GUID"
               />
             </div>
-            <Button disabled={!assignPartnerId.trim() || assignPartnerMutation.isPending} onClick={() => assignPartnerMutation.mutate()}>
-              {assignPartnerMutation.isPending ? "Assigning…" : "Assign partner"}
+            <Button disabled={!assignProviderId.trim() || assignProviderMutation.isPending} onClick={() => assignProviderMutation.mutate()}>
+              {assignProviderMutation.isPending ? "Assigning…" : "Assign provider"}
             </Button>
           </div>
         ) : null}
@@ -569,7 +569,7 @@ export default function BookingDetailPage() {
   );
 }
 
-/** Photo + checklist evidence the partner submitted at job completion - dispute-review evidence (tasks 195-198, SRS 12.11.2). */
+/** Photo + checklist evidence the provider submitted at job completion - dispute-review evidence (tasks 195-198, SRS 12.11.2). */
 function CompletionProofCard({ bookingId }: { bookingId: string }) {
   const query = useQuery({
     queryKey: ["admin-booking-completion-proof", bookingId],
@@ -598,7 +598,7 @@ function CompletionProofCard({ bookingId }: { bookingId: string }) {
   }
 
   return (
-    <Card title="Completion proof" description="Submitted by the partner at job completion (SRS 12.11.2)">
+    <Card title="Completion proof" description="Submitted by the provider at job completion (SRS 12.11.2)">
       <p className="text-sm text-neutral-600 dark:text-neutral-400">
         Submitted {new Date(proof.submittedAtUtc).toLocaleString()} · {proof.photoRefs.length} photo(s)
       </p>

@@ -71,5 +71,5 @@ too, not just the UI on top of them.
 
 `e2e/setup/force-booking-completed.ts` forces a booking straight to
 `BookingStatus.Completed` via direct SQL so the review spec (140d) doesn't
-also have to stand up partner-api + partner KYC + assignment + job
+also have to stand up provider-api + provider KYC + assignment + job
 completion (the only real path to `Completed`). See that file's doc comment.

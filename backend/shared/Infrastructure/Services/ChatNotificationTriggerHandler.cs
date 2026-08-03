@@ -21,12 +21,12 @@ namespace Nestly.Infrastructure.Services;
 /// Scope gap, documented rather than silently assumed: this only resolves
 /// and notifies the *customer* side of a thread. When the customer is the
 /// sender, the recipient is either the admin support team (context_type
-/// support_ticket) or the assigned partner (context_type booking) - neither
+/// support_ticket) or the assigned provider (context_type booking) - neither
 /// has a single-identity, device-token-backed notification path wired up
-/// yet (admins already watch the live support console per task 193; partner
-/// push would need partner-api's own device-token infrastructure, which
-/// task 193's partner reply view does not yet exist to produce messages
-/// from anyway). Revisit once partner-side chat lands.
+/// yet (admins already watch the live support console per task 193; provider
+/// push would need provider-api's own device-token infrastructure, which
+/// task 193's provider reply view does not yet exist to produce messages
+/// from anyway). Revisit once provider-side chat lands.
 /// </summary>
 public sealed class ChatNotificationTriggerHandler : INotificationHandler<DomainEventNotification<ChatMessageSentEvent>>
 {

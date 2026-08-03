@@ -565,7 +565,7 @@ Read and understand the following documents:
 - docs/CODING-STANDARDS.md
 - docs/DEVOPS.md
 
-Read the relevant module of docs/SRS.md before implementation. See docs/README.md for the full documentation index (including docs/PARTNER.md for the deferred Partner module).
+Read the relevant module of docs/SRS.md before implementation. See docs/README.md for the full documentation index (including docs/PROVIDER.md for the deferred Provider module).
 
 Do not assume requirements.
 

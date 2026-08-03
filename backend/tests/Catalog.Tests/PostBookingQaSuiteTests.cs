@@ -205,7 +205,7 @@ public sealed class PostBookingQaSuiteTests : IClassFixture<TestDatabase>
                 new SlotCapacityRepository(context),
                 TimeProvider.System),
             new NoOpMetricsService(),
-            new BookingPartnerAssignmentRepository(context),
+            new BookingProviderAssignmentRepository(context),
             new CustomerSubscriptionRepository(context));
     }
 
@@ -292,7 +292,7 @@ public sealed class PostBookingQaSuiteTests : IClassFixture<TestDatabase>
             new RefundService(
                 new BookingRepository(context), new PaymentTransactionRepository(context), new RefundTransactionRepository(context),
                 new WalletService(new WalletLedgerRepository(context)), new EscrowService(new PlatformEscrowLedgerRepository(context)), BuildGateway(), context),
-            new BookingCancellationRepository(context), new BookingPartnerAssignmentRepository(context), TimeProvider.System, Options.Create(new CancellationPolicyOptions()));
+            new BookingCancellationRepository(context), new BookingProviderAssignmentRepository(context), TimeProvider.System, Options.Create(new CancellationPolicyOptions()));
 
         var result = await service.GetPolicyAsync(customer.Id, bookingId);
 
@@ -310,7 +310,7 @@ public sealed class PostBookingQaSuiteTests : IClassFixture<TestDatabase>
             new RefundService(
                 new BookingRepository(context), new PaymentTransactionRepository(context), new RefundTransactionRepository(context),
                 new WalletService(new WalletLedgerRepository(context)), new EscrowService(new PlatformEscrowLedgerRepository(context)), BuildGateway(), context),
-            new BookingCancellationRepository(context), new BookingPartnerAssignmentRepository(context), TimeProvider.System, Options.Create(new CancellationPolicyOptions()));
+            new BookingCancellationRepository(context), new BookingProviderAssignmentRepository(context), TimeProvider.System, Options.Create(new CancellationPolicyOptions()));
 
         var result = await service.GetPolicyAsync(customer.Id, bookingId);
 

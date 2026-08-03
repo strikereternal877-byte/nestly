@@ -61,10 +61,10 @@ services:
       redis:
         condition: service_healthy
 
-  partner-api:
+  provider-api:
     build:
       context: .
-      dockerfile: backend/partner-api/PartnerApi/Dockerfile
+      dockerfile: backend/provider-api/ProviderApi/Dockerfile
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080

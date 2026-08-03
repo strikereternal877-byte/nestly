@@ -31,7 +31,7 @@ public sealed class TestDatabase : IDisposable
             // Same fix DependencyInjection.AddInfrastructure wires up for
             // the real app - see NewOwnedChildEntityInterceptor's doc
             // comment (needed here starting with task 149a's
-            // PartnerJobServiceTests, the first Identity.Tests suite to call
+            // ProviderJobServiceTests, the first Identity.Tests suite to call
             // Booking.TransitionTo more than once against an
             // already-tracked-and-saved booking within the same context).
             // Tests build their DbContextOptions directly rather than
