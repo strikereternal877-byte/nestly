@@ -92,15 +92,16 @@ export const Field = forwardRef<HTMLInputElement, FieldProps>(function Field(
   );
 });
 
-export function Checkbox({
-  label,
-  ...props
-}: InputHTMLAttributes<HTMLInputElement> & { label: string }) {
+export const Checkbox = forwardRef<
+  HTMLInputElement,
+  InputHTMLAttributes<HTMLInputElement> & { label: string }
+>(function Checkbox({ label, ...props }, ref) {
   const inputId = `checkbox-${props.name ?? label.toLowerCase().replace(/\s+/g, "-")}`;
   return (
     <label htmlFor={inputId} className="flex items-center gap-2 text-sm">
       <input
         {...props}
+        ref={ref}
         id={inputId}
         type="checkbox"
         className="h-4 w-4 rounded border-black/25 dark:border-white/30"
@@ -108,7 +109,7 @@ export function Checkbox({
       {label}
     </label>
   );
-}
+});
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: "primary" | "secondary" | "danger";
