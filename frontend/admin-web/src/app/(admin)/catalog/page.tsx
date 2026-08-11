@@ -4,9 +4,10 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useForm } from "react-hook-form";
+import { useState } from "react";
 import { z } from "zod";
-import { Alert, Button, Card, Field, PageHeading, Select, Textarea } from "@/components/ui";
-import { FormActions, FormGrid } from "@/components/data-table";
+import { Alert, Button, Field, Modal, PageHeading, Textarea } from "@/components/ui";
+import { FormGrid, SearchableSelect } from "@/components/data-table";
 import { EntityTable } from "@/components/entity-table";
 import { describeError } from "@/lib/api";
 import { createCategory, listCategories, setCategoryActive } from "@/lib/catalog-api";
@@ -65,6 +66,7 @@ function toDisplayOrder(categories: CategoryResponse[]): { category: CategoryRes
  */
 export default function CatalogCategoriesPage() {
   const claims = useAdminClaims();
+  const [addOpen, setAddOpen] = useState(false);
   const queryClient = useQueryClient();
 
   const canWrite = canWriteModule(claims, "catalog");
@@ -73,7 +75,10 @@ export default function CatalogCategoriesPage() {
   const categories = categoriesQuery.data ?? [];
   const displayOrder = toDisplayOrder(categories);
   const depthById = new Map(displayOrder.map(({ category, depth }) => [category.id, depth]));
-  const parentOptions = categories.map((c) => ({ value: c.id, label: c.name }));
+  const parentOptions = [
+    { value: "", label: "No parent (top-level)" },
+    ...categories.map((c) => ({ value: c.id, label: c.name })),
+  ];
 
   const form = useForm<CategoryFormValues>({
     resolver: zodResolver(categorySchema),
@@ -95,6 +100,7 @@ export default function CatalogCategoriesPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["categories"] });
       form.reset();
+      setAddOpen(false);
     },
   });
 
@@ -127,6 +133,13 @@ export default function CatalogCategoriesPage() {
       <EntityTable<CategoryResponse>
         title="Categories"
         description="Top-level catalog grouping shown to customers (SRS 12.5.1). Subcategories are indented under their parent (Phase 3)."
+        actions={
+          canWrite ? (
+            <Button type="button" onClick={() => setAddOpen(true)}>
+              Add category
+            </Button>
+          ) : undefined
+        }
         items={displayOrder.map((d) => d.category)}
         isLoading={categoriesQuery.isPending}
         isFetching={categoriesQuery.isFetching}
@@ -171,8 +184,24 @@ export default function CatalogCategoriesPage() {
       />
 
       {canWrite ? (
-        <Card title="Add category" description="Creates the category immediately; it is live once activated.">
-          <form onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
+        <Modal
+          open={addOpen}
+          onClose={() => setAddOpen(false)}
+          title="Add category"
+          description="Creates the category immediately; it is live once activated."
+          size="lg"
+          footer={
+            <>
+              <Button type="button" variant="secondary" onClick={() => setAddOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" form="add-category-form" loading={form.formState.isSubmitting || createMutation.isPending}>
+                Add category
+              </Button>
+            </>
+          }
+        >
+          <form id="add-category-form" onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
             {createMutation.isError ? <Alert>{describeError(createMutation.error)}</Alert> : null}
             <FormGrid>
               <Field label="Name" required error={form.formState.errors.name?.message} {...form.register("name")} />
@@ -184,12 +213,12 @@ export default function CatalogCategoriesPage() {
                 {...form.register("slug")}
               />
             </FormGrid>
-            <Select
+            <SearchableSelect
               label="Parent category"
-              hint="Leave unset for a top-level category, or choose one to create a subcategory (Phase 3)."
-              placeholder="No parent (top-level)"
+              placeholder="Search categories… (leave blank for top-level)"
               options={parentOptions}
-              {...form.register("parentCategoryId")}
+              value={form.watch("parentCategoryId") ?? ""}
+              onChange={(value) => form.setValue("parentCategoryId", value)}
             />
             <Textarea label="Description" error={form.formState.errors.description?.message} {...form.register("description")} />
             <FormGrid>
@@ -210,13 +239,8 @@ export default function CatalogCategoriesPage() {
                 {...form.register("seoMetaDescription")}
               />
             </FormGrid>
-            <FormActions>
-              <Button type="submit" loading={form.formState.isSubmitting || createMutation.isPending}>
-                Add category
-              </Button>
-            </FormActions>
           </form>
-        </Card>
+        </Modal>
       ) : null}
     </div>
   );

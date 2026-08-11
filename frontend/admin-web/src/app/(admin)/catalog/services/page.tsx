@@ -6,8 +6,8 @@ import Link from "next/link";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
-import { Alert, Button, Card, CheckboxField, Field, PageHeading, Select, Textarea } from "@/components/ui";
-import { FormActions, FormGrid, formatCurrency } from "@/components/data-table";
+import { Alert, Button, CheckboxField, Field, Modal, PageHeading, Select, Textarea } from "@/components/ui";
+import { FormGrid, SearchableSelect, formatCurrency } from "@/components/data-table";
 import { EntityTable } from "@/components/entity-table";
 import { describeError } from "@/lib/api";
 import { createService, listCategories, listServiceGroups, listServices, setServiceActive } from "@/lib/catalog-api";
@@ -51,6 +51,7 @@ type ServiceFormValues = z.infer<typeof serviceSchema>;
 export default function CatalogServicesPage() {
   const claims = useAdminClaims();
   const [categoryFilter, setCategoryFilter] = useState("");
+  const [addOpen, setAddOpen] = useState(false);
   const queryClient = useQueryClient();
 
   const canWrite = canWriteModule(claims, "catalog");
@@ -105,6 +106,7 @@ export default function CatalogServicesPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["services"] });
       form.reset({ ...form.getValues(), name: "", slug: "", description: "", shortDescription: "" });
+      setAddOpen(false);
     },
   });
 
@@ -153,13 +155,20 @@ export default function CatalogServicesPage() {
         title="Services"
         description="Packages offered under a category, with duration, pricing and booking options (SRS 12.6)."
         actions={
-          <div className="w-56">
-            <Select
-              label="Filter by category"
-              value={categoryFilter}
-              onChange={(e) => setCategoryFilter(e.target.value)}
-              options={[{ value: "", label: "All categories" }, ...categoryOptions]}
-            />
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="w-56">
+              <Select
+                label="Filter by category"
+                value={categoryFilter}
+                onChange={(e) => setCategoryFilter(e.target.value)}
+                options={[{ value: "", label: "All categories" }, ...categoryOptions]}
+              />
+            </div>
+            {canWrite ? (
+              <Button type="button" onClick={() => setAddOpen(true)}>
+                Add service
+              </Button>
+            ) : null}
           </div>
         }
         items={servicesQuery.data}
@@ -226,18 +235,35 @@ export default function CatalogServicesPage() {
       />
 
       {canWrite ? (
-        <Card title="Add service" description="Creates the service immediately; it is bookable once activated and priced.">
-          <form onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
+        <Modal
+          open={addOpen}
+          onClose={() => setAddOpen(false)}
+          title="Add service"
+          description="Creates the service immediately; it is bookable once activated and priced."
+          size="lg"
+          footer={
+            <>
+              <Button type="button" variant="secondary" onClick={() => setAddOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" form="add-service-form" loading={form.formState.isSubmitting || createMutation.isPending}>
+                Add service
+              </Button>
+            </>
+          }
+        >
+          <form id="add-service-form" onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
             {createMutation.isError ? <Alert>{describeError(createMutation.error)}</Alert> : null}
 
             <FormGrid>
-              <Select
+              <SearchableSelect
                 label="Category"
                 required
-                placeholder="Select a category…"
+                placeholder="Search categories…"
                 error={form.formState.errors.categoryId?.message}
                 options={categoryOptions}
-                {...form.register("categoryId")}
+                value={form.watch("categoryId")}
+                onChange={(value) => form.setValue("categoryId", value, { shouldValidate: true })}
               />
               <Field label="Name" required error={form.formState.errors.name?.message} {...form.register("name")} />
             </FormGrid>
@@ -348,14 +374,8 @@ export default function CatalogServicesPage() {
                 onChange={(v) => form.setValue("isCustomerNoteAllowed", v)}
               />
             </fieldset>
-
-            <FormActions>
-              <Button type="submit" loading={form.formState.isSubmitting || createMutation.isPending}>
-                Add service
-              </Button>
-            </FormActions>
           </form>
-        </Card>
+        </Modal>
       ) : null}
     </div>
   );

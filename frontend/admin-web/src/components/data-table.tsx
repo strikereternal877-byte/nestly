@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { Alert, Badge, Button, EmptyState, Modal, Skeleton, cx } from "@/components/ui";
 import { describeError } from "@/lib/api";
@@ -183,7 +183,10 @@ export function DataTable<T>({
   rowActions,
   onRowClick,
   defaultSort,
-  maxHeight,
+  // Capped by default so a long list scrolls inside its own card with a
+  // sticky header instead of growing the page — every list gets this for
+  // free; callers pass a taller/shorter value to override.
+  maxHeight = "70vh",
   minWidth,
   skeletonRows = 6,
   caption,
@@ -820,6 +823,136 @@ export function FormGrid({
 }) {
   const grid = columns === 1 ? "" : columns === 2 ? "sm:grid-cols-2" : "sm:grid-cols-2 lg:grid-cols-3";
   return <div className={cx("grid grid-cols-1 gap-4", grid, className)}>{children}</div>;
+}
+
+/**
+ * Searchable single-select for pickers with too many options to scan in a
+ * plain `<select>` (a category/parent-service/service list). Filters options
+ * by label as the admin types; falls back to a native `<select>`'s keyboard
+ * semantics via a listbox popover rather than reinventing them.
+ */
+export function SearchableSelect({
+  label,
+  value,
+  onChange,
+  options,
+  placeholder = "Search…",
+  error,
+  required,
+  disabled,
+}: {
+  label: string;
+  /** Selected option's `value`, or `""` for none. */
+  value: string;
+  onChange: (value: string) => void;
+  options: readonly { value: string; label: string }[];
+  placeholder?: string;
+  error?: string;
+  required?: boolean;
+  disabled?: boolean;
+}) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const inputId = `searchable-select-${label.toLowerCase().replace(/\s+/g, "-")}`;
+
+  const selected = options.find((option) => option.value === value);
+
+  // Reflect the current selection in the input text whenever it changes
+  // externally (form reset, initial load) and the field isn't mid-edit.
+  useEffect(() => {
+    if (!open) setQuery(selected?.label ?? "");
+  }, [selected, open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    return () => document.removeEventListener("mousedown", onPointerDown);
+  }, [open]);
+
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle || query === selected?.label) return options;
+    return options.filter((option) => option.label.toLowerCase().includes(needle));
+  }, [options, query, selected]);
+
+  return (
+    <div className="flex flex-col gap-1.5" ref={rootRef}>
+      <label htmlFor={inputId} className="text-sm font-medium text-fg">
+        {label}
+        {required ? (
+          <span className="ml-0.5 text-danger" aria-hidden>
+            *
+          </span>
+        ) : null}
+      </label>
+      <div className="relative">
+        <input
+          id={inputId}
+          role="combobox"
+          aria-expanded={open}
+          aria-controls={`${inputId}-listbox`}
+          aria-autocomplete="list"
+          autoComplete="off"
+          disabled={disabled}
+          placeholder={placeholder}
+          value={query}
+          onFocus={() => {
+            setOpen(true);
+            setQuery("");
+          }}
+          onChange={(event) => {
+            setQuery(event.target.value);
+            setOpen(true);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") setOpen(false);
+          }}
+          aria-invalid={error ? true : undefined}
+          className={cx(
+            "w-full rounded-lg border bg-surface px-3 py-2 text-sm text-fg shadow-xs outline-none transition duration-fast ease-out placeholder:text-fg-subtle disabled:cursor-not-allowed disabled:bg-surface-2 disabled:text-fg-subtle",
+            error
+              ? "border-danger focus:border-danger focus:ring-2 focus:ring-danger/25"
+              : "border-line hover:border-line-strong focus:border-brand-600 focus:ring-2 focus:ring-brand-600/25",
+          )}
+        />
+        {open ? (
+          <ul
+            id={`${inputId}-listbox`}
+            role="listbox"
+            className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-line bg-surface py-1 shadow-md"
+          >
+            {filtered.length === 0 ? (
+              <li className="px-3 py-2 text-sm text-fg-subtle">No matches</li>
+            ) : (
+              filtered.map((option) => (
+                <li key={option.value} role="option" aria-selected={option.value === value}>
+                  <button
+                    type="button"
+                    className={cx(
+                      "block w-full px-3 py-2 text-left text-sm hover:bg-surface-2",
+                      option.value === value && "bg-surface-2 font-medium text-fg",
+                    )}
+                    onClick={() => {
+                      onChange(option.value);
+                      setQuery(option.label);
+                      setOpen(false);
+                    }}
+                  >
+                    {option.label}
+                  </button>
+                </li>
+              ))
+            )}
+          </ul>
+        ) : null}
+      </div>
+      {error ? <p className="text-xs font-medium text-danger">{error}</p> : null}
+    </div>
+  );
 }
 
 /** Right-aligned form footer. Cancel sits left of the primary, never after it. */

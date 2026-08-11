@@ -6,8 +6,8 @@ import Link from "next/link";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
-import { Alert, Button, Card, CheckboxField, Field, PageHeading, Select } from "@/components/ui";
-import { FormActions, FormGrid, formatCurrency } from "@/components/data-table";
+import { Alert, Button, CheckboxField, Field, Modal, PageHeading, Select } from "@/components/ui";
+import { FormGrid, SearchableSelect, formatCurrency } from "@/components/data-table";
 import { EntityTable } from "@/components/entity-table";
 import { describeError } from "@/lib/api";
 import { createServiceAddOn, listAddOnGroups, listServiceAddOns, listServices, setServiceAddOnActive } from "@/lib/catalog-api";
@@ -36,6 +36,7 @@ type AddOnFormValues = z.infer<typeof addOnSchema>;
 export default function CatalogAddOnsPage() {
   const claims = useAdminClaims();
   const [serviceFilter, setServiceFilter] = useState("");
+  const [addOpen, setAddOpen] = useState(false);
   const queryClient = useQueryClient();
 
   const canWrite = canWriteModule(claims, "catalog");
@@ -75,6 +76,7 @@ export default function CatalogAddOnsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["service-addons"] });
       form.reset({ ...form.getValues(), name: "", description: "", price: 0, groupId: "" });
+      setAddOpen(false);
     },
   });
 
@@ -107,13 +109,20 @@ export default function CatalogAddOnsPage() {
         title="Add-ons"
         description="Optional or mandatory extras mapped to a service (SRS 12.7)."
         actions={
-          <div className="w-56">
-            <Select
-              label="Filter by service"
-              value={serviceFilter}
-              onChange={(e) => setServiceFilter(e.target.value)}
-              options={[{ value: "", label: "All services" }, ...serviceOptions]}
-            />
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="w-56">
+              <Select
+                label="Filter by service"
+                value={serviceFilter}
+                onChange={(e) => setServiceFilter(e.target.value)}
+                options={[{ value: "", label: "All services" }, ...serviceOptions]}
+              />
+            </div>
+            {canWrite ? (
+              <Button type="button" onClick={() => setAddOpen(true)}>
+                Add add-on
+              </Button>
+            ) : null}
           </div>
         }
         items={addOnsQuery.data}
@@ -170,18 +179,35 @@ export default function CatalogAddOnsPage() {
       />
 
       {canWrite ? (
-        <Card title="Add add-on" description="Creates the add-on immediately; it is offered once activated.">
-          <form onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
+        <Modal
+          open={addOpen}
+          onClose={() => setAddOpen(false)}
+          title="Add add-on"
+          description="Creates the add-on immediately; it is offered once activated."
+          size="lg"
+          footer={
+            <>
+              <Button type="button" variant="secondary" onClick={() => setAddOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" form="add-addon-form" loading={form.formState.isSubmitting || createMutation.isPending}>
+                Add add-on
+              </Button>
+            </>
+          }
+        >
+          <form id="add-addon-form" onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
             {createMutation.isError ? <Alert>{describeError(createMutation.error)}</Alert> : null}
 
             <FormGrid>
-              <Select
+              <SearchableSelect
                 label="Service"
                 required
-                placeholder="Select a service…"
+                placeholder="Search services…"
                 error={form.formState.errors.serviceId?.message}
                 options={serviceOptions}
-                {...form.register("serviceId")}
+                value={form.watch("serviceId")}
+                onChange={(value) => form.setValue("serviceId", value, { shouldValidate: true })}
               />
               <Field label="Name" required error={form.formState.errors.name?.message} {...form.register("name")} />
             </FormGrid>
@@ -224,14 +250,8 @@ export default function CatalogAddOnsPage() {
                 onChange={(v) => form.setValue("isMandatory", v)}
               />
             </fieldset>
-
-            <FormActions>
-              <Button type="submit" loading={form.formState.isSubmitting || createMutation.isPending}>
-                Add add-on
-              </Button>
-            </FormActions>
           </form>
-        </Card>
+        </Modal>
       ) : null}
     </div>
   );
