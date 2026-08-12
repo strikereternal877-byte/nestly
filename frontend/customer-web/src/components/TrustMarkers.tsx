@@ -40,11 +40,11 @@ export function TrustMarkers() {
           variants={revealItem}
           whileHover={{ y: -4 }}
           transition={SPRING}
-          className="rounded-2xl border border-line bg-surface p-5 shadow-xs transition-shadow duration-200 ease-out hover:shadow-md"
+          className="rounded-lg border-2 border-line bg-surface p-5 shadow-xs transition-shadow duration-200 ease-out hover:border-line-strong hover:shadow-md"
         >
           <span
             aria-hidden="true"
-            className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-500/15 dark:text-brand-400"
+            className="flex h-10 w-10 items-center justify-center rounded-md bg-brand-50 text-brand-600 dark:bg-brand-500/15 dark:text-brand-400"
           >
             {marker.icon}
           </span>

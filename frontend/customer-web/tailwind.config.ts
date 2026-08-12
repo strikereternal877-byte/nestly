@@ -70,6 +70,24 @@ const config: Config = {
         danger: { DEFAULT: rgb("--danger"), soft: rgb("--danger-soft") },
         info: { DEFAULT: rgb("--info"), soft: rgb("--info-soft") },
 
+        // One ink colour per real category (public/images/categories),
+        // matching the CSS vars in globals.css — used as literal
+        // binder-divider tab fills on the category rail/browse pages. Kept
+        // as a flat map (not the brand/accent ramp shape) since a tab colour
+        // is used at a single weight, never lightened/darkened per shade.
+        category: {
+          "home-cleaning": rgb("--cat-home-cleaning"),
+          "ac-repair-service": rgb("--cat-ac-repair-service"),
+          "appliance-repair": rgb("--cat-appliance-repair"),
+          carpentry: rgb("--cat-carpentry"),
+          electrical: rgb("--cat-electrical"),
+          painting: rgb("--cat-painting"),
+          "pest-control": rgb("--cat-pest-control"),
+          plumbing: rgb("--cat-plumbing"),
+          "salon-for-men": rgb("--cat-salon-for-men"),
+          "salon-for-women": rgb("--cat-salon-for-women"),
+        },
+
         // Kept so existing `bg-background`/`text-foreground` call sites keep
         // resolving while screens migrate to the semantic names above.
         background: rgb("--bg"),
@@ -85,8 +103,15 @@ const config: Config = {
       },
 
       fontFamily: {
+        // "Archivo" (workhorse grotesk) is loaded under the *existing*
+        // `--font-geist-sans` variable name in layout.tsx (see that file's
+        // comment) so this key, and every `font-sans` call site, resolves to
+        // the new body face without a second change here.
         sans: ["var(--font-geist-sans)", "ui-sans-serif", "system-ui", "sans-serif"],
         mono: ["var(--font-geist-mono)", "ui-monospace", "monospace"],
+        // "Special Elite" — the ledger's stamp/typewriter display face, for
+        // headlines, category tab labels and stamped callouts only.
+        display: ["var(--font-display)", "ui-monospace", "monospace"],
       },
 
       fontSize: {

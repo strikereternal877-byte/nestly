@@ -6,7 +6,7 @@ import { CategoryGridSkeleton } from "@/components/CategoryGridSkeleton";
 import { CategoryTile } from "@/components/CategoryTile";
 import { CitySelector } from "@/components/CitySelector";
 import { Reveal, revealItem } from "@/components/motion";
-import { Alert, Button, EmptyState, PageHeading } from "@/components/ui";
+import { Alert, Button, EmptyState } from "@/components/ui";
 import { useSelectedCity } from "@/hooks/useSelectedCity";
 import { API_V1, apiFetch, describeError } from "@/lib/api";
 import type { CategorySummary } from "@/lib/types";
@@ -17,11 +17,18 @@ export default function CategoriesPage() {
 
   return (
     <main className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 sm:py-12">
-      <PageHeading
-        title="All categories"
-        subtitle="Browse every service we offer in your city."
-        actions={city ? <CitySelector /> : undefined}
-      />
+      <header className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="font-display text-xs uppercase tracking-[0.1em] text-fg-subtle">
+            The full ledger
+          </p>
+          <h1 className="font-display mt-1 text-2xl text-fg sm:text-display-sm">All categories</h1>
+          <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-fg-muted">
+            Browse every service we offer in your city.
+          </p>
+        </div>
+        {city ? <CitySelector /> : null}
+      </header>
 
       {/* `undefined` is "still reading the persisted city", `null` is "read,
           none chosen" — collapsing them would flash the picker at customers

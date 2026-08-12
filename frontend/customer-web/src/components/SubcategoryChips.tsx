@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { categoryTabBg } from "@/lib/categoryVisuals";
 import type { CategorySummary } from "@/lib/types";
 
 /**
@@ -22,11 +23,15 @@ export function SubcategoryChips({ subcategories }: { subcategories: CategorySum
         <Link
           key={subcategory.id}
           href={`/categories/${subcategory.slug}`}
-          className="flex shrink-0 items-center gap-2 rounded-xl border border-line bg-surface py-2 pl-2.5 pr-4 text-sm font-medium text-fg shadow-xs transition duration-fast ease-out hover:border-line-strong hover:bg-surface-2"
+          className="group flex shrink-0 items-center gap-2 rounded-md border-2 border-line bg-surface py-2 pl-2.5 pr-4 text-sm font-medium text-fg shadow-xs transition duration-fast ease-out hover:border-line-strong hover:bg-surface-2"
         >
           <span
             aria-hidden="true"
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-base dark:bg-brand-500/15"
+            className={`h-2 w-2 shrink-0 rounded-full ${categoryTabBg(subcategory.slug)}`}
+          />
+          <span
+            aria-hidden="true"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-surface-2 text-base"
           >
             {subcategory.iconUrl ? (
               // eslint-disable-next-line @next/next/no-img-element -- admin-supplied external URL, unsuited to static optimization.

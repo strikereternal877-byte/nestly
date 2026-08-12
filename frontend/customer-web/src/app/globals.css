@@ -16,66 +16,101 @@
  */
 
 :root {
-  /* Brand — navy-blue, matching the Resido reference's real-estate palette
-     (bg-primary #074DA3 at brand-600, its heading navy #0C2339 at brand-900,
-     its dark-button/footer navy #041B2D at brand-950). Re-skins the whole
-     product to that "listings" look without touching any component below —
-     everything downstream reads this ramp, never a hardcoded hue. */
-  --brand-50: 236 243 250;
-  --brand-100: 219 234 248;
-  --brand-200: 186 214 241;
-  --brand-300: 144 187 230;
-  --brand-400: 96 152 215;
-  --brand-500: 45 111 194;
-  --brand-600: 7 77 163;
-  --brand-700: 9 61 128;
-  --brand-800: 12 48 100;
-  --brand-900: 12 35 57;
-  --brand-950: 4 27 45;
+  /* Brand — "stamp ink" vermillion/rust. THE SERVICE LEDGER (candidate 7/7,
+     seed 394fa208): the confirmation-stamp red is used at real weight across
+     the product (primary CTAs, focus ring, active tab underline, price
+     highlights, brand chips) — not reserved for a link colour. brand-600
+     (#C1442D) is the committed stamp hue; the rest of the ramp is built
+     around it so every existing bg-brand-N / text-brand-N call site
+     (buttons, badges, timeline nodes) re-skins automatically. */
+  --brand-50: 253 235 230;
+  --brand-100: 250 218 208;
+  --brand-200: 244 190 171;
+  --brand-300: 232 152 128;
+  --brand-400: 216 108 82;
+  --brand-500: 205 82 55;
+  --brand-600: 193 68 45;
+  --brand-700: 158 54 35;
+  --brand-800: 128 44 29;
+  --brand-900: 90 33 23;
+  --brand-950: 58 21 15;
 
-  /* Accent — amber. Reserved for rewards, Nestly Coins, ratings, and
-     "highlighted value" moments. Never used for primary navigation. */
-  --accent-100: 254 243 199;
-  --accent-300: 252 211 77;
-  --accent-400: 251 191 36;
-  --accent-500: 245 158 11;
-  --accent-600: 217 119 6;
-  --accent-700: 180 83 9;
+  /* Accent — ochre/amber. Already close to the ledger world's paper-and-ink
+     mood, kept for rewards, Nestly Coins, ratings and "highlighted value"
+     moments, distinct from the committed stamp-red. */
+  --accent-100: 250 238 210;
+  --accent-300: 224 179 84;
+  --accent-400: 202 148 46;
+  --accent-500: 176 122 28;
+  --accent-600: 146 98 20;
+  --accent-700: 112 74 14;
 
-  /* Semantic surfaces — light theme */
-  --bg: 250 250 252;
-  --surface: 255 255 255;
-  --surface-2: 246 247 250;
-  --surface-3: 239 241 246;
-  --overlay: 16 20 32;
+  /* Semantic surfaces — light theme, "kraft ledger": a genuine kraft/manila
+     paper ground rather than a cream/ivory pastel. Flat colour only (no
+     heavy paper texture bitmap) for performance; .texture-grain below adds a
+     cheap SVG-noise overlay where warranted. */
+  --bg: 217 195 154;
+  --surface: 237 224 196;
+  --surface-2: 227 210 174;
+  --surface-3: 214 194 152;
+  --overlay: 27 20 12;
 
-  /* Semantic text */
-  --fg: 16 20 32;
-  --fg-muted: 90 98 116;
-  /* Was 133 141 158: read as low as 3.2:1 on white, well under the 4.5:1 AA
-     floor for the body-sized meta text (timestamps, hints) it's actually used
-     for across the product. Darkened to clear AA against bg/surface/surface-2
-     while staying visibly lighter than --fg-muted. */
-  --fg-subtle: 102 110 128;
+  /* Semantic text — deep ink-blue, not pure black. */
+  --fg: 27 42 74;
+  /* AA-adjusted from an initial (71 84 115): measured 4.39:1 on --bg, just
+     under the 4.5:1 floor for the body-sized meta text this drives. Darkened
+     until it cleared bg/surface/surface-2. */
+  --fg-muted: 55 68 98;
+  /* Same AA pass: an initial (82 96 128) measured 3.66:1 on --bg. Darkened to
+     clear AA against bg/surface/surface-2 while staying visibly lighter than
+     --fg-muted. */
+  --fg-subtle: 60 74 104;
   --fg-on-brand: 255 255 255;
 
-  /* Lines */
-  --border: 226 229 236;
-  --border-strong: 203 208 220;
-  --ring: 7 77 163;
+  /* Lines — aged-kraft borders. */
+  --border: 184 153 104;
+  --border-strong: 155 124 78;
+  --ring: 193 68 45;
 
-  /* Status. Each has a solid tone for text/icons and a `-soft` background
-     tuned to sit behind that tone at AA contrast. Success/danger retinted to
-     the Resido reference's listing-badge hues (#009868 "Verified" green,
-     #A70A29 "For Sell"/"New" red) so status pills read like the reference. */
-  --success: 0 130 89;
-  --success-soft: 214 247 233;
-  --warning: 180 83 9;
-  --warning-soft: 254 243 199;
-  --danger: 167 10 41;
-  --danger-soft: 250 222 227;
-  --info: 29 78 216;
-  --info-soft: 219 234 254;
+  /* Status. Kept as distinct roles from the committed stamp-red even though
+     danger sits in the same warm family — different hues, not a repurposed
+     accent. Each has a solid tone for text/icons and a `-soft` background
+     tuned to sit behind that tone at AA contrast on the kraft surfaces. */
+  /* AA-adjusted: an initial (33 110 74) measured 4.43:1 on --success-soft,
+     borderline under 4.5:1. Darkened. */
+  --success: 26 92 60;
+  --success-soft: 205 224 195;
+  /* AA-adjusted: an initial (146 98 20) measured 3.70:1 on --warning-soft.
+     Darkened to clear AA. */
+  --warning: 120 80 14;
+  --warning-soft: 235 214 168;
+  --danger: 149 30 40;
+  --danger-soft: 232 200 190;
+  --info: 39 76 133;
+  --info-soft: 202 210 220;
+
+  /* Category tab colours — one per real category (public/images/categories),
+     used as literal binder-divider tab fills across the category rail and
+     browse pages. Desaturated-but-identifiable inks that still sit together
+     on the kraft ground. Mapped by slug in src/lib/categoryVisuals.ts. */
+  --cat-home-cleaning: 79 122 107;
+  --cat-ac-repair-service: 81 96 110;
+  --cat-appliance-repair: 107 116 128;
+  --cat-carpentry: 139 107 46;
+  --cat-electrical: 179 134 11;
+  --cat-painting: 110 90 115;
+  --cat-pest-control: 107 122 58;
+  --cat-plumbing: 62 100 133;
+  --cat-salon-for-men: 140 90 99;
+  --cat-salon-for-women: 168 90 110;
+
+  /* Ink ground — the fixed dark ink-blue backdrop the hero's kraft ledger
+     card floats on (FIRST VIEWPOINT). Deliberately not theme-dependent (same
+     value in .dark): it is a hero-specific staged backdrop, the same role
+     --brand-950 played for the old navy `.hero-mesh`, not the page's own
+     --bg. */
+  --ink-ground: 15 22 38;
+  --ink-ground-2: 35 48 84;
 
   /* Elevation. Layered rather than single-blur — a soft ambient shadow plus a
      tighter contact shadow is what separates "premium" from "drop shadow". */
@@ -96,34 +131,71 @@
 }
 
 .dark {
-  --bg: 10 11 16;
-  --surface: 18 20 27;
-  --surface-2: 24 27 35;
-  --surface-3: 33 37 47;
+  /* "Night ledger": a warm-dark charcoal that keeps a hint of the kraft hue
+     rather than a neutral or pure-black slate, so the ledger reads as the
+     same object under lamp light. */
+  --bg: 33 28 22;
+  --surface: 42 36 27;
+  --surface-2: 51 44 33;
+  --surface-3: 61 53 39;
   --overlay: 0 0 0;
 
-  --fg: 237 239 244;
-  --fg-muted: 154 161 176;
-  /* Was 114 122 138: 4.26:1 on --surface, under the 4.5:1 AA floor for the
-     same body-sized meta text as the light-mode value above. Lightened to
-     clear AA against bg/surface/surface-2 while staying below --fg-muted. */
-  --fg-subtle: 132 140 155;
+  --fg: 240 230 210;
+  --fg-muted: 196 184 150;
+  --fg-subtle: 168 154 120;
   --fg-on-brand: 255 255 255;
 
-  --border: 40 44 56;
-  --border-strong: 58 64 79;
-  --ring: 96 152 215;
+  --border: 74 64 48;
+  --border-strong: 92 79 58;
+  --ring: 224 122 82;
+
+  /* Stamp-red shifted for the dark ground. AA-adjusted: an initial brand-600
+     of (214 110 76) measured 3.39:1 for the white button label it carries via
+     --fg-on-brand, under the 4.5:1 floor. Darkened until white text cleared
+     AA (5.03:1) while staying visibly brighter than the light-mode value. */
+  --brand-50: 58 30 24;
+  --brand-100: 74 38 30;
+  --brand-200: 96 46 34;
+  --brand-300: 122 58 40;
+  --brand-400: 148 70 48;
+  --brand-500: 164 78 52;
+  --brand-600: 176 84 56;
+  --brand-700: 148 68 46;
+  --brand-800: 118 54 36;
+  --brand-900: 82 40 28;
+  --brand-950: 54 26 18;
+
+  --accent-100: 62 51 28;
+  --accent-300: 168 128 62;
+  --accent-400: 198 154 76;
+  --accent-500: 222 176 96;
+  --accent-600: 236 196 122;
+  --accent-700: 245 214 152;
 
   /* Dark-mode status tones invert: the soft background becomes a low-alpha
-     tint of the hue and the solid tone lightens to stay legible on it. */
-  --success: 52 211 153;
-  --success-soft: 6 42 34;
-  --warning: 252 211 77;
-  --warning-soft: 51 32 4;
-  --danger: 248 130 152;
-  --danger-soft: 58 14 26;
-  --info: 147 197 253;
-  --info-soft: 18 33 66;
+     tint of the hue and the solid tone lightens to stay legible on it. Kept
+     distinct from --brand-600 (the stamp red) even though danger sits in the
+     same warm family. */
+  --success: 129 196 158;
+  --success-soft: 36 52 40;
+  --warning: 222 176 96;
+  --warning-soft: 54 44 24;
+  --danger: 224 128 128;
+  --danger-soft: 58 30 28;
+  --info: 148 178 214;
+  --info-soft: 30 40 56;
+
+  /* Category tab colours, brightened/desaturated for the dark ground. */
+  --cat-home-cleaning: 138 184 166;
+  --cat-ac-repair-service: 142 158 174;
+  --cat-appliance-repair: 168 178 190;
+  --cat-carpentry: 196 162 96;
+  --cat-electrical: 224 184 96;
+  --cat-painting: 176 152 180;
+  --cat-pest-control: 176 190 128;
+  --cat-plumbing: 130 170 206;
+  --cat-salon-for-men: 198 152 160;
+  --cat-salon-for-women: 218 152 172;
 
   --shadow-xs: 0 1px 2px rgb(0 0 0 / 0.30);
   --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.35), 0 2px 6px -1px rgb(0 0 0 / 0.35);
@@ -240,15 +312,16 @@
     box-shadow: inset 0 1px 0 0 rgb(255 255 255 / 0.04), var(--shadow-sm);
   }
 
-  /* Layered radial wash on the brand-950 base, replacing a flat linear
-     gradient with real depth — the difference between "CSS gradient" and
-     "designed background". Same brand hue, just used with more confidence. */
+  /* THE SERVICE LEDGER hero backdrop: the fixed dark-ink ground the kraft
+     ledger card floats on (FIRST VIEWPOINT), with a soft stamp-red wash and
+     a hint of a category-tab hue so the ground reads as "under" the ledger
+     rather than a flat panel. */
   .hero-mesh {
-    background-color: rgb(var(--brand-950));
+    background-color: rgb(var(--ink-ground));
     background-image:
-      radial-gradient(60% 80% at 12% 8%, rgb(var(--brand-500) / 0.55), transparent 60%),
-      radial-gradient(50% 70% at 88% 25%, rgb(var(--accent-500) / 0.25), transparent 60%),
-      radial-gradient(75% 65% at 50% 120%, rgb(var(--brand-700) / 0.7), transparent 60%);
+      radial-gradient(60% 80% at 14% 10%, rgb(var(--brand-500) / 0.28), transparent 60%),
+      radial-gradient(50% 70% at 88% 20%, rgb(var(--cat-plumbing) / 0.22), transparent 60%),
+      radial-gradient(75% 65% at 50% 120%, rgb(var(--ink-ground-2) / 0.9), transparent 60%);
   }
 
   /* Solid listing-banner fill (Resido reference's "classical-property" page
@@ -265,6 +338,19 @@
   .banner-blob {
     border-radius: 9999px;
     background-color: rgb(255 255 255 / 0.08);
+  }
+
+  /* Faint horizontal rule lines, ledger-row style — a cheap repeating
+     linear-gradient rather than a border per row, for the price/date rows on
+     the service-ledger "open page" (service detail aside, category rows). */
+  .ruled-lines {
+    background-image: repeating-linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent 2.6rem,
+      rgb(var(--border) / 0.7) 2.6rem,
+      rgb(var(--border) / 0.7) calc(2.6rem + 1px)
+    );
   }
 
   /* Fractal-noise grain, inlined as an SVG data URI so it costs no network

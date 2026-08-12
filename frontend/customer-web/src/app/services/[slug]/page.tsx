@@ -8,6 +8,7 @@ import { PriceCalculator } from "@/components/PriceCalculator";
 import { ReviewsSummary } from "@/components/ReviewsSummary";
 import { ServiceAvailability } from "@/components/ServiceAvailability";
 import { ServiceFaqs } from "@/components/ServiceFaqs";
+import { StampButton } from "@/components/StampButton";
 import { Alert, Button, Skeleton } from "@/components/ui";
 import { useSelectedCity } from "@/hooks/useSelectedCity";
 import { API_V1, apiFetch, describeError } from "@/lib/api";
@@ -75,10 +76,17 @@ export default function ServiceDetailPage() {
 
       <ServiceHero name={service.name} coverImageUrl={service.coverImageUrl} />
 
+      {/* THE SERVICE LEDGER: the service detail page reads as one open
+          ledger page — a kraft surface with a ruled top strip carrying the
+          category tab colour, mono ledger numerals for price/duration, and
+          the primary action as a stamp-impact button (StampButton). */}
       <div className="mt-8 grid gap-8 md:grid-cols-[1fr_20rem]">
         <div className="flex min-w-0 flex-col gap-8">
           <div>
-            <h1 className="text-display-sm font-semibold text-fg">{service.name}</h1>
+            <p className="font-display text-xs uppercase tracking-[0.1em] text-fg-subtle">
+              {service.categoryName}
+            </p>
+            <h1 className="font-display mt-1 text-2xl text-fg sm:text-display-sm">{service.name}</h1>
             <p className="mt-3 leading-relaxed text-fg-muted text-pretty">{service.description}</p>
           </div>
 
@@ -99,13 +107,10 @@ export default function ServiceDetailPage() {
 
           {service.cancellationPolicy || service.reschedulePolicy ? (
             <section aria-labelledby="policies-heading">
-              <h2
-                id="policies-heading"
-                className="mb-3 text-lg font-semibold tracking-tight text-fg"
-              >
+              <h2 id="policies-heading" className="font-display mb-3 text-base text-fg">
                 Cancellation &amp; rescheduling
               </h2>
-              <ul className="flex flex-col gap-2 rounded-2xl border border-line bg-surface p-4 text-sm leading-relaxed text-fg-muted">
+              <ul className="flex flex-col gap-2 rounded-lg border-2 border-line bg-surface p-4 text-sm leading-relaxed text-fg-muted">
                 {service.cancellationPolicy ? <li>{service.cancellationPolicy}</li> : null}
                 {service.reschedulePolicy ? <li>{service.reschedulePolicy}</li> : null}
               </ul>
@@ -127,15 +132,12 @@ export default function ServiceDetailPage() {
           />
           <ServiceAvailability serviceId={service.id} />
 
-          {/* A styled Link, not <Link><Button/></Link>: nesting a button
-              inside an anchor is invalid HTML and gives assistive tech two
-              nested interactive elements for one action. */}
-          <Link
-            href={`/booking/summary?serviceSlug=${service.slug}`}
-            className="inline-flex h-12 w-full items-center justify-center rounded-lg bg-brand-600 text-[0.9375rem] font-medium text-fg-on-brand shadow-brand transition duration-fast ease-out hover:bg-brand-700 active:scale-[0.98]"
-          >
+          {/* The ledger's stamp-impact CTA — StampButton internally renders
+              a real <Link>, so this stays one interactive element for
+              assistive tech, same as the plain styled-Link it replaces. */}
+          <StampButton href={`/booking/summary?serviceSlug=${service.slug}`} fullWidth>
             Book now
-          </Link>
+          </StampButton>
         </aside>
       </div>
     </main>
@@ -151,7 +153,7 @@ function ServiceHero({ name, coverImageUrl }: { name: string; coverImageUrl?: st
   return (
     <div
       aria-hidden
-      className="relative h-48 overflow-hidden rounded-2xl shadow-sm sm:h-64"
+      className="relative h-48 overflow-hidden rounded-lg border-2 border-line-strong shadow-sm sm:h-64"
     >
       {showImage ? (
         // eslint-disable-next-line @next/next/no-img-element -- admin-supplied external URL, unsuited to static optimization.
@@ -188,7 +190,7 @@ function InclusionList({
   if (!body) return null;
 
   return (
-    <section aria-labelledby={headingId} className="rounded-2xl border border-line bg-surface p-4">
+    <section aria-labelledby={headingId} className="rounded-lg border-2 border-line bg-surface p-4">
       <h2 id={headingId} className="flex items-center gap-2 text-sm font-semibold text-fg">
         {tone === "included" ? (
           <svg

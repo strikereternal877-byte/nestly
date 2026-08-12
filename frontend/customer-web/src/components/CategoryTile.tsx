@@ -2,79 +2,83 @@ import Link from "next/link";
 import { motion } from "motion/react";
 import { useState } from "react";
 import { SPRING } from "@/components/motion";
+import { categoryTabBg } from "@/lib/categoryVisuals";
 import type { CategorySummary } from "@/lib/types";
 
 /**
  * Category card for the home/listing tile grid (SRS 11.1.2, 11.5.1).
  *
- * Visual-only redesign matching the Resido reference site's "Featured
- * Property For Sale" card pattern (resido-shreethemes.vercel.app/home-10):
- * a photo-led card with a status pill over the image, a decorative
- * rating/review chip, and a bottom row pairing a trust line with a pill CTA.
- * The rating/review numbers are deterministic decorative chrome (hashed from
- * the category id, not fetched data) — Nestly has no per-category rating
- * today, and this is a look-and-feel pass only, not a new data source.
+ * THE SERVICE LEDGER (candidate 7/7, seed 394fa208): a literal binder-divider
+ * tab rather than a photo card — a coloured tab flap (one hue per category,
+ * see src/lib/categoryVisuals.ts) sits above a kraft "page" body carrying the
+ * category's real icon, a stamped rating chip, and a stamp-style CTA. The
+ * rating/booking-count numbers stay deterministic decorative chrome (hashed
+ * from the category id, not fetched data) exactly as before — Nestly has no
+ * per-category rating today.
  */
 export function CategoryTile({ category }: { category: CategorySummary }) {
-  const [imageFailed, setImageFailed] = useState(false);
-  const showImage = !!category.bannerUrl && !imageFailed;
+  const [iconFailed, setIconFailed] = useState(false);
   const rating = decorativeRating(category.id);
   const bookings = decorativeBookingCount(category.id);
+  const tabColor = categoryTabBg(category.slug);
 
   return (
     <Link href={`/categories/${category.slug}`} className="group block h-full">
       <motion.div
-        whileHover={{ y: -5 }}
+        whileHover={{ y: -4 }}
         whileTap={{ scale: 0.98 }}
         transition={SPRING}
-        className="flex h-full flex-col overflow-hidden rounded-2xl border border-line bg-surface shadow-xs transition-shadow duration-200 ease-out group-hover:border-brand-600/30 group-hover:shadow-lg"
+        className="flex h-full flex-col overflow-hidden rounded-lg border-2 border-line bg-surface shadow-xs transition-shadow duration-200 ease-out group-hover:border-line-strong group-hover:shadow-lg"
       >
-        <div className="relative aspect-[4/3] w-full shrink-0 overflow-hidden bg-brand-gradient">
-          {showImage ? (
-            // eslint-disable-next-line @next/next/no-img-element -- admin-supplied external URL, unsuited to static optimization.
-            <img
-              src={category.bannerUrl!}
-              alt=""
-              onError={() => setImageFailed(true)}
-              className="h-full w-full object-cover transition-transform duration-slow ease-out group-hover:scale-[1.04]"
-            />
-          ) : (
-            <div className="flex h-full w-full items-center justify-center text-5xl" aria-hidden>
-              {category.iconUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element -- admin-supplied external URL, unsuited to static optimization.
-                <img src={category.iconUrl} alt="" className="h-12 w-12 object-contain brightness-0 invert" />
-              ) : (
-                "🧰"
-              )}
-            </div>
-          )}
-
+        {/* The tab flap — a real binder-divider silhouette (a notch cut into
+            the bottom-left/right corners), not a rounded banner. */}
+        <div
+          className={`relative flex items-center justify-between gap-2 px-4 py-2.5 text-fg-on-brand ${tabColor}`}
+          style={{ clipPath: "polygon(0 0, 100% 0, 100% 100%, 8% 100%, 0 65%)" }}
+        >
+          <span className="font-display truncate text-[0.8125rem] uppercase tracking-[0.06em]">
+            {category.name}
+          </span>
           {category.isFeatured ? (
-            <span className="absolute left-3 top-3 inline-flex items-center gap-1 rounded bg-success px-2.5 py-1 text-[0.6875rem] font-semibold text-white shadow-sm">
-              <CheckIcon />
+            <span className="shrink-0 rounded-sm bg-black/15 px-1.5 py-0.5 text-[0.625rem] font-semibold uppercase tracking-wide">
               Popular
             </span>
           ) : null}
-
-          <span className="absolute right-3 top-3 inline-flex items-center gap-1 rounded-full bg-white/95 px-2.5 py-1 text-[0.6875rem] font-semibold text-brand-900 shadow-sm dark:bg-surface/95 dark:text-fg">
-            <StarIcon />
-            {rating}
-          </span>
         </div>
 
-        <div className="flex flex-1 flex-col p-5">
-          <p className="text-base font-semibold leading-snug text-fg">{category.name}</p>
-          <p className="mt-1.5 flex items-center gap-1.5 text-xs text-fg-subtle">
+        <div className="ruled-lines flex flex-1 flex-col gap-4 p-5 pt-6">
+          <div className="flex items-start justify-between gap-3">
+            <span
+              aria-hidden
+              className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md border border-line bg-surface-2 text-2xl"
+            >
+              {category.iconUrl && !iconFailed ? (
+                // eslint-disable-next-line @next/next/no-img-element -- admin-supplied external URL, unsuited to static optimization.
+                <img
+                  src={category.iconUrl}
+                  alt=""
+                  onError={() => setIconFailed(true)}
+                  className="h-7 w-7 object-contain"
+                />
+              ) : (
+                "🧰"
+              )}
+            </span>
+
+            <span className="mt-0.5 inline-flex shrink-0 items-center gap-1 rounded-sm border border-line-strong bg-surface-2 px-2 py-0.5 text-[0.6875rem] font-semibold text-fg">
+              <StarIcon />
+              {rating}
+            </span>
+          </div>
+
+          <p className="flex items-center gap-1.5 text-xs text-fg-subtle">
             <ShieldIcon />
             Vetted, background-checked professionals
           </p>
 
-          <div className="mt-4 flex flex-1 items-end justify-between gap-3 border-t border-line pt-3">
-            <span className="inline-flex items-center gap-1 text-xs text-fg-subtle">
-              <UsersIcon />
-              {bookings} bookings
-            </span>
-            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-brand-600 px-3.5 py-1.5 text-xs font-semibold text-fg-on-brand shadow-brand transition-colors duration-fast ease-out group-hover:bg-brand-700">
+          <div className="mt-auto flex items-end justify-between gap-3 border-t border-line pt-3">
+            <span className="nums font-mono text-xs text-fg-subtle">{bookings} booked</span>
+            <span className="inline-flex shrink-0 items-center gap-1 rounded-sm border-2 border-brand-600 px-3 py-1 text-[0.6875rem] font-semibold uppercase tracking-wide text-brand-700 transition-colors duration-fast ease-out group-hover:bg-brand-50 dark:text-brand-300 dark:group-hover:bg-brand-500/15">
               Explore
               <svg
                 viewBox="0 0 24 24"
@@ -117,14 +121,6 @@ function hashString(value: string): number {
   return hash;
 }
 
-function CheckIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="h-3 w-3" aria-hidden>
-      <path d="M5 13l4 4L19 7" />
-    </svg>
-  );
-}
-
 function StarIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="currentColor" className="h-3 w-3 text-accent-500" aria-hidden>
@@ -138,16 +134,6 @@ function ShieldIcon() {
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5 shrink-0" aria-hidden>
       <path d="M12 3l7 3v5c0 4.5-3 8-7 9-4-1-7-4.5-7-9V6l7-3Z" />
       <path d="m9 12 2 2 4-4" />
-    </svg>
-  );
-}
-
-function UsersIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5 shrink-0" aria-hidden>
-      <circle cx="9" cy="8" r="3" />
-      <path d="M2.5 19a6.5 6.5 0 0 1 13 0" />
-      <path d="M16 4.5a3 3 0 0 1 0 6M19 19a5.5 5.5 0 0 0-3.5-5.1" />
     </svg>
   );
 }

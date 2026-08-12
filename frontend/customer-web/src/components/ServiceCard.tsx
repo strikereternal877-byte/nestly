@@ -43,7 +43,7 @@ export function ServiceCard({
         whileHover={{ y: -5 }}
         whileTap={{ scale: 0.98 }}
         transition={SPRING}
-        className="flex h-full flex-col overflow-hidden rounded-2xl border border-line bg-surface shadow-xs transition-shadow duration-200 ease-out group-hover:border-brand-600/30 group-hover:shadow-md"
+        className="flex h-full flex-col overflow-hidden rounded-lg border-2 border-line bg-surface shadow-xs transition-shadow duration-200 ease-out group-hover:border-brand-600/50 group-hover:shadow-md"
       >
         <div className="relative aspect-[4/3] w-full shrink-0 overflow-hidden bg-brand-gradient">
           {showImage ? (
@@ -75,7 +75,7 @@ export function ServiceCard({
               </>
             ) : null}
             <span>
-              Starts at <span className="nums font-medium text-fg">₹{price}</span>
+              Starts at <span className="nums font-mono font-medium text-fg">₹{price}</span>
             </span>
           </p>
 

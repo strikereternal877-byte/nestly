@@ -87,7 +87,7 @@ export function PriceCalculator({
   });
 
   return (
-    <div className="flex flex-col gap-5 rounded-2xl border border-line bg-surface p-5 shadow-sm">
+    <div className="flex flex-col gap-5 rounded-lg border-2 border-line bg-surface p-5 shadow-sm">
       <VariantPicker variants={variants} selectedId={selectedVariantId} onSelect={setSelectedVariantId} />
 
       {/* A group, not a label: the value is a <span>, and htmlFor on a
@@ -215,9 +215,12 @@ function PriceSummary({ breakdown }: { breakdown: PriceBreakdown }) {
       <Row label={`Tax (${breakdown.taxPercentage}%)`} value={breakdown.taxAmount} />
       {breakdown.platformFee > 0 ? <Row label="Platform fee" value={breakdown.platformFee} /> : null}
 
-      <div className="mt-1 flex items-baseline justify-between border-t border-line pt-3">
-        <dt className="font-semibold text-fg">Total payable</dt>
-        <dd className="nums text-lg font-semibold text-fg">
+      {/* The stamped total line — the one number the customer is agreeing
+          to pay, set apart with the same border-2/mono treatment as the
+          rest of the ledger's "open page" language. */}
+      <div className="mt-1 flex items-baseline justify-between rounded-md border-2 border-brand-600/40 bg-brand-50 px-3 py-2.5 dark:bg-brand-500/10">
+        <dt className="font-display text-xs uppercase tracking-wide text-fg">Total payable</dt>
+        <dd className="nums font-mono text-lg font-semibold text-brand-700 dark:text-brand-300">
           ₹{breakdown.totalPayable.toFixed(2)}
         </dd>
       </div>
@@ -229,7 +232,7 @@ function Row({ label, value }: { label: string; value: number }) {
   return (
     <div className="flex items-baseline justify-between gap-3 text-fg-muted">
       <dt className="min-w-0 truncate">{label}</dt>
-      <dd className="nums shrink-0">₹{value.toFixed(2)}</dd>
+      <dd className="nums font-mono shrink-0">₹{value.toFixed(2)}</dd>
     </div>
   );
 }

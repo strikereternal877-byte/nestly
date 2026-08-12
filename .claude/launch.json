@@ -5,44 +5,7 @@
       "name": "customer-web",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
-      "cwd": "frontend/customer-web",
-      "port": 3000,
-      "autoPort": true
-    },
-    {
-      "name": "admin-web",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
-      "cwd": "frontend/admin-web",
-      "port": 3001
-    },
-    {
-      "name": "provider-web",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
-      "cwd": "frontend/provider-web",
-      "port": 3002
-    },
-    {
-      "name": "consumer-api",
-      "runtimeExecutable": "dotnet",
-      "runtimeArgs": ["run", "--project", "backend/consumer-api/ConsumerApi"],
-      "port": 5257,
-      "url": "http://localhost:5257/"
-    },
-    {
-      "name": "admin-api",
-      "runtimeExecutable": "dotnet",
-      "runtimeArgs": ["run", "--project", "backend/admin-api/AdminApi"],
-      "port": 5177,
-      "url": "http://localhost:5177/"
-    },
-    {
-      "name": "provider-api",
-      "runtimeExecutable": "dotnet",
-      "runtimeArgs": ["run", "--project", "backend/provider-api/ProviderApi"],
-      "port": 5337,
-      "url": "http://localhost:5337/"
+      "port": 3000
     }
   ]
 }

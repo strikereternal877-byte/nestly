@@ -63,7 +63,7 @@ export default function CategoryDetailPage() {
       <div className="mx-auto w-full max-w-7xl px-4 py-10 sm:px-6 sm:py-14">
         {category.subcategories.length > 0 ? (
           <section aria-labelledby="subcategories-heading" className="mb-10">
-            <h2 id="subcategories-heading" className="mb-3 text-lg font-semibold tracking-tight text-fg">
+            <h2 id="subcategories-heading" className="font-display mb-3 text-base text-fg">
               Browse by type
             </h2>
             <SubcategoryChips subcategories={category.subcategories} />
@@ -71,9 +71,9 @@ export default function CategoryDetailPage() {
         ) : null}
 
         <section aria-labelledby="services-heading">
-          <h2 id="services-heading" className="mb-5 text-lg font-semibold tracking-tight text-fg">
+          <h2 id="services-heading" className="font-display mb-5 text-base text-fg">
             Services
-            <span className="ml-2 text-sm font-normal text-fg-subtle">{totalServiceCount}</span>
+            <span className="nums ml-2 font-mono text-sm font-normal text-fg-subtle">{totalServiceCount}</span>
           </h2>
 
           {totalServiceCount === 0 ? (
@@ -177,11 +177,11 @@ function ListingBanner({
 
       <div className="relative mx-auto flex w-full max-w-7xl flex-col items-start gap-4">
         {breadcrumb}
-        <h1 className="text-display-sm font-bold text-white sm:text-display-md">{title}</h1>
+        <h1 className="font-display text-2xl text-white sm:text-display-md">{title}</h1>
         {description ? (
           <p className="max-w-2xl text-[0.9375rem] leading-relaxed text-white/85 text-pretty">{description}</p>
         ) : null}
-        <span className="mt-1 inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3.5 py-1.5 text-xs font-semibold text-white backdrop-blur-sm">
+        <span className="nums mt-1 inline-flex items-center gap-1.5 rounded-sm border-2 border-white/40 bg-white/10 px-3.5 py-1.5 font-mono text-xs font-semibold text-white backdrop-blur-sm">
           {serviceCount} {serviceCount === 1 ? "service" : "services"} available
         </span>
       </div>

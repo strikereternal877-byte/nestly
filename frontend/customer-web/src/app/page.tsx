@@ -10,15 +10,15 @@ export default function Home() {
         <HeroBanner />
       </div>
 
-      {/* Full-bleed banded section (Resido reference's "Featured Property For
-          Sale" pattern): a light brand-tinted band, centered heading/subtitle,
-          the category grid, and a centered pill CTA below it — breaks out of
-          the page's max-w wrapper on purpose, unlike every other section here. */}
+      {/* Full-bleed banded section: a stamp-tinted band, centered
+          heading/subtitle, the ledger-tab category grid, and a centered
+          pill CTA below it — breaks out of the page's max-w wrapper on
+          purpose, unlike every other section here. */}
       <section aria-labelledby="categories-heading" className="bg-brand-50 py-14 dark:bg-brand-500/[0.06] sm:py-20">
         <div className="mx-auto flex w-full max-w-7xl flex-col items-center gap-10 px-4 sm:px-6">
           <div className="flex max-w-xl flex-col items-center gap-3 text-center">
-            <h2 id="categories-heading" className="text-display-sm font-bold tracking-tight text-fg">
-              Popular categories
+            <h2 id="categories-heading" className="font-display text-2xl text-fg sm:text-display-sm">
+              Every tab, a category
             </h2>
             <p className="text-[0.9375rem] leading-relaxed text-fg-muted text-pretty">
               Everything your home needs, from one place — vetted professionals across every service.
@@ -31,7 +31,7 @@ export default function Home() {
 
           <Link
             href="/categories"
-            className="inline-flex items-center gap-2 rounded-full border border-line bg-surface px-6 py-3 text-sm font-semibold text-fg shadow-xs transition-colors duration-fast ease-out hover:border-brand-600/40 hover:text-brand-600"
+            className="inline-flex items-center gap-2 rounded-full border-2 border-line-strong bg-surface px-6 py-3 text-sm font-semibold text-fg shadow-xs transition-colors duration-fast ease-out hover:border-brand-600/50 hover:text-brand-600"
           >
             Browse all categories
             <svg
@@ -52,7 +52,7 @@ export default function Home() {
 
       <div className="mx-auto w-full max-w-7xl px-4 sm:px-6">
         <section aria-labelledby="why-heading" className="flex flex-col gap-6">
-          <h2 id="why-heading" className="text-xl font-semibold tracking-tight text-fg">
+          <h2 id="why-heading" className="font-display text-lg text-fg">
             Why book with Nestly
           </h2>
           <TrustMarkers />
