@@ -40,12 +40,12 @@ export function ServiceCard({
   return (
     <Link href={`/services/${slug}`} className="group block h-full">
       <motion.div
-        whileHover={{ y: -5 }}
-        whileTap={{ scale: 0.98 }}
+        whileHover={{ y: -6 }}
+        whileTap={{ scale: 0.985 }}
         transition={SPRING}
-        className="flex h-full flex-col overflow-hidden rounded-2xl border border-line bg-surface shadow-xs transition-shadow duration-200 ease-out group-hover:border-brand-600/30 group-hover:shadow-md"
+        className="flex h-full flex-col overflow-hidden rounded-2xl bg-surface shadow-xs transition-shadow duration-200 ease-out group-hover:shadow-lg"
       >
-        <div className="relative aspect-[4/3] w-full shrink-0 overflow-hidden bg-brand-gradient">
+        <div className="relative aspect-[4/3] w-full shrink-0 overflow-hidden bg-surface-3">
           {showImage ? (
             // eslint-disable-next-line @next/next/no-img-element -- admin-supplied external URL, unsuited to static optimization.
             <img
@@ -65,9 +65,9 @@ export function ServiceCard({
         </div>
 
         <div className="flex flex-1 flex-col p-5">
-          <p className="font-medium leading-snug text-fg">{name}</p>
+          <p className="font-display leading-snug text-fg">{name}</p>
 
-          <p className="mt-1 flex items-center gap-1.5 text-xs text-fg-subtle">
+          <p className="mt-1.5 flex items-center gap-1.5 text-xs text-fg-subtle">
             {typeof durationMinutes === "number" ? (
               <>
                 <span>{durationMinutes} mins</span>
@@ -91,7 +91,7 @@ export function ServiceCard({
             ) : (
               <span />
             )}
-            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-brand-600 px-3.5 py-1.5 text-xs font-semibold text-fg-on-brand shadow-brand transition-colors duration-fast ease-out group-hover:bg-brand-700">
+            <span className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-brand-700 transition-colors duration-fast ease-out group-hover:text-brand-800 dark:text-brand-400 dark:group-hover:text-brand-300">
               Explore details
               <svg
                 viewBox="0 0 24 24"

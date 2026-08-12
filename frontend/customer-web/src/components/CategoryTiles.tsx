@@ -95,11 +95,11 @@ function CityCategoryGrid({ cityId }: { cityId: string }) {
     );
   }
 
-  const visible = showAll ? query.data : query.data.slice(0, 9);
+  const visible = showAll ? query.data : query.data.slice(0, 8);
 
   return (
     <div className="flex flex-col gap-6">
-      <Reveal className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+      <Reveal className="grid grid-cols-2 gap-4 sm:grid-cols-3 sm:gap-6 lg:grid-cols-4 lg:gap-8">
         {visible.map((category) => (
           <motion.div key={category.id} variants={revealItem}>
             <CategoryTile category={category} />

@@ -78,7 +78,7 @@ function CategoryGrid({ cityId }: { cityId: string }) {
   }
 
   return (
-    <Reveal className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+    <Reveal className="grid grid-cols-2 gap-4 sm:grid-cols-3 sm:gap-6 lg:grid-cols-4 lg:gap-8">
       {query.data.map((category) => (
         <motion.div key={category.id} variants={revealItem}>
           <CategoryTile category={category} />

@@ -1,20 +1,30 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
-import { Jost } from "next/font/google";
+import { Libre_Caslon_Text, Public_Sans } from "next/font/google";
 import { SiteHeader } from "@/components/SiteHeader";
 import { ToastProvider } from "@/components/ui";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
 import { Providers } from "./providers";
 import "./globals.css";
 
-// Visual-refresh only (look and feel, matching the Resido reference site):
-// Jost replaces Geist as the product's primary typeface, kept under the same
-// `--font-geist-sans` CSS variable name so tailwind.config.ts's `fontFamily.sans`
-// and every existing call site keep resolving without a second change.
-const jost = Jost({
+// "Quiet ground" visual direction (Airbnb warmth + Aesop restraint): Public
+// Sans replaces Jost as the product's body/UI typeface — a friendly, warm
+// sans in the Airbnb register — kept under the same `--font-geist-sans` CSS
+// variable name so tailwind.config.ts's `fontFamily.sans` and every existing
+// call site keep resolving without a second change.
+const publicSans = Public_Sans({
   subsets: ["latin"],
   weight: ["400", "500", "600", "700"],
   variable: "--font-geist-sans",
+  display: "swap",
+});
+// New: a quiet editorial serif for display/headline type (Aesop's register),
+// under its own `--font-display` variable — see tailwind.config.ts's
+// `fontFamily.display`/`fontFamily.serif`.
+const libreCaslonText = Libre_Caslon_Text({
+  subsets: ["latin"],
+  weight: ["400"],
+  variable: "--font-display",
   display: "swap",
 });
 const geistMono = localFont({
@@ -35,8 +45,8 @@ export const metadata: Metadata = {
 /** Paints the browser chrome to match the theme on each side of the switch. */
 export const viewport = {
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#fafafc" },
-    { media: "(prefers-color-scheme: dark)", color: "#0a0b10" },
+    { media: "(prefers-color-scheme: light)", color: "#f7f3ec" },
+    { media: "(prefers-color-scheme: dark)", color: "#1c1a16" },
   ],
 };
 
@@ -53,7 +63,7 @@ export default function RootLayout({
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
       </head>
-      <body className={`${jost.variable} ${geistMono.variable} antialiased`}>
+      <body className={`${publicSans.variable} ${libreCaslonText.variable} ${geistMono.variable} antialiased`}>
         <Providers>
           <ToastProvider>
             {/* Lets keyboard and screen-reader users jump the nav on every page. */}

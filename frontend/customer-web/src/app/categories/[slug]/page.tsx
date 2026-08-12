@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { motion } from "motion/react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { useState } from "react";
 import { ServiceCard } from "@/components/ServiceCard";
 import { ServiceGroupSection } from "@/components/ServiceGroupSection";
 import { SubcategoryChips } from "@/components/SubcategoryChips";
@@ -57,13 +58,14 @@ export default function CategoryDetailPage() {
         title={category.name}
         description={category.description}
         serviceCount={totalServiceCount}
-        breadcrumb={<Breadcrumb categoryName={category.name} />}
+        bannerUrl={category.bannerUrl}
+        breadcrumb={(light) => <Breadcrumb categoryName={category.name} light={light} />}
       />
 
       <div className="mx-auto w-full max-w-7xl px-4 py-10 sm:px-6 sm:py-14">
         {category.subcategories.length > 0 ? (
           <section aria-labelledby="subcategories-heading" className="mb-10">
-            <h2 id="subcategories-heading" className="mb-3 text-lg font-semibold tracking-tight text-fg">
+            <h2 id="subcategories-heading" className="mb-3 font-display text-lg text-fg">
               Browse by type
             </h2>
             <SubcategoryChips subcategories={category.subcategories} />
@@ -71,7 +73,7 @@ export default function CategoryDetailPage() {
         ) : null}
 
         <section aria-labelledby="services-heading">
-          <h2 id="services-heading" className="mb-5 text-lg font-semibold tracking-tight text-fg">
+          <h2 id="services-heading" className="mb-5 font-display text-lg text-fg">
             Services
             <span className="ml-2 text-sm font-normal text-fg-subtle">{totalServiceCount}</span>
           </h2>
@@ -99,7 +101,7 @@ export default function CategoryDetailPage() {
               ))}
 
               {category.services.length > 0 ? (
-                <Reveal className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <Reveal className="grid grid-cols-1 gap-5 sm:grid-cols-2 sm:gap-6 lg:grid-cols-3">
                   {category.services.map((service) => (
                     <motion.div key={service.id} variants={revealItem}>
                       <ServiceCard
@@ -123,23 +125,27 @@ export default function CategoryDetailPage() {
   );
 }
 
-function Breadcrumb({ categoryName }: { categoryName: string }) {
+function Breadcrumb({ categoryName, light }: { categoryName: string; light: boolean }) {
+  const base = light ? "text-white/75" : "text-fg-subtle";
+  const hover = light ? "hover:text-white" : "hover:text-fg";
+  const current = light ? "text-white" : "text-fg";
+
   return (
     <nav aria-label="Breadcrumb" className="text-sm">
-      <ol className="flex items-center gap-1.5 text-white/70">
+      <ol className={`flex items-center gap-1.5 ${base}`}>
         <li>
-          <Link href="/" className="hover:text-white">
+          <Link href="/" className={hover}>
             Home
           </Link>
         </li>
         <li aria-hidden>/</li>
         <li>
-          <Link href="/categories" className="hover:text-white">
+          <Link href="/categories" className={hover}>
             Categories
           </Link>
         </li>
         <li aria-hidden>/</li>
-        <li className="truncate font-medium text-white" aria-current="page">
+        <li className={`truncate font-medium ${current}`} aria-current="page">
           {categoryName}
         </li>
       </ol>
@@ -148,40 +154,68 @@ function Breadcrumb({ categoryName }: { categoryName: string }) {
 }
 
 /**
- * Full-bleed listing banner (visual-only, matching the Resido reference
- * site's "classical-property" listing page: a solid brand-600 band with
- * scattered translucent circles behind a centered title). Breaks out of the
- * page's max-w wrapper on purpose — `ListingBanner` owns its own full-width
- * background and re-applies the max-w constraint only to its inner content.
- * The service count is real (the same total the page body computes), not
- * fabricated chrome.
+ * Full-bleed listing banner. "Quiet ground" direction: a real category
+ * photo (the same `bannerUrl` field `CategoryTile` renders) with a bottom
+ * scrim for legible white text, in place of the previous flat brand-600
+ * band with decorative circles. When a category has no photo yet, this
+ * falls back to a plain warm stone panel with dark text rather than
+ * inventing an image. Breaks out of the page's max-w wrapper on purpose —
+ * `ListingBanner` owns its own full-width background and re-applies the
+ * max-w constraint only to its inner content. The service count is real
+ * (the same total the page body computes), not fabricated chrome.
  */
 function ListingBanner({
   title,
   description,
   serviceCount,
+  bannerUrl,
   breadcrumb,
 }: {
   title: string;
   description: string;
   serviceCount: number;
-  breadcrumb: React.ReactNode;
+  bannerUrl: string | null;
+  breadcrumb: (light: boolean) => React.ReactNode;
 }) {
+  const [imageFailed, setImageFailed] = useState(false);
+  const showPhoto = !!bannerUrl && !imageFailed;
+
   return (
-    <section className="listing-banner relative isolate overflow-hidden px-4 py-12 sm:px-6 sm:py-16">
-      <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
-        <span className="banner-blob absolute -left-10 -top-16 h-56 w-56" />
-        <span className="banner-blob absolute -right-16 top-6 h-72 w-72" />
-        <span className="banner-blob absolute bottom-[-4.5rem] left-1/3 h-48 w-48" />
-      </div>
+    <section className="relative isolate overflow-hidden px-4 py-12 sm:px-6 sm:py-16">
+      {showPhoto ? (
+        <>
+          {/* eslint-disable-next-line @next/next/no-img-element -- admin-supplied external URL, unsuited to static optimization. */}
+          <img
+            src={bannerUrl!}
+            alt=""
+            onError={() => setImageFailed(true)}
+            className="absolute inset-0 -z-20 h-full w-full object-cover"
+          />
+          <div aria-hidden className="photo-scrim absolute inset-0 -z-10" />
+        </>
+      ) : (
+        <div aria-hidden className="absolute inset-0 -z-10 bg-surface-2" />
+      )}
 
       <div className="relative mx-auto flex w-full max-w-7xl flex-col items-start gap-4">
-        {breadcrumb}
-        <h1 className="text-display-sm font-bold text-white sm:text-display-md">{title}</h1>
+        {breadcrumb(showPhoto)}
+        <h1 className={`font-display text-display-sm sm:text-display-md ${showPhoto ? "text-white" : "text-fg"}`}>
+          {title}
+        </h1>
         {description ? (
-          <p className="max-w-2xl text-[0.9375rem] leading-relaxed text-white/85 text-pretty">{description}</p>
+          <p
+            className={`max-w-2xl text-[0.9375rem] leading-relaxed text-pretty ${
+              showPhoto ? "text-white/85" : "text-fg-muted"
+            }`}
+          >
+            {description}
+          </p>
         ) : null}
-        <span className="mt-1 inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3.5 py-1.5 text-xs font-semibold text-white backdrop-blur-sm">
+        <span
+          className={`mt-1 inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-semibold backdrop-blur-sm ${
+            showPhoto ? "bg-white/15 text-white" : "bg-surface text-fg shadow-xs"
+          }`}
+        >
           {serviceCount} {serviceCount === 1 ? "service" : "services"} available
         </span>
       </div>
@@ -194,11 +228,11 @@ function CategoryDetailSkeleton() {
   return (
     <main className="flex w-full flex-col">
       {/* Mirrors ListingBanner's real height so the page doesn't jump when it resolves. */}
-      <div className="listing-banner h-[13.5rem] w-full sm:h-[15.5rem]" aria-hidden />
+      <div className="h-[13.5rem] w-full bg-surface-2 sm:h-[15.5rem]" aria-hidden />
 
       <div className="mx-auto w-full max-w-7xl px-4 py-10 sm:px-6 sm:py-14">
         <Skeleton className="h-6 w-28" />
-        <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2 sm:gap-6 lg:grid-cols-3">
           {Array.from({ length: 6 }, (_, index) => (
             <Skeleton key={index} className="h-72 rounded-2xl" />
           ))}

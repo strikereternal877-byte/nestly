@@ -87,6 +87,10 @@ const config: Config = {
       fontFamily: {
         sans: ["var(--font-geist-sans)", "ui-sans-serif", "system-ui", "sans-serif"],
         mono: ["var(--font-geist-mono)", "ui-monospace", "monospace"],
+        // Editorial headline face (Aesop register). `serif` is overridden
+        // too so a stray Tailwind default `font-serif` also lands correctly.
+        display: ["var(--font-display)", "Georgia", "serif"],
+        serif: ["var(--font-display)", "Georgia", "serif"],
       },
 
       fontSize: {
@@ -98,15 +102,17 @@ const config: Config = {
         "display-xl": ["3.75rem", { lineHeight: "1", letterSpacing: "-0.034em" }],
       },
 
+      // Airbnb-generous radii — bumped up from the previous scale as a
+      // deliberate part of this direction's visual language (see DESIGN.md).
       borderRadius: {
-        sm: "0.375rem",
-        DEFAULT: "0.5rem",
-        md: "0.625rem",
-        lg: "0.75rem",
-        xl: "1rem",
-        "2xl": "1.25rem",
-        "3xl": "1.5rem",
-        "4xl": "2rem",
+        sm: "0.5rem",
+        DEFAULT: "0.75rem",
+        md: "1rem",
+        lg: "1.25rem",
+        xl: "1.5rem",
+        "2xl": "1.75rem",
+        "3xl": "2rem",
+        "4xl": "2.5rem",
       },
 
       boxShadow: {

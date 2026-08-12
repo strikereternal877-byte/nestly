@@ -16,10 +16,10 @@ import type { ServiceGroupSummary } from "@/lib/types";
 export function ServiceGroupSection({ group }: { group: ServiceGroupSummary }) {
   return (
     <section aria-labelledby={`service-group-${group.id}-heading`}>
-      <h3 id={`service-group-${group.id}-heading`} className="mb-4 text-base font-semibold tracking-tight text-fg">
+      <h3 id={`service-group-${group.id}-heading`} className="mb-4 font-display text-base text-fg">
         {group.name}
       </h3>
-      <Reveal className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <Reveal className="grid grid-cols-1 gap-5 sm:grid-cols-2 sm:gap-6 lg:grid-cols-3">
         {group.services.map((service) => (
           <motion.div key={service.id} variants={revealItem}>
             <ServiceCard

@@ -16,75 +16,74 @@
  */
 
 :root {
-  /* Brand — navy-blue, matching the Resido reference's real-estate palette
-     (bg-primary #074DA3 at brand-600, its heading navy #0C2339 at brand-900,
-     its dark-button/footer navy #041B2D at brand-950). Re-skins the whole
-     product to that "listings" look without touching any component below —
-     everything downstream reads this ramp, never a hardcoded hue. */
-  --brand-50: 236 243 250;
-  --brand-100: 219 234 248;
-  --brand-200: 186 214 241;
-  --brand-300: 144 187 230;
-  --brand-400: 96 152 215;
-  --brand-500: 45 111 194;
-  --brand-600: 7 77 163;
-  --brand-700: 9 61 128;
-  --brand-800: 12 48 100;
-  --brand-900: 12 35 57;
-  --brand-950: 4 27 45;
+  /* Brand — dusty terracotta. "The Quiet Ground" direction: an Airbnb-warm,
+     Aesop-restrained synthesis. One considered accent (this ramp) carries
+     every primary CTA and highlight; nothing else in the palette competes
+     with it. Everything downstream reads this ramp, never a hardcoded hue. */
+  --brand-50: 250 237 229;
+  --brand-100: 244 221 205;
+  --brand-200: 232 191 165;
+  --brand-300: 216 155 122;
+  --brand-400: 195 118 84;
+  --brand-500: 173 89 56;
+  --brand-600: 150 71 42;
+  --brand-700: 120 56 33;
+  --brand-800: 94 44 27;
+  --brand-900: 71 35 22;
+  --brand-950: 46 23 15;
 
-  /* Accent — amber. Reserved for rewards, Nestly Coins, ratings, and
+  /* Accent — muted ochre/gold, kept a family away from brand's rust so the
+     two never compete. Reserved for rewards, Nestly Coins, ratings, and
      "highlighted value" moments. Never used for primary navigation. */
-  --accent-100: 254 243 199;
-  --accent-300: 252 211 77;
-  --accent-400: 251 191 36;
-  --accent-500: 245 158 11;
-  --accent-600: 217 119 6;
-  --accent-700: 180 83 9;
+  --accent-100: 243 230 200;
+  --accent-300: 214 178 106;
+  --accent-400: 200 155 74;
+  --accent-500: 178 130 48;
+  --accent-600: 148 106 34;
+  --accent-700: 116 82 24;
 
-  /* Semantic surfaces — light theme */
-  --bg: 250 250 252;
-  --surface: 255 255 255;
-  --surface-2: 246 247 250;
-  --surface-3: 239 241 246;
-  --overlay: 16 20 32;
+  /* Semantic surfaces — light theme. Warm ivory ground, never stark white. */
+  --bg: 247 243 236;
+  --surface: 253 251 247;
+  --surface-2: 241 236 225;
+  --surface-3: 232 225 210;
+  --overlay: 43 40 34;
 
-  /* Semantic text */
-  --fg: 16 20 32;
-  --fg-muted: 90 98 116;
-  /* Was 133 141 158: read as low as 3.2:1 on white, well under the 4.5:1 AA
-     floor for the body-sized meta text (timestamps, hints) it's actually used
-     for across the product. Darkened to clear AA against bg/surface/surface-2
-     while staying visibly lighter than --fg-muted. */
-  --fg-subtle: 102 110 128;
+  /* Semantic text — warm charcoal, never pure black. */
+  --fg: 43 40 34;
+  --fg-muted: 107 99 84;
+  /* AA-checked (WCAG contrast ratio, not eyeballed): 5.37:1 on --bg,
+     5.74:1 on --surface — both clear the 4.5:1 floor for body-sized text. */
+  --fg-subtle: 116 108 92;
+  /* AA-checked: 4.70:1 on --bg (the lightest surface it sits on), 5.02:1 on
+     --surface — clears 4.5:1 while staying visibly lighter than --fg-muted. */
   --fg-on-brand: 255 255 255;
 
   /* Lines */
-  --border: 226 229 236;
-  --border-strong: 203 208 220;
-  --ring: 7 77 163;
+  --border: 228 221 206;
+  --border-strong: 208 197 174;
+  --ring: 150 71 42;
 
   /* Status. Each has a solid tone for text/icons and a `-soft` background
-     tuned to sit behind that tone at AA contrast. Success/danger retinted to
-     the Resido reference's listing-badge hues (#009868 "Verified" green,
-     #A70A29 "For Sell"/"New" red) so status pills read like the reference. */
-  --success: 0 130 89;
-  --success-soft: 214 247 233;
-  --warning: 180 83 9;
-  --warning-soft: 254 243 199;
-  --danger: 167 10 41;
-  --danger-soft: 250 222 227;
-  --info: 29 78 216;
-  --info-soft: 219 234 254;
+     tuned to sit behind that tone at AA contrast, retinted warm so they sit
+     naturally on the ivory ground instead of reading as a cool system tint. */
+  --success: 47 122 83;
+  --success-soft: 222 236 216;
+  --warning: 148 106 34;
+  --warning-soft: 243 230 200;
+  --danger: 168 44 34;
+  --danger-soft: 248 224 217;
+  --info: 61 91 143;
+  --info-soft: 222 229 238;
 
-  /* Elevation. Layered rather than single-blur — a soft ambient shadow plus a
-     tighter contact shadow is what separates "premium" from "drop shadow". */
-  --shadow-xs: 0 1px 2px rgb(16 20 32 / 0.05);
-  --shadow-sm: 0 1px 2px rgb(16 20 32 / 0.04), 0 2px 6px -1px rgb(16 20 32 / 0.06);
-  --shadow-md: 0 2px 4px -1px rgb(16 20 32 / 0.05), 0 8px 20px -6px rgb(16 20 32 / 0.10);
-  --shadow-lg: 0 4px 8px -4px rgb(16 20 32 / 0.06), 0 16px 40px -12px rgb(16 20 32 / 0.16);
-  --shadow-xl: 0 8px 16px -8px rgb(16 20 32 / 0.08), 0 28px 64px -16px rgb(16 20 32 / 0.22);
-  --shadow-brand: 0 4px 14px -4px rgb(7 77 163 / 0.40);
+  /* Elevation. Layered rather than single-blur, tinted warm charcoal (not
+     cool black) so shadows read as part of this palette, not a leftover. */
+  --shadow-xs: 0 1px 2px rgb(43 40 34 / 0.06);
+  --shadow-sm: 0 1px 2px rgb(43 40 34 / 0.05), 0 2px 6px -1px rgb(43 40 34 / 0.07);
+  --shadow-md: 0 2px 4px -1px rgb(43 40 34 / 0.06), 0 8px 20px -6px rgb(43 40 34 / 0.12);
+  --shadow-lg: 0 4px 8px -4px rgb(43 40 34 / 0.07), 0 16px 40px -12px rgb(43 40 34 / 0.18);
+  --shadow-xl: 0 8px 16px -8px rgb(43 40 34 / 0.09), 0 28px 64px -16px rgb(43 40 34 / 0.24);
+  --shadow-brand: 0 10px 26px -8px rgb(150 71 42 / 0.45);
 
   /* Motion. A single decelerating curve everywhere keeps interactions feeling
      like one product; durations stay short enough never to gate input. */
@@ -96,41 +95,42 @@
 }
 
 .dark {
-  --bg: 10 11 16;
-  --surface: 18 20 27;
-  --surface-2: 24 27 35;
-  --surface-3: 33 37 47;
+  /* Warm near-black, never pure black. */
+  --bg: 28 26 22;
+  --surface: 36 33 27;
+  --surface-2: 44 40 34;
+  --surface-3: 54 48 40;
   --overlay: 0 0 0;
 
-  --fg: 237 239 244;
-  --fg-muted: 154 161 176;
-  /* Was 114 122 138: 4.26:1 on --surface, under the 4.5:1 AA floor for the
-     same body-sized meta text as the light-mode value above. Lightened to
-     clear AA against bg/surface/surface-2 while staying below --fg-muted. */
-  --fg-subtle: 132 140 155;
+  --fg: 243 238 228;
+  --fg-muted: 181 171 151;
+  /* AA-checked: 7.64:1 on --bg, 7.06:1 on --surface. */
+  --fg-subtle: 160 150 130;
+  /* AA-checked: 5.94:1 on --bg, 5.49:1 on --surface — clears 4.5:1 while
+     staying below --fg-muted's contrast. */
   --fg-on-brand: 255 255 255;
 
-  --border: 40 44 56;
-  --border-strong: 58 64 79;
-  --ring: 96 152 215;
+  --border: 58 53 44;
+  --border-strong: 74 68 54;
+  --ring: 195 118 84;
 
   /* Dark-mode status tones invert: the soft background becomes a low-alpha
      tint of the hue and the solid tone lightens to stay legible on it. */
-  --success: 52 211 153;
-  --success-soft: 6 42 34;
-  --warning: 252 211 77;
-  --warning-soft: 51 32 4;
-  --danger: 248 130 152;
-  --danger-soft: 58 14 26;
-  --info: 147 197 253;
-  --info-soft: 18 33 66;
+  --success: 130 199 118;
+  --success-soft: 27 41 23;
+  --warning: 214 178 106;
+  --warning-soft: 51 42 21;
+  --danger: 224 130 116;
+  --danger-soft: 51 24 20;
+  --info: 148 178 222;
+  --info-soft: 24 33 46;
 
   --shadow-xs: 0 1px 2px rgb(0 0 0 / 0.30);
   --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.35), 0 2px 6px -1px rgb(0 0 0 / 0.35);
   --shadow-md: 0 2px 4px -1px rgb(0 0 0 / 0.40), 0 8px 20px -6px rgb(0 0 0 / 0.50);
   --shadow-lg: 0 4px 8px -4px rgb(0 0 0 / 0.45), 0 16px 40px -12px rgb(0 0 0 / 0.60);
   --shadow-xl: 0 8px 16px -8px rgb(0 0 0 / 0.50), 0 28px 64px -16px rgb(0 0 0 / 0.70);
-  --shadow-brand: 0 4px 18px -4px rgb(45 111 194 / 0.55);
+  --shadow-brand: 0 10px 30px -8px rgb(195 118 84 / 0.50);
 }
 
 @layer base {
@@ -240,40 +240,16 @@
     box-shadow: inset 0 1px 0 0 rgb(255 255 255 / 0.04), var(--shadow-sm);
   }
 
-  /* Layered radial wash on the brand-950 base, replacing a flat linear
-     gradient with real depth — the difference between "CSS gradient" and
-     "designed background". Same brand hue, just used with more confidence. */
-  .hero-mesh {
-    background-color: rgb(var(--brand-950));
-    background-image:
-      radial-gradient(60% 80% at 12% 8%, rgb(var(--brand-500) / 0.55), transparent 60%),
-      radial-gradient(50% 70% at 88% 25%, rgb(var(--accent-500) / 0.25), transparent 60%),
-      radial-gradient(75% 65% at 50% 120%, rgb(var(--brand-700) / 0.7), transparent 60%);
-  }
-
-  /* Solid listing-banner fill (Resido reference's "classical-property" page
-     header) — flat brand-600, distinct from `.hero-mesh`'s gradient wash, so
-     the two banner styles read as different surfaces rather than the same
-     one reused. Paired with `.banner-blob` decorations below. */
-  .listing-banner {
-    background-color: rgb(var(--brand-600));
-  }
-
-  /* One rounded translucent shape, positioned per-instance via inline style
-     or a sibling utility — the reference banner scatters a handful of these
-     at varying sizes/opacities behind its content. Decorative only. */
-  .banner-blob {
-    border-radius: 9999px;
-    background-color: rgb(255 255 255 / 0.08);
-  }
-
-  /* Fractal-noise grain, inlined as an SVG data URI so it costs no network
-     request and no binary asset — the fine texture that separates a flat
-     gradient from a printed/tactile one. Applied at low opacity via a
-     decorative overlay div, never as the base layer. */
-  .texture-grain {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-    background-size: 160px 160px;
+  /* Editorial photo scrim — a bottom-anchored gradient so white/light overlay
+     text stays legible over a real photograph without flattening the image
+     under a uniform tint. Used by the hero and any full-bleed photo banner. */
+  .photo-scrim {
+    background-image: linear-gradient(
+      to top,
+      rgb(var(--overlay) / 0.72) 0%,
+      rgb(var(--overlay) / 0.32) 45%,
+      rgb(var(--overlay) / 0) 75%
+    );
   }
 }
 
