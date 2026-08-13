@@ -29,7 +29,6 @@ using Nestly.Application.Escrow;
 using Nestly.Application.Geography;
 using Nestly.Application.Payments;
 using Nestly.Application.Pricing;
-using Nestly.Application.Storage;
 using Nestly.Application.Notifications;
 using Nestly.Application.ProviderAvailability;
 using Nestly.Application.ProviderEarnings;
@@ -204,16 +203,9 @@ public static class DependencyInjection
             .Bind(configuration.GetSection(ReferralOptions.SectionName))
             .ValidateDataAnnotations();
 
-        // Job-completion photo upload: not a secret, has a safe
-        // production-sensible default - same reasoning as CommissionOptions
-        // above. Swap point once docs/DEVOPS.md's storage-provider OPEN
-        // DECISION is resolved: register a different IFileStorageService
-        // implementation, this options section stays local-disk-only.
-        services
-            .AddOptions<FileStorageOptions>()
-            .Bind(configuration.GetSection(FileStorageOptions.SectionName))
-            .ValidateDataAnnotations();
-        services.AddSingleton<IFileStorageService, LocalDiskFileStorageService>();
+        // Job-completion photo / CMS media upload: Supabase Storage when
+        // configured, local disk otherwise - see FileStorageRegistration.
+        services.AddFileStorage(configuration);
 
         // Task 178: not a secret, has safe production-sensible defaults,
         // same reasoning as CommissionOptions above - no ValidateOnStart.
