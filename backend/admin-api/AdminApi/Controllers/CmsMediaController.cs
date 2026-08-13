@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Nestly.Application.Cms;
+using Nestly.Application.Storage;
 using Nestly.BuildingBlocks.Extensions;
 using Nestly.Domain;
 using Nestly.Infrastructure;
@@ -114,14 +115,14 @@ public class CmsMediaController : ControllerBase
         }
 
         await using var stream = file.OpenReadStream();
-        var relativeRef = await _mediaService.SaveFileAsync(stream, file.FileName, file.ContentType);
+        var storedRef = await _mediaService.SaveFileAsync(stream, file.FileName, file.ContentType);
 
-        // IFileStorageService only knows the ref relative to this API's own
-        // origin - resolved to an absolute URL here (not in the service,
-        // which has no HTTP context) so the stored CmsMedia.Url works when
-        // read back from any origin: customer-web, admin-web, anywhere else
-        // this library is rendered from.
-        var absoluteUrl = $"{Request.Scheme}://{Request.Host}{relativeRef}";
+        // IFileStorageService's result may already be absolute (Supabase) or
+        // relative to this API's own origin (local disk) - resolved here
+        // (not in the service, which has no HTTP context) so the stored
+        // CmsMedia.Url works when read back from any origin: customer-web,
+        // admin-web, anywhere else this library is rendered from.
+        var absoluteUrl = FileReferenceUrl.ToAbsolute(storedRef, Request.Scheme, Request.Host.ToString());
         var createResult = await _mediaService.CreateAsync(new CmsMediaCreateRequest(absoluteUrl, altText));
         return createResult.IsSuccess
             ? CreatedAtAction(nameof(GetById), new { id = createResult.Value.Id }, createResult.Value)

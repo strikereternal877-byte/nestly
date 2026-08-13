@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Nestly.Application.Bookings;
 using Nestly.Application.ProviderJobs;
+using Nestly.Application.Storage;
 using Nestly.BuildingBlocks.Extensions;
 using Nestly.Infrastructure;
 
@@ -245,12 +246,12 @@ public class JobsController : ControllerBase
             return result.ToProblemResult();
         }
 
-        // The service returns a ref relative to this API's own origin
-        // (IFileStorageService doesn't know about HTTP); resolved to an
-        // absolute URL here so it's directly usable as an <img src> by
-        // provider-web today and, per BookingCompletionProofResponse's doc
-        // comment, by admin-web/customer-web once they render it too.
-        var absoluteRef = $"{Request.Scheme}://{Request.Host}{result.Value.PhotoRef}";
+        // The service's ref may already be absolute (Supabase) or relative
+        // to this API's own origin (local disk) - resolved here so it's
+        // directly usable as an <img src> by provider-web today and, per
+        // BookingCompletionProofResponse's doc comment, by admin-web/
+        // customer-web once they render it too.
+        var absoluteRef = FileReferenceUrl.ToAbsolute(result.Value.PhotoRef, Request.Scheme, Request.Host.ToString());
         return Ok(new UploadCompletionPhotoResponse(absoluteRef));
     }
 
