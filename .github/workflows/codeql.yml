@@ -118,11 +118,11 @@ jobs:
             build-mode: none
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
         if: matrix.language == 'csharp'
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           # Same pin as ci.yml. CodeQL's C# extractor traces a real compile,
           # so it must be the same SDK that compiles in CI - a different
