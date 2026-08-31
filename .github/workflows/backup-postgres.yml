@@ -44,7 +44,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install PostgreSQL client tools
         run: |
@@ -65,7 +65,7 @@ jobs:
 
       - name: Upload as workflow artifact (interim fallback only)
         if: ${{ secrets.BACKUP_S3_BUCKET == '' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: postgres-backup-${{ github.run_id }}
           path: database/backups/*.dump
