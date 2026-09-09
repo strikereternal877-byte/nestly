@@ -270,7 +270,7 @@ public sealed class PostBookingQaSuiteTests : IClassFixture<TestDatabase>
     private static void AdvanceTo(Booking booking, BookingStatus target)
     {
         // BookingService.CreateAsync already leaves a freshly created
-        // booking at PaymentPending (see NoPaymentGatewayReason) - this
+        // booking at PaymentPending (see AwaitingPaymentReason) - this
         // only walks it further, in the order BookingLifecycle allows.
         if (target == BookingStatus.PaymentPending) { return; }
 

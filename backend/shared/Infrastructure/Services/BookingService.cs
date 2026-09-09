@@ -17,8 +17,17 @@ namespace Nestly.Infrastructure.Services;
 /// <summary>Booking creation and reads (SRS 13, tasks 58-61).</summary>
 public class BookingService : IBookingService
 {
-    /// <summary>Recorded on the auto-transition to PaymentPending, since there is no real payment gateway integration yet to explain it instead (Phase 4).</summary>
-    private const string NoPaymentGatewayReason = "No payment gateway integrated yet - booking moves directly to awaiting payment.";
+    /// <summary>
+    /// Recorded on the auto-transition to PaymentPending.
+    ///
+    /// Every status reason on a booking is rendered verbatim in the customer's
+    /// own timeline (see the customer booking detail page), so this has to read
+    /// as customer copy - it previously carried an internal note about the
+    /// payment gateway not being integrated, which told customers the platform
+    /// had no working payment integration. Keep the sibling
+    /// <see cref="NothingPayableReason"/>'s register.
+    /// </summary>
+    private const string AwaitingPaymentReason = "Awaiting payment to confirm this booking.";
 
     /// <summary>
     /// Task 331: recorded on the auto-transition to Confirmed taken by a
@@ -405,7 +414,7 @@ public class BookingService : IBookingService
             }
             else
             {
-                booking.TransitionTo(BookingStatus.PaymentPending, NoPaymentGatewayReason);
+                booking.TransitionTo(BookingStatus.PaymentPending, AwaitingPaymentReason);
             }
 
             if (!await _bookingRepository.TryAddAsync(booking))
