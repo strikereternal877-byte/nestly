@@ -317,6 +317,17 @@ export interface SlotAvailability {
   reason: SlotUnavailabilityReason;
 }
 
+/** One day inside a {@link SlotRange} - `SlotAvailability` plus the date it describes. */
+export interface SlotDayAvailability extends SlotAvailability {
+  /** `YYYY-MM-DD`. */
+  date: string;
+}
+
+/** Availability for a run of dates in one response, in date order (GET /slots/range). */
+export interface SlotRange {
+  days: SlotDayAvailability[];
+}
+
 export interface SlotRevalidation {
   isValid: boolean;
   reason: string | null;

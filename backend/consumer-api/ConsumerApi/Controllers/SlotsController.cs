@@ -28,6 +28,21 @@ public class SlotsController : ControllerBase
         return result.IsSuccess ? Ok(result.Value) : result.ToProblemResult();
     }
 
+    /// <summary>Availability for every date in a range - one call for a whole date strip.</summary>
+    [HttpGet("range")]
+    [ProducesResponseType(typeof(SlotRangeResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetAvailableSlotsRange(
+        [FromQuery] Guid serviceId,
+        [FromQuery] Guid localityId,
+        [FromQuery] DateOnly from,
+        [FromQuery] DateOnly to)
+    {
+        var result = await _slotAvailabilityService.GetAvailableSlotsRangeAsync(serviceId, localityId, from, to);
+        return result.IsSuccess ? Ok(result.Value) : result.ToProblemResult();
+    }
+
     /// <summary>Re-checks a previously offered slot right before booking confirmation.</summary>
     [HttpGet("revalidate")]
     [ProducesResponseType(typeof(SlotRevalidationResponse), StatusCodes.Status200OK)]

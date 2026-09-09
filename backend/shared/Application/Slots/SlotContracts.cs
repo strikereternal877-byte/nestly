@@ -53,3 +53,19 @@ public record SlotAvailabilityResponse(
     SlotUnavailabilityReason Reason = SlotUnavailabilityReason.None);
 
 public record SlotRevalidationResponse(bool IsValid, string? Reason);
+
+/// <summary>One day's availability inside a <see cref="SlotRangeResponse"/> - the per-date payload plus the date it belongs to.</summary>
+public record SlotDayAvailabilityResponse(
+    DateOnly Date,
+    bool IsServiceable,
+    IReadOnlyList<SlotOptionResponse> Slots,
+    SlotUnavailabilityReason Reason = SlotUnavailabilityReason.None);
+
+/// <summary>
+/// Availability for a contiguous run of dates, in date order.
+///
+/// Exists because the date strip needs every visible day at once to know
+/// which chips to disable, and was fetching them one request per day - seven
+/// serial round-trips against the availability API for a single page.
+/// </summary>
+public record SlotRangeResponse(IReadOnlyList<SlotDayAvailabilityResponse> Days);

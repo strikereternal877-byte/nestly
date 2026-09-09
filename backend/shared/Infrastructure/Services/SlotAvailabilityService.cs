@@ -119,6 +119,54 @@ public class SlotAvailabilityService : ISlotAvailabilityService
             : new SlotAvailabilityResponse(IsServiceable: true, Slots: slots);
     }
 
+    /// <summary>The widest range one call may ask for - comfortably past any city's MaxAdvanceDays, and a bound on what a single request can cost.</summary>
+    private const int MaxRangeDays = 31;
+
+    public async Task<Result<SlotRangeResponse>> GetAvailableSlotsRangeAsync(
+        Guid serviceId,
+        Guid localityId,
+        DateOnly from,
+        DateOnly to)
+    {
+        if (to < from)
+        {
+            return Error.Validation("Slots.InvalidRange", "The end date must not be before the start date.");
+        }
+
+        int dayCount = to.DayNumber - from.DayNumber + 1;
+        if (dayCount > MaxRangeDays)
+        {
+            return Error.Validation("Slots.RangeTooWide", $"A slot range may cover at most {MaxRangeDays} days.");
+        }
+
+        var days = new List<SlotDayAvailabilityResponse>(dayCount);
+
+        // ponytail: loops the existing per-date calculation rather than
+        // rewriting it as one set-based query. The win being claimed here is
+        // the HTTP round-trips - the date strip went from seven serial
+        // requests to one, which is what a customer on a slow connection
+        // actually feels - and the per-date logic stays the single source of
+        // truth for what "bookable" means. If the database work itself becomes
+        // the bottleneck, batch the blackout/window/capacity lookups across
+        // the whole range instead of per day.
+        for (int offset = 0; offset < dayCount; offset++)
+        {
+            DateOnly date = from.AddDays(offset);
+            var result = await GetAvailableSlotsAsync(serviceId, localityId, date);
+
+            // A failure here is date-independent (an unknown locality, an
+            // unknown service), so it is the answer for the whole range.
+            if (result.IsFailure)
+            {
+                return result.Error;
+            }
+
+            days.Add(new SlotDayAvailabilityResponse(date, result.Value.IsServiceable, result.Value.Slots, result.Value.Reason));
+        }
+
+        return new SlotRangeResponse(days);
+    }
+
     /// <summary>
     /// Drops the windows that have already taken every seat they are allowed
     /// for <paramref name="date"/>. Windows with no configured capacity are

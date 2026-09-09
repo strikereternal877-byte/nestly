@@ -9,6 +9,13 @@ public interface ISlotAvailabilityService
     Task<Result<SlotAvailabilityResponse>> GetAvailableSlotsAsync(Guid serviceId, Guid localityId, DateOnly date);
 
     /// <summary>
+    /// The same answer as <see cref="GetAvailableSlotsAsync"/> for every date
+    /// from <paramref name="from"/> to <paramref name="to"/> inclusive, in
+    /// date order - one call for the whole date strip instead of one per day.
+    /// </summary>
+    Task<Result<SlotRangeResponse>> GetAvailableSlotsRangeAsync(Guid serviceId, Guid localityId, DateOnly from, DateOnly to);
+
+    /// <summary>
     /// Re-checks a previously offered slot right before booking confirmation
     /// (task 45d) - cutoff, blackout, or serviceability may have changed
     /// since the customer picked it.

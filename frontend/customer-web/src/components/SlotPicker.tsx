@@ -1,11 +1,11 @@
 "use client";
 
-import { useQueries } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { Alert, Button, Skeleton, cx } from "@/components/ui";
 import { API_V1, apiFetch, describeError } from "@/lib/api";
 import { SlotUnavailabilityReason } from "@/lib/types";
-import type { SlotAvailability } from "@/lib/types";
+import type { SlotDayAvailability, SlotRange } from "@/lib/types";
 
 /** How many upcoming days are offered in the date strip (SRS 11.8.2's "available dates"). */
 const VISIBLE_DAYS = 7;
@@ -146,18 +146,23 @@ export function SlotPicker({
   const [dates, setDates] = useState<string[]>([]);
   useEffect(() => setDates(upcomingDates()), []);
 
-  const queries = useQueries({
-    queries: dates.map((date) => ({
-      queryKey: ["slots", serviceId, localityId, date],
-      queryFn: () =>
-        apiFetch<SlotAvailability>(
-          `${API_V1}/slots?serviceId=${serviceId}&localityId=${localityId}&date=${date}`,
-        ),
-    })),
+  // One request for the whole strip. This used to be one query per visible
+  // day - seven serial round-trips before the picker could say anything,
+  // which on a slow connection was the longest wait in the booking flow.
+  const rangeFrom = dates[0];
+  const rangeTo = dates[dates.length - 1];
+
+  const rangeQuery = useQuery({
+    queryKey: ["slots-range", serviceId, localityId, rangeFrom, rangeTo],
+    queryFn: () =>
+      apiFetch<SlotRange>(
+        `${API_V1}/slots/range?serviceId=${serviceId}&localityId=${localityId}&from=${rangeFrom}&to=${rangeTo}`,
+      ),
+    enabled: dates.length > 0,
   });
 
-  const selectedIndex = dates.indexOf(selectedDate);
-  const selectedQuery = selectedIndex >= 0 ? queries[selectedIndex] : undefined;
+  const dayByDate = new Map((rangeQuery.data?.days ?? []).map((day) => [day.date, day]));
+  const selectedDay = dayByDate.get(selectedDate);
 
   // The strip opens on today, which is routinely past its booking cutoff by
   // the time anyone is checking out - the customer landed on "Bookings have
@@ -171,25 +176,22 @@ export function SlotPicker({
   // correction rather than re-running as the queries refetch.
   const hasCorrectedDate = useRef(false);
   useEffect(() => {
-    if (hasCorrectedDate.current || dates.length === 0) return;
-    if (queries.length !== dates.length || queries.some((query) => query.isPending)) return;
+    if (hasCorrectedDate.current || dates.length === 0 || !rangeQuery.isSuccess) return;
 
-    const isBookable = (index: number) => {
-      const query = queries[index];
-      return query.isSuccess && query.data.isServiceable && query.data.slots.length > 0;
-    };
+    const days = rangeQuery.data.days;
+    const isBookable = (day: SlotDayAvailability | undefined) =>
+      day !== undefined && day.isServiceable && day.slots.length > 0;
 
     hasCorrectedDate.current = true;
 
-    const currentIndex = dates.indexOf(selectedDate);
-    if (currentIndex >= 0 && isBookable(currentIndex)) return;
+    if (isBookable(days.find((day) => day.date === selectedDate))) return;
 
-    const firstBookable = dates.findIndex((_, index) => isBookable(index));
-    if (firstBookable >= 0) {
-      onDateChange(dates[firstBookable]);
+    const firstBookable = days.find(isBookable);
+    if (firstBookable) {
+      onDateChange(firstBookable.date);
       onSlotChange(null, null);
     }
-  }, [dates, queries, selectedDate, onDateChange, onSlotChange]);
+  }, [dates, rangeQuery.isSuccess, rangeQuery.data, selectedDate, onDateChange, onSlotChange]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -200,17 +202,17 @@ export function SlotPicker({
             ? Array.from({ length: VISIBLE_DAYS }, (_, index) => (
                 <Skeleton key={index} className="h-[3.25rem] w-[4.75rem] shrink-0 rounded-xl" />
               ))
-            : dates.map((date, index) => {
-                const query = queries[index];
+            : dates.map((date) => {
+                const dayAvailability = dayByDate.get(date);
                 const { weekday, day } = formatDateLabel(date);
                 // A date is disabled once we know for certain it has nothing
                 // bookable; while still loading (or on a fetch error) it stays
                 // selectable rather than guessing.
-                const knownEmpty = query.isSuccess && query.data.slots.length === 0;
-                const notServiceable = query.isSuccess && !query.data.isServiceable;
+                const knownEmpty = dayAvailability !== undefined && dayAvailability.slots.length === 0;
+                const notServiceable = dayAvailability !== undefined && !dayAvailability.isServiceable;
                 const disabled = knownEmpty || notServiceable;
                 const isSelected = date === selectedDate;
-                const emptyReason = query.isSuccess ? query.data.reason : undefined;
+                const emptyReason = dayAvailability?.reason;
 
                 return (
                   <button
@@ -255,39 +257,39 @@ export function SlotPicker({
       <div>
         <h3 className="mb-2.5 text-sm font-medium text-fg">Time window</h3>
 
-        {!selectedQuery || selectedQuery.isPending ? (
+        {rangeQuery.isPending || (rangeQuery.isSuccess && selectedDay === undefined) ? (
           <div className="flex flex-wrap gap-2">
             {Array.from({ length: 6 }, (_, index) => (
               <Skeleton key={index} className="h-11 w-36 rounded-xl" />
             ))}
           </div>
-        ) : selectedQuery.isError ? (
+        ) : rangeQuery.isError ? (
           <Alert
             tone="error"
             action={
-              <Button size="sm" variant="secondary" onClick={() => selectedQuery.refetch()}>
+              <Button size="sm" variant="secondary" onClick={() => rangeQuery.refetch()}>
                 Retry
               </Button>
             }
           >
-            {describeError(selectedQuery.error)}
+            {describeError(rangeQuery.error)}
           </Alert>
-        ) : !selectedQuery.data.isServiceable ? (
+        ) : !selectedDay!.isServiceable ? (
           <Alert tone="error" title={UNAVAILABILITY_COPY[SlotUnavailabilityReason.NotServiceable]!.title}>
             {UNAVAILABILITY_COPY[SlotUnavailabilityReason.NotServiceable]!.description}
           </Alert>
-        ) : selectedQuery.data.slots.length === 0 ? (
+        ) : selectedDay!.slots.length === 0 ? (
           <Alert
             tone="info"
-            title={UNAVAILABILITY_COPY[selectedQuery.data.reason]?.title ?? "No slots on this date"}
+            title={UNAVAILABILITY_COPY[selectedDay!.reason]?.title ?? "No slots on this date"}
           >
-            {UNAVAILABILITY_COPY[selectedQuery.data.reason]?.description ??
+            {UNAVAILABILITY_COPY[selectedDay!.reason]?.description ??
               "Pick another day from the strip above."}
           </Alert>
         ) : (
           <div className="flex flex-col gap-4">
             {PARTS.map((part) => {
-              const slots = selectedQuery.data.slots.filter(
+              const slots = selectedDay!.slots.filter(
                 (slot) => partOfDay(slot.startTime) === part.key,
               );
               if (slots.length === 0) return null;

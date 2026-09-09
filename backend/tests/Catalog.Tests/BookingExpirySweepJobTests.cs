@@ -44,6 +44,9 @@ public sealed class BookingExpirySweepJobTests : IClassFixture<TestDatabase>
         public Task<Result<SlotAvailabilityResponse>> GetAvailableSlotsAsync(Guid serviceId, Guid localityId, DateOnly date) =>
             throw new NotImplementedException();
 
+        public Task<Result<SlotRangeResponse>> GetAvailableSlotsRangeAsync(Guid serviceId, Guid localityId, DateOnly from, DateOnly to) =>
+            throw new NotImplementedException();
+
         public Task<Result<SlotRevalidationResponse>> RevalidateSlotAsync(Guid serviceId, Guid localityId, Guid slotWindowId, DateOnly date) =>
             throw new NotImplementedException();
 
