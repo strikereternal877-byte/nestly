@@ -1,7 +1,7 @@
 "use client";
 
 import { useQueries } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Alert, Button, Skeleton, cx } from "@/components/ui";
 import { API_V1, apiFetch, describeError } from "@/lib/api";
 import { SlotUnavailabilityReason } from "@/lib/types";
@@ -158,6 +158,38 @@ export function SlotPicker({
 
   const selectedIndex = dates.indexOf(selectedDate);
   const selectedQuery = selectedIndex >= 0 ? queries[selectedIndex] : undefined;
+
+  // The strip opens on today, which is routinely past its booking cutoff by
+  // the time anyone is checking out - the customer landed on "Bookings have
+  // closed for this date" and had to work out for themselves that the next
+  // day was fine. Once every day has answered, move the selection to the
+  // first one that actually has slots.
+  //
+  // Only ever fires for the initial default: a chip with nothing bookable is
+  // rendered disabled above, so a date the customer picked themselves is
+  // always bookable and is never overridden. The ref keeps this to a single
+  // correction rather than re-running as the queries refetch.
+  const hasCorrectedDate = useRef(false);
+  useEffect(() => {
+    if (hasCorrectedDate.current || dates.length === 0) return;
+    if (queries.length !== dates.length || queries.some((query) => query.isPending)) return;
+
+    const isBookable = (index: number) => {
+      const query = queries[index];
+      return query.isSuccess && query.data.isServiceable && query.data.slots.length > 0;
+    };
+
+    hasCorrectedDate.current = true;
+
+    const currentIndex = dates.indexOf(selectedDate);
+    if (currentIndex >= 0 && isBookable(currentIndex)) return;
+
+    const firstBookable = dates.findIndex((_, index) => isBookable(index));
+    if (firstBookable >= 0) {
+      onDateChange(dates[firstBookable]);
+      onSlotChange(null, null);
+    }
+  }, [dates, queries, selectedDate, onDateChange, onSlotChange]);
 
   return (
     <div className="flex flex-col gap-6">
