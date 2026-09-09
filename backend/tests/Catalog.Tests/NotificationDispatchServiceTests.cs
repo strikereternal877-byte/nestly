@@ -131,7 +131,7 @@ public sealed class NotificationDispatchServiceTests : IClassFixture<TestDatabas
         outcomes.Should().HaveCount(2);
         outcomes.Should().OnlyContain(o => o.Status == NotificationDeliveryStatus.Sent);
         provider.SentSms.Should().ContainSingle(s => s.Message.Contains("Asha"));
-        provider.SentEmails.Should().ContainSingle(e => e.Subject == "Welcome to Nestly");
+        provider.SentEmails.Should().ContainSingle(e => e.Subject == "Welcome to Glavyx");
 
         using var readContext = _db.CreateContext();
         var logged = await new NotificationEventRepository(readContext).ListByCustomerAsync(customerId);
@@ -229,7 +229,7 @@ public sealed class NotificationDispatchServiceTests : IClassFixture<TestDatabas
         outcomes.Should().HaveCount(2);
         outcomes.Should().OnlyContain(o => o.Channel == NotificationChannel.Push && o.Status == NotificationDeliveryStatus.Sent);
         pushProvider.SentPushes.Select(p => p.DeviceToken).Should().BeEquivalentTo(["device-a", "device-b"]);
-        pushProvider.SentPushes.Should().OnlyContain(p => p.Title == "Welcome to Nestly" && p.Body.Contains("Asha"));
+        pushProvider.SentPushes.Should().OnlyContain(p => p.Title == "Welcome to Glavyx" && p.Body.Contains("Asha"));
     }
 
     [Fact]

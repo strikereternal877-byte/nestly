@@ -39,7 +39,7 @@ public sealed class NotificationTemplateRendererTests
             NotificationEventType.BookingConfirmed, NotificationChannel.Email,
             new Dictionary<string, string> { ["CustomerName"] = "Asha", ["ServiceName"] = "Deep Clean", ["SlotDate"] = "2026-08-01", ["SlotWindow"] = "Morning", ["TotalPayable"] = "999" });
 
-        rendered.Subject.Should().Be("Your Nestly booking is confirmed");
+        rendered.Subject.Should().Be("Your Glavyx booking is confirmed");
         rendered.Body.Should().Contain("Deep Clean").And.Contain("999");
     }
 
