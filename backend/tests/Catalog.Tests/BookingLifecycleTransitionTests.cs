@@ -43,7 +43,15 @@ public sealed class BookingLifecycleTransitionTests
         new Dictionary<BookingStatus, BookingStatus[]>
         {
             [BookingStatus.Initiated] = [BookingStatus.PaymentPending, BookingStatus.Confirmed, BookingStatus.CancelledByCustomer],
-            [BookingStatus.PaymentPending] = [BookingStatus.Confirmed, BookingStatus.PaymentFailed, BookingStatus.CancelledByCustomer, BookingStatus.Expired],
+            // CancelledByAdmin is a deliberate addition to the SRS 13.1 matrix:
+            // PaymentPending was the only cancellable state admin could not act
+            // on, so ops handling a customer on the phone about a payment that
+            // will never arrive could only wait out BookingExpirySweepJob's
+            // 20-minute window - and nothing at all when the background job
+            // server is disabled. Cancelling an unfunded booking raises no
+            // refund (CancellationService resolves the refundable amount from
+            // settled payments only) and returns the slot seat to the pool.
+            [BookingStatus.PaymentPending] = [BookingStatus.Confirmed, BookingStatus.PaymentFailed, BookingStatus.CancelledByCustomer, BookingStatus.CancelledByAdmin, BookingStatus.Expired],
             [BookingStatus.PaymentFailed] = [BookingStatus.PaymentPending, BookingStatus.CancelledByCustomer, BookingStatus.CancelledByAdmin],
             [BookingStatus.Confirmed] = [BookingStatus.AwaitingFulfilment, BookingStatus.Rescheduled, BookingStatus.CancelledByCustomer, BookingStatus.CancelledByAdmin],
             [BookingStatus.AwaitingFulfilment] = [BookingStatus.Assigned, BookingStatus.Rescheduled, BookingStatus.CancelledByCustomer, BookingStatus.CancelledByAdmin],

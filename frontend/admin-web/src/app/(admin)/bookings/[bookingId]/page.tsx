@@ -327,6 +327,7 @@ export default function BookingDetailPage() {
   // the API reject it with "A booking in status 'X' can no longer be
   // cancelled." Gating the card itself surfaces that up front instead.
   const isCancellableByAdmin = [
+    BookingStatus.PaymentPending,
     BookingStatus.PaymentFailed,
     BookingStatus.Confirmed,
     BookingStatus.AwaitingFulfilment,

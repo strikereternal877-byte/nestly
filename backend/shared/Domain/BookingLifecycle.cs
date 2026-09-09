@@ -18,7 +18,14 @@ public static class BookingLifecycle
         // was a dead end for it: PaymentTransaction rejects a non-positive
         // amount, so nothing could ever move it on to Confirmed.
         [BookingStatus.Initiated] = [BookingStatus.PaymentPending, BookingStatus.Confirmed, BookingStatus.CancelledByCustomer],
-        [BookingStatus.PaymentPending] = [BookingStatus.Confirmed, BookingStatus.PaymentFailed, BookingStatus.CancelledByCustomer, BookingStatus.Expired],
+        // CancelledByAdmin added: PaymentPending was the only cancellable
+        // state that admin could not act on - even PaymentFailed below allows
+        // it - so a booking stuck awaiting a payment that will never arrive
+        // could only be waited out. BookingExpirySweepJob does expire it after
+        // BookingExpiryOptions.ExpiryMinutes, but that is a 20-minute wait an
+        // ops user handling a customer on the phone should not have to sit
+        // through, and it does nothing when the background job server is off.
+        [BookingStatus.PaymentPending] = [BookingStatus.Confirmed, BookingStatus.PaymentFailed, BookingStatus.CancelledByCustomer, BookingStatus.CancelledByAdmin, BookingStatus.Expired],
         [BookingStatus.PaymentFailed] = [BookingStatus.PaymentPending, BookingStatus.CancelledByCustomer, BookingStatus.CancelledByAdmin],
         [BookingStatus.Confirmed] = [BookingStatus.AwaitingFulfilment, BookingStatus.Rescheduled, BookingStatus.CancelledByCustomer, BookingStatus.CancelledByAdmin],
         [BookingStatus.AwaitingFulfilment] = [BookingStatus.Assigned, BookingStatus.Rescheduled, BookingStatus.CancelledByCustomer, BookingStatus.CancelledByAdmin],
