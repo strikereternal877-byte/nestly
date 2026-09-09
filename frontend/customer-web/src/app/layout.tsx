@@ -6,6 +6,7 @@ import { OfflineBanner } from "@/components/OfflineBanner";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
 import { ToastProvider } from "@/components/ui";
+import { siteUrl } from "@/lib/site-url";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
 import { Providers } from "./providers";
 import "./globals.css";
@@ -27,6 +28,9 @@ const geistMono = localFont({
 });
 
 export const metadata: Metadata = {
+  // Without this, the per-page `canonical` and `og:image` values resolve as
+  // relative paths, which crawlers and link unfurlers cannot follow.
+  metadataBase: new URL(siteUrl()),
   title: {
     default: "Glavyx — Trusted home services, booked in minutes",
     template: "%s · Glavyx",

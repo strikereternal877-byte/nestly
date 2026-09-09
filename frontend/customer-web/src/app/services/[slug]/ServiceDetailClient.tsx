@@ -11,6 +11,7 @@ import { ServiceFaqs } from "@/components/ServiceFaqs";
 import { STICKY_BAR_SPACER, StickyActionBar } from "@/components/patterns";
 import { Alert, Button, LinkButton, Skeleton, cx } from "@/components/ui";
 import { useSelectedCity } from "@/hooks/useSelectedCity";
+import { useServiceability } from "@/hooks/useServiceability";
 import { API_V1, apiFetch, describeError } from "@/lib/api";
 import type { ServiceDetail } from "@/lib/types";
 
@@ -120,15 +121,41 @@ export default function ServiceDetailPage() {
                 <Link><Button/></Link>: nesting a button inside an anchor is
                 invalid HTML and gives assistive tech two nested interactive
                 elements for one action. */}
-            <StickyActionBar>
-              <LinkButton href={`/booking/summary?serviceSlug=${service.slug}`} size="lg" fullWidth>
-                Book now
-              </LinkButton>
-            </StickyActionBar>
+            <BookingCta service={service} />
           </aside>
         </div>
       </div>
     </main>
+  );
+}
+
+/**
+ * The booking CTA, in its own component so it can read serviceability: the
+ * page's own early returns for loading/error sit above this point, so a hook
+ * called there would break hook ordering.
+ *
+ * When the API has positively said the service is not offered at the chosen
+ * locality, the funnel entry becomes a disabled button rather than a live
+ * link - previously a full-width enabled "Book now" rendered directly under
+ * the "Not available here" error and happily started a booking that could
+ * never be fulfilled. Loading and error states leave the link enabled: only a
+ * definite "no" blocks the customer.
+ */
+function BookingCta({ service }: { service: ServiceDetail }) {
+  const { isUnserviceable } = useServiceability(service.id);
+
+  return (
+    <StickyActionBar>
+      {isUnserviceable ? (
+        <Button size="lg" fullWidth disabled>
+          Not available in your area
+        </Button>
+      ) : (
+        <LinkButton href={`/booking/summary?serviceSlug=${service.slug}`} size="lg" fullWidth>
+          Book now
+        </LinkButton>
+      )}
+    </StickyActionBar>
   );
 }
 
