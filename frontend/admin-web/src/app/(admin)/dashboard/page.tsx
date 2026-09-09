@@ -144,17 +144,40 @@ export default function DashboardPage() {
     placeholderData: keepPreviousData,
   });
 
+  // The tiles count bookings by CreatedAtUtc across the selected days
+  // (DashboardQueryService.GetKpisAsync), treating dateFrom as UTC midnight
+  // and dateTo as UTC end-of-day. The list below has to ask the same
+  // question: it used to filter on slotDate, so any booking whose slot fell
+  // outside the window it was created in counted in the tile and vanished
+  // from the list - "Bookings 6" above "Showing ... of 1". The booking search
+  // compares CreatedAtUtc with the same inclusive bounds
+  // (BookingRepository.SearchAsync), so these line up exactly.
+  const createdFromUtc = filters.dateFrom ? `${filters.dateFrom}T00:00:00.000Z` : undefined;
+  const createdToUtc = filters.dateTo ? `${filters.dateTo}T23:59:59.999Z` : undefined;
+
+  // The KPI endpoint matches category by slug, the booking search by id, so
+  // the typed slug is resolved through the same list that backs the filter's
+  // suggestions. Previously the category filter was simply not passed here,
+  // leaving the list unfiltered while the tiles honoured it.
+  const categoryFilter = filters.category?.trim().toLowerCase();
+  const categoryId = categoryFilter
+    ? categoriesQuery.data?.find((category) => category.slug.toLowerCase() === categoryFilter)?.id
+    : undefined;
+
   const recentBookings = useQuery({
-    queryKey: ["dashboard-recent-bookings", filters.dateFrom, filters.dateTo, filters.city],
+    queryKey: ["dashboard-recent-bookings", createdFromUtc, createdToUtc, filters.city, categoryId],
     queryFn: () =>
       searchBookings({
-        slotDateFrom: filters.dateFrom,
-        slotDateTo: filters.dateTo,
+        createdFromUtc,
+        createdToUtc,
         city: filters.city,
+        categoryId,
         page: 1,
         pageSize: RECENT_BOOKINGS_PAGE_SIZE,
       }),
-    enabled: canReadBookings,
+    // Waiting for the slug to resolve keeps the list from flashing an
+    // unfiltered page while the category list is still loading.
+    enabled: canReadBookings && (!categoryFilter || categoryId !== undefined),
     placeholderData: keepPreviousData,
   });
 
@@ -448,7 +471,7 @@ export default function DashboardPage() {
             footer={
               <div className="flex items-center justify-between gap-3">
                 <span className="text-sm text-fg-muted">
-                  Showing up to <span className="nums">{RECENT_BOOKINGS_PAGE_SIZE}</span> of{" "}
+                  Showing <span className="nums">{recentBookings.data?.items.length ?? 0}</span> of{" "}
                   <span className="nums font-medium text-fg">
                     {(recentBookings.data?.totalCount ?? 0).toLocaleString("en-IN")}
                   </span>
