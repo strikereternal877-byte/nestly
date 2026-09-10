@@ -106,4 +106,22 @@ export interface UpdateSkillsRequest {
   skills: ProviderSkillInput[];
 }
 
+/**
+ * One prerequisite on the go-live checklist (docs/OPEN-FIXES-FEATURES.csv
+ * "Provider Web, Proposed new page, Onboarding checklist and go-live
+ * status"). `key` is what the UI switches on to pick a fix-it link; `label`
+ * is ready to render as-is.
+ */
+export interface GoLiveCheck {
+  key: "kycApproved" | "hasActiveSkill" | "hasActiveServiceArea" | "hasAvailability" | (string & {});
+  label: string;
+  isComplete: boolean;
+}
+
+/** `GET /profile/go-live-status` - whether the provider is missing any prerequisite to start receiving work. */
+export interface GoLiveStatus {
+  isGoLiveReady: boolean;
+  checks: GoLiveCheck[];
+}
+
 export type { ProviderProfile };

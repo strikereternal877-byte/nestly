@@ -4,6 +4,7 @@
  */
 import { API_V1, apiFetch, apiUpload } from "./api";
 import type {
+  GoLiveStatus,
   KycStatusResponse,
   ServiceArea,
   SubmitKycDocumentRequest,
@@ -87,3 +88,11 @@ export const updateSkills = (request: UpdateSkillsRequest) =>
     authenticated: true,
     body: JSON.stringify(request),
   });
+
+/**
+ * The provider's go-live checklist (docs/OPEN-FIXES-FEATURES.csv
+ * "Onboarding checklist and go-live status") - which specific prerequisites
+ * are still missing before the account can start receiving work.
+ */
+export const getGoLiveStatus = () =>
+  apiFetch<GoLiveStatus>(`${PROFILE_BASE}/go-live-status`, { authenticated: true });

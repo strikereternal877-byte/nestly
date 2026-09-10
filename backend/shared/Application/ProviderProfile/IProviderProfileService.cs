@@ -36,4 +36,20 @@ public interface IProviderProfileService
     /// irreversible.
     /// </summary>
     Task<Result> DeleteAccountAsync(Guid providerId);
+
+    /// <summary>
+    /// Go-live checklist (docs/OPEN-FIXES-FEATURES.csv "Provider Web,
+    /// Proposed new page, Onboarding checklist and go-live status"): the
+    /// specific prerequisites a provider is missing before they can start
+    /// receiving work, so provider-web can name the exact gap instead of
+    /// leaving a signed-in provider staring at an unexplained empty jobs
+    /// list. Default weekly availability is now seeded at registration
+    /// (<see cref="Nestly.Infrastructure.Services.ProviderRegistrationService"/>),
+    /// so the availability check should normally already be satisfied for new
+    /// providers - it stays part of this list because it can still be
+    /// emptied later (<c>PUT /availability/windows</c> with no windows) and
+    /// because this is meant as a general "why am I not getting work"
+    /// diagnostic, not just a first-run screen.
+    /// </summary>
+    Task<Result<ProviderGoLiveStatusResponse>> GetGoLiveStatusAsync(Guid providerId);
 }

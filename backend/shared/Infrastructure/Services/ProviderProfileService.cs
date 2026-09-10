@@ -22,6 +22,7 @@ public class ProviderProfileService : IProviderProfileService
     private readonly IReviewRepository _reviewRepository;
     private readonly IProviderSessionRepository _sessionRepository;
     private readonly IServiceabilityMappingManagementService _serviceabilityMappingManagementService;
+    private readonly IProviderAvailabilityWindowRepository _availabilityWindowRepository;
 
     public ProviderProfileService(
         IProviderRepository providerRepository,
@@ -29,7 +30,8 @@ public class ProviderProfileService : IProviderProfileService
         IProviderSkillMappingRepository skillMappingRepository,
         IReviewRepository reviewRepository,
         IProviderSessionRepository sessionRepository,
-        IServiceabilityMappingManagementService serviceabilityMappingManagementService)
+        IServiceabilityMappingManagementService serviceabilityMappingManagementService,
+        IProviderAvailabilityWindowRepository availabilityWindowRepository)
     {
         _providerRepository = providerRepository;
         _serviceAreaRepository = serviceAreaRepository;
@@ -37,6 +39,7 @@ public class ProviderProfileService : IProviderProfileService
         _reviewRepository = reviewRepository;
         _sessionRepository = sessionRepository;
         _serviceabilityMappingManagementService = serviceabilityMappingManagementService;
+        _availabilityWindowRepository = availabilityWindowRepository;
     }
 
     public async Task<Result<ProviderProfileResponse>> GetAsync(Guid providerId)
@@ -198,6 +201,43 @@ public class ProviderProfileService : IProviderProfileService
         await _serviceabilityMappingManagementService.AutoDisableUnservedMappingsAsync(providerId);
 
         return Result.Success();
+    }
+
+    /// <inheritdoc/>
+    public async Task<Result<ProviderGoLiveStatusResponse>> GetGoLiveStatusAsync(Guid providerId)
+    {
+        var provider = await _providerRepository.GetByIdAsync(providerId);
+        if (provider is null)
+        {
+            return Result.Failure<ProviderGoLiveStatusResponse>(
+                Error.NotFound("ProviderProfile.NotFound", "The specified provider does not exist."));
+        }
+
+        // Same gate ProviderKycApprovalService.ActivateAsync uses for
+        // "has KYC been verified" - KycVerified is set the first time an
+        // admin approves a document (ProviderKycApprovalService.ApproveDocumentAsync)
+        // and Completed only follows once activation itself has already
+        // happened, so both count as "KYC approved" here.
+        var kycApproved = provider.OnboardingStatus is ProviderOnboardingStatus.KycVerified or ProviderOnboardingStatus.Completed;
+
+        var skills = await _skillMappingRepository.GetByProviderAsync(providerId);
+        var hasActiveSkill = skills.Any(s => s.IsActive);
+
+        var areas = await _serviceAreaRepository.GetByProviderAsync(providerId);
+        var hasActiveServiceArea = areas.Any(a => a.IsActive);
+
+        var availabilityWindows = await _availabilityWindowRepository.GetByProviderAsync(providerId);
+        var hasAvailability = availabilityWindows.Count > 0;
+
+        var checks = new List<ProviderGoLiveCheckResponse>
+        {
+            new("kycApproved", "Get your KYC documents approved", kycApproved),
+            new("hasActiveSkill", "Add at least one skill", hasActiveSkill),
+            new("hasActiveServiceArea", "Add at least one service area", hasActiveServiceArea),
+            new("hasAvailability", "Set your weekly availability", hasAvailability),
+        };
+
+        return Result.Success(new ProviderGoLiveStatusResponse(checks.All(c => c.IsComplete), checks));
     }
 
     private async Task<ProviderProfileResponse> ToResponseAsync(Provider provider)

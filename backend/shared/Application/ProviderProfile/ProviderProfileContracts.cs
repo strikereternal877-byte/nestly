@@ -97,3 +97,23 @@ public record ProviderSkillInput(Guid CategoryId, Guid? ServiceId);
 
 /// <summary>Full replacement of a provider's declared skills (PROVIDER.md API surface "update skills").</summary>
 public record UpdateProviderSkillsRequest(IReadOnlyList<ProviderSkillInput> Skills);
+
+/// <summary>
+/// One prerequisite on the go-live checklist
+/// (docs/OPEN-FIXES-FEATURES.csv "Onboarding checklist and go-live status").
+/// </summary>
+/// <param name="Key">
+/// Stable machine-readable identifier (e.g. <c>"kycApproved"</c>) - what
+/// provider-web switches on to pick the right fix-it link, independent of
+/// <paramref name="Label"/>'s wording.
+/// </param>
+/// <param name="Label">Human-readable description of the prerequisite, ready to show as-is.</param>
+/// <param name="IsComplete">Whether this specific prerequisite is currently satisfied.</param>
+public record ProviderGoLiveCheckResponse(string Key, string Label, bool IsComplete);
+
+/// <summary>
+/// The provider's go-live checklist as a whole
+/// (docs/OPEN-FIXES-FEATURES.csv "Onboarding checklist and go-live status").
+/// </summary>
+/// <param name="IsGoLiveReady">True only once every check in <see cref="Checks"/> is complete.</param>
+public record ProviderGoLiveStatusResponse(bool IsGoLiveReady, IReadOnlyList<ProviderGoLiveCheckResponse> Checks);

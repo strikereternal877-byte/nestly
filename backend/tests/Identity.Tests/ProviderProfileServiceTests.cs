@@ -47,7 +47,8 @@ public class ProviderProfileServiceTests : IDisposable
 
     private ProviderProfileService CreateService(NestlyDbContext context) =>
         new(new ProviderRepository(context), new ProviderServiceAreaRepository(context), new ProviderSkillMappingRepository(context),
-            new ReviewRepository(context), new ProviderSessionRepository(context), CreateServiceabilityMappingManagementService(context));
+            new ReviewRepository(context), new ProviderSessionRepository(context), CreateServiceabilityMappingManagementService(context),
+            new ProviderAvailabilityWindowRepository(context));
 
     private static ServiceabilityMappingManagementService CreateServiceabilityMappingManagementService(NestlyDbContext context) =>
         new(new CategoryCityMappingRepository(context), new ServicePincodeMappingRepository(context), new CategoryRepository(context),
@@ -379,6 +380,87 @@ public class ProviderProfileServiceTests : IDisposable
         var result = await CreateService(context).GetServiceAreasAsync(_providerId);
 
         result.Should().BeEmpty();
+    }
+
+    /// <summary>
+    /// docs/OPEN-FIXES-FEATURES.csv "Onboarding checklist and go-live status" -
+    /// a freshly registered provider (this fixture's setup) has none of the
+    /// four prerequisites yet, so every check must read incomplete and the
+    /// aggregate must be false.
+    /// </summary>
+    [Fact]
+    public async Task GetGoLiveStatusAsync_reports_every_check_incomplete_for_a_brand_new_provider()
+    {
+        await using var context = _database.CreateContext();
+        var result = await CreateService(context).GetGoLiveStatusAsync(_providerId);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.IsGoLiveReady.Should().BeFalse();
+        result.Value.Checks.Should().HaveCount(4);
+        result.Value.Checks.Should().OnlyContain(c => !c.IsComplete);
+        result.Value.Checks.Select(c => c.Key).Should().BeEquivalentTo(
+            "kycApproved", "hasActiveSkill", "hasActiveServiceArea", "hasAvailability");
+    }
+
+    [Fact]
+    public async Task GetGoLiveStatusAsync_rejects_an_unknown_provider()
+    {
+        await using var context = _database.CreateContext();
+        var result = await CreateService(context).GetGoLiveStatusAsync(Guid.NewGuid());
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be("ProviderProfile.NotFound");
+    }
+
+    /// <summary>Onboarding status alone drives the KYC check - mirrors ProviderKycApprovalService.ActivateAsync's own gate.</summary>
+    [Fact]
+    public async Task GetGoLiveStatusAsync_marks_kyc_complete_once_onboarding_status_is_KycVerified()
+    {
+        await using var context = _database.CreateContext();
+        var provider = await context.Set<Provider>().SingleAsync(p => p.Id == _providerId);
+        provider.MarkKycSubmitted();
+        provider.MarkKycVerified();
+        await context.SaveChangesAsync();
+
+        var result = await CreateService(context).GetGoLiveStatusAsync(_providerId);
+
+        result.Value.Checks.Single(c => c.Key == "kycApproved").IsComplete.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task GetGoLiveStatusAsync_ignores_inactive_skills_and_service_areas()
+    {
+        await using var context = _database.CreateContext();
+        var skill = new ProviderSkillMapping(Guid.NewGuid(), _providerId, _categoryId, null);
+        skill.Deactivate();
+        var area = new ProviderServiceArea(Guid.NewGuid(), _providerId, _cityId, null, null);
+        area.Deactivate();
+        context.Add(skill);
+        context.Add(area);
+        await context.SaveChangesAsync();
+
+        var result = await CreateService(context).GetGoLiveStatusAsync(_providerId);
+
+        result.Value.Checks.Single(c => c.Key == "hasActiveSkill").IsComplete.Should().BeFalse();
+        result.Value.Checks.Single(c => c.Key == "hasActiveServiceArea").IsComplete.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task GetGoLiveStatusAsync_is_go_live_ready_once_all_four_checks_pass()
+    {
+        await using var context = _database.CreateContext();
+        var provider = await context.Set<Provider>().SingleAsync(p => p.Id == _providerId);
+        provider.MarkKycSubmitted();
+        provider.MarkKycVerified();
+        context.Add(new ProviderSkillMapping(Guid.NewGuid(), _providerId, _categoryId, null));
+        context.Add(new ProviderServiceArea(Guid.NewGuid(), _providerId, _cityId, null, null));
+        context.Add(new ProviderAvailabilityWindow(Guid.NewGuid(), _providerId, DayOfWeek.Monday, TimeSpan.FromHours(9), TimeSpan.FromHours(18)));
+        await context.SaveChangesAsync();
+
+        var result = await CreateService(context).GetGoLiveStatusAsync(_providerId);
+
+        result.Value.IsGoLiveReady.Should().BeTrue();
+        result.Value.Checks.Should().OnlyContain(c => c.IsComplete);
     }
 
     public void Dispose() => _database.Dispose();

@@ -279,6 +279,23 @@ public class ProfileController : ControllerBase
     }
 
     /// <summary>
+    /// Go-live checklist (docs/OPEN-FIXES-FEATURES.csv "Provider Web,
+    /// Proposed new page, Onboarding checklist and go-live status"): names
+    /// the specific prerequisites the caller is still missing before they can
+    /// start receiving work, so provider-web can show a persistent banner and
+    /// a checklist naming the exact gap instead of an unexplained empty jobs
+    /// list.
+    /// </summary>
+    [HttpGet("go-live-status")]
+    [ProducesResponseType(typeof(ProviderGoLiveStatusResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetGoLiveStatus()
+    {
+        var result = await _profileService.GetGoLiveStatusAsync(CurrentProviderId());
+        return result.IsSuccess ? Ok(result.Value) : result.ToProblemResult();
+    }
+
+    /// <summary>
     /// Permanently deletes the caller's own account (right to erasure).
     /// Job/earnings history is retained under this provider id for
     /// financial/legal reasons, but personal fields are anonymized and every
