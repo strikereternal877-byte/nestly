@@ -74,3 +74,30 @@ export function pickActiveJob(jobs: readonly JobListItem[]): JobListItem | null 
     return candidateKey < bestKey ? candidate : best;
   });
 }
+
+/**
+ * Every "offer" currently sitting with this provider - a job `Assigned` to
+ * them that they have not yet accepted or declined, per the definition in
+ * `docs/OPEN-FIXES-FEATURES.csv`'s "Provider Web, Proposed new page, Job
+ * offers with countdown" ("Offers appear only as an Assigned row inside the
+ * general jobs list"). `/today` only ever surfaces the single most urgent
+ * one (via `pickActiveJob`); this is the fuller queue behind it for the
+ * `/offers` screen, which matters most precisely when there is more than one
+ * at once.
+ *
+ * Sorted soonest-deadline-first, same reasoning `pickActiveJob`'s tie-break
+ * uses: whichever offer's response window runs out first is the one that
+ * most urgently needs a decision. An offer with no deadline (defensive only
+ * - `ProviderJobService` always sets one on assignment) sorts last rather
+ * than first, since there is nothing time-boxing it.
+ */
+export function listPendingOffers(jobs: readonly JobListItem[]): JobListItem[] {
+  return jobs
+    .filter((job) => job.status === JobStatus.Assigned)
+    .slice()
+    .sort((a, b) => {
+      if (!a.responseDeadline) return 1;
+      if (!b.responseDeadline) return -1;
+      return a.responseDeadline < b.responseDeadline ? -1 : a.responseDeadline > b.responseDeadline ? 1 : 0;
+    });
+}

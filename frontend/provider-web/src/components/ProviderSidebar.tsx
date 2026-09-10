@@ -1,9 +1,12 @@
 "use client";
 
+import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { cx } from "@/components/ui";
+import { listJobs } from "@/lib/jobs-api";
+import { listPendingOffers } from "@/lib/jobs-active";
 
 /**
  * Navigation for the provider portal. Unlike admin-web's AdminSidebar, there
@@ -18,6 +21,7 @@ import { cx } from "@/components/ui";
  */
 const NAV_ITEMS = [
   { key: "today", href: "/today", label: "Today", icon: <TodayIcon /> },
+  { key: "offers", href: "/offers", label: "Offers", icon: <OfferIcon /> },
   { key: "jobs", href: "/jobs", label: "Jobs", icon: <BriefcaseIcon /> },
   { key: "availability", href: "/availability", label: "Availability", icon: <CalendarIcon /> },
   { key: "earnings", href: "/earnings", label: "Earnings", icon: <WalletIcon /> },
@@ -27,6 +31,42 @@ const NAV_ITEMS = [
 function useActiveMatcher() {
   const pathname = usePathname();
   return (href: string) => pathname === href || pathname.startsWith(`${href}/`);
+}
+
+/**
+ * Count of currently pending offers, for the nav badge next to "Offers"
+ * (task from docs/OPEN-FIXES-FEATURES.csv, "Job offers with countdown" -
+ * with no dedicated surface a provider could miss an offer entirely, so the
+ * count needs to be visible from anywhere in the app, not only on `/offers`
+ * itself). Reads the same `GET /jobs` query `/today`/`/offers`/`/jobs`
+ * already fetch (identical key+queryFn), so this never issues a second
+ * network call while one of those screens is mounted - TanStack Query's
+ * cache is shared app-wide - and on any other screen it costs exactly the
+ * one background fetch `/jobs` itself already pays on every visit.
+ */
+function usePendingOfferCount(): number {
+  const query = useQuery({
+    queryKey: ["provider-jobs", "", ""],
+    queryFn: () => listJobs({}),
+    // A 501 (job assignment not yet deployed) or any other fetch failure
+    // just means "no count to show" - this is a nav decoration, not a
+    // screen with its own error state to render.
+    retry: false,
+  });
+  if (!query.data) return 0;
+  return listPendingOffers(query.data).length;
+}
+
+function OffersBadge({ count }: { count: number }) {
+  if (count <= 0) return null;
+  return (
+    <span
+      className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[10px] font-semibold text-white"
+      aria-label={`${count} offer${count === 1 ? "" : "s"} waiting`}
+    >
+      {count > 9 ? "9+" : count}
+    </span>
+  );
 }
 
 /**
@@ -73,6 +113,7 @@ function SidebarBrand() {
 /** Side rail, `md` and up. */
 export function ProviderSidebar() {
   const isActive = useActiveMatcher();
+  const pendingOfferCount = usePendingOfferCount();
 
   return (
     <nav
@@ -105,6 +146,7 @@ export function ProviderSidebar() {
             ) : null}
             {item.icon}
             {item.label}
+            {item.key === "offers" ? <OffersBadge count={pendingOfferCount} /> : null}
           </Link>
         );
       })}
@@ -119,6 +161,7 @@ export function ProviderSidebar() {
 export function ProviderTabBar() {
   const pathname = usePathname();
   const isActive = useActiveMatcher();
+  const pendingOfferCount = usePendingOfferCount();
 
   // See isJobDetailPath's comment - redundant with that screen's own sticky
   // action bar.
@@ -127,7 +170,7 @@ export function ProviderTabBar() {
   return (
     <nav
       aria-label="Provider sections"
-      className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-line bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md md:hidden"
+      className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-6 border-t border-line bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md md:hidden"
     >
       {NAV_ITEMS.map((item) => {
         const active = isActive(item.href);
@@ -141,7 +184,17 @@ export function ProviderTabBar() {
               active ? "text-brand-600 dark:text-brand-400" : "text-fg-subtle hover:text-fg",
             )}
           >
-            {item.icon}
+            <span className="relative">
+              {item.icon}
+              {item.key === "offers" && pendingOfferCount > 0 ? (
+                <span
+                  aria-hidden
+                  className="absolute -right-1 -top-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-danger px-0.5 text-[9px] font-semibold text-white"
+                >
+                  {pendingOfferCount > 9 ? "9+" : pendingOfferCount}
+                </span>
+              ) : null}
+            </span>
             {item.label}
           </Link>
         );
@@ -166,6 +219,16 @@ function TodayIcon(): ReactNode {
     <svg {...ICON_PROPS}>
       <circle cx="12" cy="12" r="9" />
       <path d="M12 7v5l3.5 2" />
+    </svg>
+  );
+}
+
+/** An open envelope/inbox tray - what a fresh, unanswered offer looks like. */
+function OfferIcon(): ReactNode {
+  return (
+    <svg {...ICON_PROPS}>
+      <path d="M3 8.5 12 14l9-5.5" />
+      <rect x="3" y="5.5" width="18" height="13" rx="2" />
     </svg>
   );
 }

@@ -23,21 +23,19 @@ import {
   Textarea,
   useToast,
 } from "@/components/ui";
+import { useJobResponseMutations } from "@/hooks/useJobResponseMutations";
 import { useJobStatusLive } from "@/hooks/useJobStatusLive";
 import { isLocationShareable, useLocationSharing } from "@/hooks/useLocationSharing";
-import { ApiError, describeError, isNotImplemented } from "@/lib/api";
+import { describeError, isNotImplemented } from "@/lib/api";
 import { formatDateTime, formatInr, formatIsoDate, formatSignedInr, formatTime } from "@/lib/format";
 import {
-  acceptJob,
   completeJob,
-  extendJobResponseDeadline,
   getCompletionVerification,
   getCustomerRating,
   getCustomerRatingEligibility,
   getJobDetail,
   markJobArrived,
   markJobEnRoute,
-  rejectJob,
   startJob,
   submitCompletionProof,
   submitCompletionVerification,
@@ -113,41 +111,11 @@ export default function JobDetailPage() {
     queryClient.invalidateQueries({ queryKey: ["provider-jobs"] });
   };
 
-  const acceptMutation = useMutation({
-    mutationFn: () => acceptJob(jobId),
-    onSuccess: () => {
-      invalidate();
-      toast("success", "Job accepted. It's yours.");
-    },
-    // Row 38, docs/OPEN-FIXES-FEATURES.csv: a 401 here is already retried
-    // transparently by apiFetch (task d9f557c), so anything that still
-    // surfaces here is either a real business rejection (4xx other than
-    // 401 - AlreadyResponded, no outstanding assignment) or a genuine
-    // non-provider-fault failure (a transient 5xx, or no ApiError at all -
-    // a network error, since fetch throws a plain Error/TypeError for
-    // those). Only the latter extends the response window - a business
-    // rejection is accurate as-is and extending it would just delay the
-    // provider learning the offer is gone.
-    onError: (error) => {
-      const isTransientFailure = !(error instanceof ApiError) || error.status >= 500;
-      if (isTransientFailure) {
-        extendJobResponseDeadline(jobId)
-          .then(invalidate)
-          .catch(() => {
-            // Best-effort safety net - if this also fails there is nothing
-            // more the client can do; the error banner below still tells
-            // the provider to retry, and the original deadline still stands.
-          });
-      }
-    },
-  });
-  const rejectMutation = useMutation({
-    mutationFn: () => rejectJob(jobId),
-    onSuccess: () => {
-      setConfirmDecline(false);
-      invalidate();
-      toast("info", "Job declined. It will be offered to another provider.");
-    },
+  // Shared with `/offers` (hooks/useJobResponseMutations.ts) so the two
+  // screens can never answer "what does accept/decline actually do"
+  // differently.
+  const { acceptMutation, rejectMutation } = useJobResponseMutations(jobId, {
+    onDeclined: () => setConfirmDecline(false),
   });
   const startMutation = useMutation({
     mutationFn: () => startJob(jobId),
