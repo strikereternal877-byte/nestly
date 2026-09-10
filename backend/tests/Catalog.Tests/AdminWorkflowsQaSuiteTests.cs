@@ -597,7 +597,13 @@ public sealed class AdminWorkflowsQaSuiteTests : IClassFixture<TestDatabase>
         new ServiceGroupRepository(context),
         new ServiceMediaRepository(context),
         new AuditLogWriter(context, new StubAuditContextProvider(AuditActorType.AdminUser, Guid.NewGuid())),
-        new InMemoryCacheService());
+        new InMemoryCacheService(),
+        new ServiceCityPriceRepository(context),
+        new BookingRepository(context),
+        new ServiceabilityMappingManagementService(
+            new CategoryCityMappingRepository(context), new ServicePincodeMappingRepository(context),
+            new CategoryRepository(context), new CityRepository(context),
+            new ServiceRepository(context), new PincodeRepository(context)));
 
     [Fact]
     public async Task A_service_is_created_updated_and_deactivated_through_ServiceManagementService()

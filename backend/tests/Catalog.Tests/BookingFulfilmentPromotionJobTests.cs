@@ -416,5 +416,6 @@ public sealed class BookingFulfilmentPromotionJobTests : IDisposable
         public Task<int> CountCompletedByAssignedProviderAsync(Guid providerId, Guid excludingBookingId) => inner.CountCompletedByAssignedProviderAsync(providerId, excludingBookingId);
         public Task<IReadOnlyList<Booking>> ListStalePaymentPendingAsync(DateTime olderThanUtc) => inner.ListStalePaymentPendingAsync(olderThanUtc);
         public Task<IReadOnlyList<Booking>> ListSummariesByIdsAsync(IReadOnlyCollection<Guid> ids) => inner.ListSummariesByIdsAsync(ids);
+        public Task<IReadOnlyList<Guid>> ListServiceIdsEverBookedAsync() => inner.ListServiceIdsEverBookedAsync();
     }
 }

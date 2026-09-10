@@ -145,7 +145,12 @@ public sealed class AdminAuditTrailQaSuiteTests : IClassFixture<TestDatabase>
         var service = new ServiceManagementService(
             new ServiceRepository(actContext), new CategoryRepository(actContext), new ServiceGroupRepository(actContext),
             new ServiceMediaRepository(actContext),
-            new AuditLogWriter(actContext, new StubAuditContextProvider(actorId)), new InMemoryCacheService());
+            new AuditLogWriter(actContext, new StubAuditContextProvider(actorId)), new InMemoryCacheService(),
+            new ServiceCityPriceRepository(actContext), new BookingRepository(actContext),
+            new ServiceabilityMappingManagementService(
+                new CategoryCityMappingRepository(actContext), new ServicePincodeMappingRepository(actContext),
+                new CategoryRepository(actContext), new CityRepository(actContext),
+                new ServiceRepository(actContext), new PincodeRepository(actContext)));
 
         var result = await service.CreateAsync(new ServiceCreateRequest(
             categoryId, "Audit Service", "audit-service-" + Guid.NewGuid(), "desc", null, 499m,
