@@ -84,6 +84,7 @@ public sealed class ConcurrentSlotBookingPerformanceTests : IClassFixture<PerfTe
             new ReviewRepository(context),
             new CustomerSubscriptionRepository(context),
             new WalletService(new WalletLedgerRepository(context), context),
+            new AlwaysEligibleProviderSearchStub(),
             context);
     }
 
@@ -235,5 +236,25 @@ public sealed class ConcurrentSlotBookingPerformanceTests : IClassFixture<PerfTe
 
         results.Count(r => r.IsSuccess).Should().Be(1, "the last-seat race is the sharpest case: many customers, one winner");
         results.Count(r => r.IsFailure && r.Error.Code == "Booking.SlotCapacityReached").Should().Be(concurrentCustomers - 1);
+    }
+
+    /// <summary>
+    /// Always reports exactly one eligible provider - keeps this suite
+    /// measuring slot-capacity contention, not provider-matching query cost,
+    /// which is unrelated. See Catalog.Tests' identical stub for the full
+    /// rationale; duplicated here (and in CheckoutPerformanceTests.cs)
+    /// because Performance.Tests does not reference that project and a
+    /// private nested type is not visible across classes in the same file.
+    /// </summary>
+    private sealed class AlwaysEligibleProviderSearchStub : Nestly.Application.ProviderManagement.IEligibleProviderSearchService
+    {
+        public async IAsyncEnumerable<Nestly.Application.ProviderManagement.ProviderMatchCandidate> FindEligibleAsync(
+            Guid bookingId,
+            IReadOnlyCollection<Guid>? excludeProviderIds = null,
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            await Task.Yield();
+            yield return new Nestly.Application.ProviderManagement.ProviderMatchCandidate(Guid.NewGuid(), null);
+        }
     }
 }

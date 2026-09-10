@@ -82,6 +82,7 @@ public sealed class AdminPaymentQueryServiceTests : IClassFixture<TestDatabase>
             new ReviewRepository(context),
             new CustomerSubscriptionRepository(context),
             new WalletService(new WalletLedgerRepository(context), context),
+            new AlwaysEligibleProviderSearchStub(),
             context);
     }
 

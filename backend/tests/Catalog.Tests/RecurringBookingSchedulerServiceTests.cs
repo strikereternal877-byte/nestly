@@ -119,6 +119,7 @@ public sealed class RecurringBookingSchedulerServiceTests : IClassFixture<TestDa
             new ReviewRepository(context),
             new CustomerSubscriptionRepository(context),
             new WalletService(new WalletLedgerRepository(context), context),
+            new AlwaysEligibleProviderSearchStub(),
             context);
 
         var notificationDispatchService = new NotificationDispatchService(

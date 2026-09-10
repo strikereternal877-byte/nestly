@@ -4,6 +4,7 @@ using Nestly.Application;
 using Nestly.Application.Abstractions.Observability;
 using Nestly.Application.Bookings;
 using Nestly.Application.Coupons;
+using Nestly.Application.ProviderManagement;
 using Nestly.Application.Reviews;
 using Nestly.Application.Slots;
 using Nestly.Application.Subscriptions;
@@ -41,6 +42,25 @@ public class BookingService : IBookingService
     /// <summary>Task 137b: the specific error code SlotAvailabilityService.ReserveSlotAsync returns when a slot has no remaining per-day capacity.</summary>
     private const string SlotCapacityReachedErrorCode = "Booking.SlotCapacityReached";
 
+    /// <summary>
+    /// docs/OPEN-FIXES-FEATURES.csv "Provider availability gate": a booking
+    /// used to reach PaymentPending, and the customer used to reach the
+    /// payment step, before anything checked whether a provider could
+    /// actually serve the pincode/slot - PaymentService.CreateOrderAsync's
+    /// own eligibility gate (Payment.NoProviderAvailable) was the first place
+    /// that ever asked. When nobody was eligible, that left an unpayable
+    /// booking behind with no way to cancel it and no warning at slot
+    /// selection. Gated here too, now, so an unfulfillable request never
+    /// produces a persisted booking in the first place: see the call site
+    /// below for why this can only run after the booking row exists (even if
+    /// not yet committed) and why the transaction is safe to fail out of at
+    /// that point. PaymentService keeps its own gate unchanged - eligibility
+    /// (especially travel feasibility) can still shift in the time between
+    /// booking creation and payment, and that check remains the last line of
+    /// defence for that narrower race.
+    /// </summary>
+    private const string NoProviderAvailableErrorCode = "Booking.NoProviderAvailable";
+
     private readonly IBookingSummaryService _summaryService;
     private readonly IBookingRepository _bookingRepository;
     private readonly ICustomerRepository _customerRepository;
@@ -64,6 +84,11 @@ public class BookingService : IBookingService
     // doc comment for how it detects and reuses this method's own ambient
     // transaction instead of nesting one.
     private readonly IWalletService _walletService;
+    // Task: Provider availability gate (docs/OPEN-FIXES-FEATURES.csv). The
+    // same composed matching+eligibility walk PaymentService.CreateOrderAsync
+    // already uses - reused, not reimplemented, so the two gates can never
+    // disagree about who counts as "available".
+    private readonly IEligibleProviderSearchService _eligibleProviderSearchService;
     // Same reasoning as RefundService: the slot-capacity reservation, coupon
     // reservation, subscription free-visit consumption and the booking write
     // itself are each their own SaveChangesAsync against repositories that
@@ -88,6 +113,7 @@ public class BookingService : IBookingService
         IReviewRepository reviewRepository,
         ICustomerSubscriptionRepository customerSubscriptionRepository,
         IWalletService walletService,
+        IEligibleProviderSearchService eligibleProviderSearchService,
         NestlyDbContext context)
     {
         _summaryService = summaryService;
@@ -101,6 +127,7 @@ public class BookingService : IBookingService
         _reviewRepository = reviewRepository;
         _customerSubscriptionRepository = customerSubscriptionRepository;
         _walletService = walletService;
+        _eligibleProviderSearchService = eligibleProviderSearchService;
         _context = context;
     }
 
@@ -441,6 +468,32 @@ public class BookingService : IBookingService
                 return Result.Success(ToDetailResponse(winner, winnerAssignment?.Status, await ProviderSummaryFor(winnerAssignment)));
             }
 
+            // Provider availability gate (docs/OPEN-FIXES-FEATURES.csv
+            // "Booking payment ... Provider availability gate"): checked here,
+            // right after the booking row is inserted but still inside this
+            // uncommitted transaction. It has to run after the insert - both
+            // IProviderMatchingService.FindCandidatesAsync and
+            // IProviderAssignmentEligibilityService.IsEligibleAsync (via
+            // IEligibleProviderSearchService) key off a persisted booking's
+            // items/address/slot snapshot, the same contract
+            // PaymentService.CreateOrderAsync's own gate already depends on -
+            // and it has to run before CommitAsync, because failing it here
+            // rolls back the slot reservation, coupon/subscription
+            // reservation, wallet debit and the booking insert itself
+            // together (the `await using` transaction disposal below rolls
+            // back on any return that skips CommitAsync, same as every other
+            // failure branch in this method). Net effect: an unfulfillable
+            // request never leaves a persisted row behind - no unpayable
+            // "Awaiting Payment" orphan, and nothing left to clean up or
+            // manually cancel.
+            if (!await HasEligibleProviderAsync(booking.Id))
+            {
+                _metricsService.RecordBookingCreated(succeeded: false, NoProviderAvailableErrorCode);
+                return Error.Business(
+                    NoProviderAvailableErrorCode,
+                    "No service professional is currently available for this date and time. Please choose a different slot.");
+            }
+
             // Task 357: the `amcContract is null` half of this condition has to
             // match the ReserveAsync guard above exactly - the two calls are the
             // two halves of one redemption (reserve the cap, then link the
@@ -469,6 +522,24 @@ public class BookingService : IBookingService
             await dbTransaction.RollbackAsync();
             throw;
         }
+    }
+
+    /// <summary>
+    /// Stops at the first candidate that passes the full eligibility gate -
+    /// existence is all this needs. Mirrors
+    /// PaymentService.HasEligibleProviderAsync exactly (same lazy contract,
+    /// see IEligibleProviderSearchService's doc comment); duplicated rather
+    /// than shared because it is a two-line composition of a single
+    /// interface call, not logic either class owns.
+    /// </summary>
+    private async Task<bool> HasEligibleProviderAsync(Guid bookingId)
+    {
+        await foreach (var _ in _eligibleProviderSearchService.FindEligibleAsync(bookingId))
+        {
+            return true;
+        }
+
+        return false;
     }
 
     public async Task<Result<BookingListResponse>> ListAsync(Guid customerId, BookingStatusBucket? bucket, int page = 1, int pageSize = 20)

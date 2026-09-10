@@ -71,7 +71,102 @@ public sealed class BookingServiceTests : IClassFixture<TestDatabase>
             new ReviewRepository(context),
             new CustomerSubscriptionRepository(context),
             new WalletService(new WalletLedgerRepository(context), context),
+            new AlwaysEligibleProviderSearchStub(),
             context);
+    }
+
+    /// <summary>
+    /// Builds a BookingService wired to the *real* provider matching +
+    /// eligibility chain (not <see cref="AlwaysEligibleProviderSearchStub"/>),
+    /// mirroring PaymentServiceTests.BuildEligibleProviderSearchService so the
+    /// two gates are proven against the identical composition. Used only by
+    /// the provider-availability-gate tests below - every other test in this
+    /// class keeps using the stub, since who-can-take-the-job is not what
+    /// they mean to cover.
+    /// </summary>
+    private static BookingService BuildServiceWithRealEligibility(Nestly.Infrastructure.Persistence.NestlyDbContext context)
+    {
+        var couponService = new CouponService(
+            new CouponRepository(context),
+            new CouponRedemptionRepository(context),
+            new BookingRepository(context),
+            TimeProvider.System);
+
+        var summaryService = new BookingSummaryService(
+            new ServiceRepository(context),
+            new ServiceAddOnRepository(context),
+            new ServiceGroupRepository(context),
+            new CustomerAddressRepository(context),
+            new SlotAvailabilityService(
+                new ServiceabilityRepository(context),
+                new ServiceabilityValidationService(new ServiceabilityRepository(context), new InMemoryCacheService()),
+                new SlotWindowRepository(context),
+                new SlotBlackoutRepository(context),
+                new SlotBookingPolicyRepository(context),
+                new SlotCapacityRepository(context),
+                TestServices.Clock()),
+            new PriceCalculationService(
+                new ServiceRepository(context),
+                new ServiceAddOnRepository(context),
+                new ServiceabilityRepository(context),
+                new ServiceCityPriceRepository(context),
+                new CityPricingPolicyRepository(context), new ServiceVariantRepository(context), new ServiceAddOnGroupRepository(context)),
+            couponService,
+            new SubscriptionBenefitService(new CustomerSubscriptionRepository(context)),
+            new WalletService(new WalletLedgerRepository(context), context),
+        new ServiceabilityRepository(context),
+        TestServices.BookingOptions());
+
+        var eligibleProviderSearchService = new EligibleProviderSearchService(
+            new ProviderMatchingService(
+                new BookingRepository(context),
+                context,
+                new SandboxRouteEstimateProvider(Options.Create(new SandboxRouteEstimateOptions())),
+                Options.Create(new AutoAssignmentOptions())),
+            new ProviderAssignmentEligibilityService(
+                new BookingRepository(context),
+                new ProviderAvailabilityWindowRepository(context),
+                new ProviderBlackoutDateRepository(context),
+                new ProviderCapacityRepository(context),
+                new ProviderScheduleConflictService(context, TestServices.Occupancy()),
+                TravelFeasibilityFactory.Sandbox(context),
+                context));
+
+        return new BookingService(
+            summaryService,
+            new BookingRepository(context),
+            new CustomerRepository(context),
+            couponService,
+            new SlotAvailabilityService(
+                new ServiceabilityRepository(context),
+                new ServiceabilityValidationService(new ServiceabilityRepository(context), new InMemoryCacheService()),
+                new SlotWindowRepository(context),
+                new SlotBlackoutRepository(context),
+                new SlotBookingPolicyRepository(context),
+                new SlotCapacityRepository(context),
+                TestServices.Clock()),
+            new NoOpMetricsService(),
+            new BookingProviderAssignmentRepository(context),
+            new ProviderRepository(context),
+            new ReviewRepository(context),
+            new CustomerSubscriptionRepository(context),
+            new WalletService(new WalletLedgerRepository(context), context),
+            eligibleProviderSearchService,
+            context);
+    }
+
+    /// <summary>Same shape as PaymentServiceTests' identical helper - an Active provider whose skill/service-area/availability cover the fixture's booking exactly.</summary>
+    private static Provider AddActiveEligibleProvider(
+        Nestly.Infrastructure.Persistence.NestlyDbContext context, Guid categoryId, Guid cityId, DayOfWeek dayOfWeek, decimal lat, decimal lng)
+    {
+        var provider = new Provider(Guid.NewGuid(), "Ravi Kumar", "Ravi's Repairs", ProviderType.Individual, "+9198" + Guid.NewGuid().ToString("N")[..8]);
+        provider.ChangeStatus(ProviderStatus.Active);
+        provider.UpdateLocation(lat, lng);
+        context.Add(provider);
+        context.Add(new ProviderSkillMapping(Guid.NewGuid(), provider.Id, categoryId));
+        context.Add(new ProviderServiceArea(Guid.NewGuid(), provider.Id, cityId));
+        context.Add(new ProviderAvailabilityWindow(Guid.NewGuid(), provider.Id, dayOfWeek, TimeSpan.FromHours(8), TimeSpan.FromHours(18)));
+        return provider;
     }
 
     private sealed record Fixture(
@@ -150,6 +245,65 @@ public sealed class BookingServiceTests : IClassFixture<TestDatabase>
         reloaded.Should().NotBeNull();
         reloaded!.Items.Should().ContainSingle();
         reloaded.Items[0].AddOns.Should().ContainSingle(a => a.LineTotalSnapshot == 300m);
+    }
+
+    /// <summary>
+    /// docs/OPEN-FIXES-FEATURES.csv "Booking payment ... Provider availability
+    /// gate": before this fix, CreateAsync had no idea whether any provider
+    /// could actually serve this pincode/slot - it created the booking in
+    /// PaymentPending regardless, and the customer only found out at the
+    /// payment step (PaymentService.CreateOrderAsync's own gate), leaving an
+    /// unpayable, uncancellable orphan behind. No provider is seeded here at
+    /// all, so the real eligibility chain has nothing to find.
+    /// </summary>
+    [Fact]
+    public async Task CreateAsync_fails_with_NoProviderAvailable_and_persists_no_booking_when_no_eligible_provider_exists()
+    {
+        Fixture fixture;
+        using (var context = _db.CreateContext())
+        {
+            fixture = Seed(context);
+        }
+
+        using var createContext = _db.CreateContext();
+        var created = await BuildServiceWithRealEligibility(createContext).CreateAsync(fixture.Customer.Id, RequestFor(fixture));
+
+        created.IsFailure.Should().BeTrue();
+        created.Error.Code.Should().Be("Booking.NoProviderAvailable");
+
+        using var readContext = _db.CreateContext();
+        var (bookings, totalCount) = await new BookingRepository(readContext).ListByCustomerPagedAsync(
+            fixture.Customer.Id, Enum.GetValues<BookingStatus>(), 1, 20);
+        totalCount.Should().Be(0);
+        bookings.Should().BeEmpty(
+            "a request nobody can fulfil must never leave a persisted 'Awaiting Payment' row behind - the whole point of the gate");
+    }
+
+    /// <summary>
+    /// The companion to the failure test above: the same real eligibility
+    /// chain must not block a booking that genuinely has an eligible
+    /// provider - the gate has to actually gate on eligibility, not just
+    /// always refuse.
+    /// </summary>
+    [Fact]
+    public async Task CreateAsync_succeeds_through_the_real_eligibility_gate_when_an_eligible_provider_exists()
+    {
+        Fixture fixture;
+        using (var context = _db.CreateContext())
+        {
+            fixture = Seed(context);
+            // Same coordinates as the address: a zero-length leg, so travel
+            // feasibility never has grounds to refuse this provider (see
+            // TravelFeasibilityFactory.Sandbox's doc comment).
+            AddActiveEligibleProvider(context, fixture.Service.CategoryId, fixture.City.Id, fixture.Date.DayOfWeek, 12.9716m, 77.5946m);
+            context.SaveChanges();
+        }
+
+        using var createContext = _db.CreateContext();
+        var created = await BuildServiceWithRealEligibility(createContext).CreateAsync(fixture.Customer.Id, RequestFor(fixture));
+
+        created.IsSuccess.Should().BeTrue();
+        created.Value.Status.Should().Be(BookingStatus.PaymentPending);
     }
 
     /// <summary>
