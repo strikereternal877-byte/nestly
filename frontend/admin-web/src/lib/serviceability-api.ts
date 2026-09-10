@@ -16,14 +16,17 @@ import type {
   LocalityAdminResponse,
   LocalityCreateRequest,
   LocalityUpdateRequest,
+  MappedPincodeWithoutProviderCoverageResponse,
   PincodeAdminResponse,
   PincodeCreateRequest,
   ServiceLookupResponse,
+  ServiceabilityCoverageGapResponse,
   ServicePincodeMappingCreateRequest,
   ServicePincodeMappingResponse,
   StateCreateRequest,
   StateResponse,
   StateUpdateRequest,
+  UnmappedActiveServiceResponse,
   ZoneResponse,
   ZoneCreateRequest,
   ZoneUpdateRequest,
@@ -201,5 +204,21 @@ export const createServicePincodeMapping = (request: ServicePincodeMappingCreate
 export const setServicePincodeMappingActive = (id: string, isActive: boolean) =>
   apiFetch<void>(`${MAPPINGS_BASE}/service-pincode/${id}/${isActive ? "activate" : "deactivate"}`, {
     method: "POST",
+    authenticated: true,
+  });
+
+// ---- Coverage gap map (docs/OPEN-FIXES-FEATURES.csv "Admin Web, Proposed new page, Coverage gap map") ----
+
+/** Active services with no active pincode mapping anywhere. */
+export const listUnmappedActiveServices = () =>
+  apiFetch<UnmappedActiveServiceResponse[]>(`${MAPPINGS_BASE}/unmapped-active-services`, { authenticated: true });
+
+/** (Service, pincode) pairs with active provider coverage but no active mapping. */
+export const listServiceabilityCoverageGaps = () =>
+  apiFetch<ServiceabilityCoverageGapResponse[]>(`${MAPPINGS_BASE}/coverage-gaps`, { authenticated: true });
+
+/** Active mappings with no active provider able to fulfil them. */
+export const listMappedPincodesWithoutProviderCoverage = () =>
+  apiFetch<MappedPincodeWithoutProviderCoverageResponse[]>(`${MAPPINGS_BASE}/mapped-without-coverage`, {
     authenticated: true,
   });

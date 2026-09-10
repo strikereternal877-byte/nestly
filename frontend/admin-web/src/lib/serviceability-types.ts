@@ -128,3 +128,35 @@ export interface ServicePincodeMappingCreateRequest {
   serviceId: string;
   pincodeId: string;
 }
+
+/** An active service with zero active pincode mappings anywhere — launched but unbookable everywhere. */
+export interface UnmappedActiveServiceResponse {
+  serviceId: string;
+  serviceName: string;
+  serviceSlug: string;
+  categoryId: string;
+  categoryName: string;
+}
+
+/**
+ * A (service, pincode) pair where an active provider already has matching
+ * skill + area coverage but no active serviceability mapping exists for it.
+ */
+export interface ServiceabilityCoverageGapResponse {
+  serviceId: string;
+  serviceName: string;
+  pincodeId: string;
+  pincodeCode: string;
+}
+
+/**
+ * An active service/pincode mapping with no active provider able to fulfil
+ * it — the mapping is correct, but nobody is actually onboarded to serve it.
+ */
+export interface MappedPincodeWithoutProviderCoverageResponse {
+  mappingId: string;
+  serviceId: string;
+  serviceName: string;
+  pincodeId: string;
+  pincodeCode: string;
+}
