@@ -436,7 +436,13 @@ export default function JobDetailPage() {
               <span className="nums">{formatDateTime(job.assignedAt)}</span>
             </DetailRow>
 
-            {job.responseDeadline ? (
+            {/* Only while the offer is actually open. The deadline is what the
+                provider has to accept or decline by, so once they have
+                accepted it describes nothing - it used to keep counting down
+                on screen through En route, Arrived and In progress, which
+                reads as though the job could still be taken away. Same
+                `Assigned` gate the response banner above uses. */}
+            {job.status === JobStatus.Assigned && job.responseDeadline ? (
               <DetailRow label="Response deadline">
                 <span className="nums">{formatDateTime(job.responseDeadline)}</span>
               </DetailRow>
@@ -1197,6 +1203,18 @@ function CompletionVerificationCard({
             Add checklist item
           </Button>
         </div>
+
+        {/* Why the submit below is disabled. Without this the provider sees a
+            greyed-out primary action and no reason for it - worst of all on
+            the sticky bar, where the photo picker it depends on has usually
+            scrolled out of view, so the button just reads as broken. */}
+        {readyRefs.length === 0 || uploading ? (
+          <p className="text-sm text-fg-muted">
+            {uploading
+              ? "Waiting for the photos to finish uploading…"
+              : "Add at least one photo to submit this verification."}
+          </p>
+        ) : null}
 
         {stickySubmit ? (
           // Fixed to the viewport bottom below `md` (#345) - still a normal
