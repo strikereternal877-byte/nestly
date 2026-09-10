@@ -2,7 +2,8 @@
  * Typed fetch wrapper for the Provider API.
  * Base URL comes from NEXT_PUBLIC_API_URL (see .env.example).
  */
-import { clearSession, getAccessToken } from "./auth";
+import { clearSession, getAccessToken, getRefreshToken, storeSession } from "./auth";
+import type { ProviderLoginResponse } from "./types";
 
 export const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5337";
@@ -107,10 +108,53 @@ export interface ApiFetchOptions extends RequestInit {
 }
 
 /**
+ * Exchanges the stored refresh token for a new access/refresh pair.
+ *
+ * Mirrors customer-web/src/lib/api.ts's refreshAccessToken: a module-level
+ * promise so a burst of concurrent 401s (several queries firing at once when
+ * the access token expires mid-session) triggers exactly one refresh call
+ * instead of one per request; every caller awaits the same in-flight
+ * promise, then it's cleared so the next expiry starts a fresh one. Calls
+ * `fetch` directly rather than going through `auth-api.ts`'s `refreshSession`
+ * (which itself calls `apiFetch`) to avoid a circular import between the two
+ * modules and to keep this path free of the retry logic it exists to serve.
+ */
+let refreshPromise: Promise<boolean> | null = null;
+
+function refreshAccessToken(): Promise<boolean> {
+  if (!refreshPromise) {
+    refreshPromise = (async () => {
+      const refreshToken = getRefreshToken();
+      if (!refreshToken) return false;
+      try {
+        const response = await fetch(`${API_BASE_URL}${API_V1}/auth/refresh`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ refreshToken }),
+        });
+        if (!response.ok) return false;
+        storeSession((await response.json()) as ProviderLoginResponse);
+        return true;
+      } catch {
+        return false;
+      }
+    })().finally(() => {
+      refreshPromise = null;
+    });
+  }
+  return refreshPromise;
+}
+
+/**
  * Shared request/error-handling core behind `apiFetch` - everything except
  * how the successful body is read back lives here.
  */
-async function performFetch(path: string, init: ApiFetchOptions | undefined, defaultHeaders: Record<string, string>): Promise<Response> {
+async function performFetch(
+  path: string,
+  init: ApiFetchOptions | undefined,
+  defaultHeaders: Record<string, string>,
+  isRetry = false,
+): Promise<Response> {
   const { authenticated, ...requestInit } = init ?? {};
 
   const headers: Record<string, string> = {
@@ -132,6 +176,18 @@ async function performFetch(path: string, init: ApiFetchOptions | undefined, def
   });
 
   if (!response.ok) {
+    // A 401 on an authenticated call usually just means the short-lived
+    // access token expired mid-session - silently refresh it and retry the
+    // request once before treating this as a real auth failure. Only
+    // authenticated calls attempt this (login/OTP/refresh itself never sets
+    // `authenticated`, so it can't recurse into itself).
+    if (authenticated && response.status === 401 && !isRetry) {
+      const refreshed = await refreshAccessToken();
+      if (refreshed) {
+        return performFetch(path, init, defaultHeaders, true);
+      }
+    }
+
     let problem: ProblemDetails | null = null;
     try {
       problem = (await response.json()) as ProblemDetails;
@@ -139,10 +195,10 @@ async function performFetch(path: string, init: ApiFetchOptions | undefined, def
       // Non-JSON error body; keep problem null.
     }
 
-    // A 401 on an authenticated call means the token the caller had is no
-    // longer valid (expired, revoked, or the account was deactivated after
-    // login) - clear it so every mounted guard (RequireProviderAuth) reacts
-    // to the auth-changed event and sends the provider back to /login. An
+    // A 401 on an authenticated call (after the refresh attempt above has
+    // already failed or been skipped) means the session truly can't continue
+    // - clear it so every mounted guard (RequireProviderAuth) reacts to the
+    // auth-changed event and sends the provider back to /login. An
     // unauthenticated call rejecting with 401 (e.g. a bad OTP) must NOT
     // clear anything - there is nothing to clear, and this is the expected
     // "invalid code" outcome.
