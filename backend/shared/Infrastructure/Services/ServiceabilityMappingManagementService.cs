@@ -243,4 +243,8 @@ public class ServiceabilityMappingManagementService : IServiceabilityMappingMana
 
         return disabled;
     }
+
+    /// <inheritdoc/>
+    public Task<IReadOnlyList<MappedPincodeWithoutProviderCoverageResponse>> ListMappedPincodesWithoutProviderCoverageAsync() =>
+        _servicePincodeMappingRepository.ListMappedPincodesWithoutProviderCoverageAsync();
 }

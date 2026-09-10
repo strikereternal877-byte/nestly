@@ -67,3 +67,23 @@ public sealed record ServiceabilityCoverageGapResponse(
     string ServiceName,
     Guid PincodeId,
     string PincodeCode);
+
+/// <summary>
+/// docs/OPEN-FIXES-FEATURES.csv "Admin Web, Proposed new page, Coverage gap
+/// map": the third grid category - an active
+/// <see cref="Nestly.Domain.ServicePincodeMapping"/> exists for this
+/// (service, pincode) pair, so the pincode shows the service as bookable, but
+/// no active provider actually has matching skill + area coverage to fulfil
+/// it - a mapping that looks serviceable but isn't. Purely informational
+/// (see <see cref="IServiceabilityMappingManagementService.ListMappedPincodesWithoutProviderCoverageAsync"/>'s
+/// doc comment for why there is no create/fix action here, unlike
+/// <see cref="UnmappedActiveServiceResponse"/> and
+/// <see cref="ServiceabilityCoverageGapResponse"/>): the gap is in provider
+/// onboarding, not in the mapping table.
+/// </summary>
+public sealed record MappedPincodeWithoutProviderCoverageResponse(
+    Guid MappingId,
+    Guid ServiceId,
+    string ServiceName,
+    Guid PincodeId,
+    string PincodeCode);

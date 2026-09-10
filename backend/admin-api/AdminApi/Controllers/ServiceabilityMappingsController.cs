@@ -166,6 +166,18 @@ public class ServiceabilityMappingsController : ControllerBase
     public async Task<IActionResult> ListCoverageGaps() =>
         Ok(await _mappingManagementService.ListPincodesWithProviderCoverageButNoServiceMappingAsync());
 
+    /// <summary>
+    /// docs/OPEN-FIXES-FEATURES.csv "Admin Web, Proposed new page, Coverage
+    /// gap map": the third grid category - active service/pincode mappings
+    /// with no active provider actually able to fulfil them. Informational
+    /// only; see <see cref="IServiceabilityMappingManagementService.ListMappedPincodesWithoutProviderCoverageAsync"/>.
+    /// </summary>
+    [HttpGet("mapped-without-coverage")]
+    [Authorize(Policy = ReadPolicy)]
+    [ProducesResponseType(typeof(IReadOnlyList<MappedPincodeWithoutProviderCoverageResponse>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> ListMappedWithoutCoverage() =>
+        Ok(await _mappingManagementService.ListMappedPincodesWithoutProviderCoverageAsync());
+
     private static ModelStateDictionary ToModelState(ValidationResult validation)
     {
         var modelState = new ModelStateDictionary();

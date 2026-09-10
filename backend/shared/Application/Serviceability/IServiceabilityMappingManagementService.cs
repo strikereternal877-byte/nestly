@@ -121,4 +121,17 @@ public interface IServiceabilityMappingManagementService
     /// Returns the number of mappings deactivated, for logging/testing.
     /// </summary>
     Task<int> AutoDisableUnservedMappingsAsync(Guid providerId, IReadOnlyList<ServiceabilityCoverageGapResponse>? candidatePairs = null);
+
+    /// <summary>
+    /// docs/OPEN-FIXES-FEATURES.csv "Admin Web, Proposed new page, Coverage
+    /// gap map": the third grid category, alongside
+    /// <see cref="ListUnmappedActiveServicesAsync"/> and
+    /// <see cref="ListPincodesWithProviderCoverageButNoServiceMappingAsync"/>
+    /// - active service/pincode mappings that no active provider can actually
+    /// fulfil. Informational only: unlike the other two lists, there is no
+    /// "create mapping" fix available here, since the mapping already exists
+    /// and is exactly correct - what's missing is a provider with matching
+    /// skill + area coverage, which this screen cannot create.
+    /// </summary>
+    Task<IReadOnlyList<MappedPincodeWithoutProviderCoverageResponse>> ListMappedPincodesWithoutProviderCoverageAsync();
 }

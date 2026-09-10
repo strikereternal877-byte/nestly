@@ -127,6 +127,28 @@ public class ServicePincodeMappingRepository : IServicePincodeMappingRepository
                 (a.PincodeId == null || a.PincodeId == pincodeId)));
     }
 
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<MappedPincodeWithoutProviderCoverageResponse>> ListMappedPincodesWithoutProviderCoverageAsync() =>
+        await (
+            from mapping in _context.Set<ServicePincodeMapping>()
+            where mapping.IsActive
+            join service in _context.Set<Service>() on mapping.ServiceId equals service.Id
+            join pincode in _context.Set<Pincode>() on mapping.PincodeId equals pincode.Id
+            // Same skill + area eligibility as CoverageGapQuery/HasActiveProviderCoverageAsync,
+            // inverted: a mapping is a gap here when NO active provider
+            // covers it, rather than when one does.
+            where !_context.Set<Provider>().Any(p =>
+                p.Status == ProviderStatus.Active &&
+                _context.Set<ProviderSkillMapping>().Any(s =>
+                    s.ProviderId == p.Id && s.IsActive && s.CategoryId == service.CategoryId &&
+                    (s.ServiceId == null || s.ServiceId == service.Id)) &&
+                _context.Set<ProviderServiceArea>().Any(a =>
+                    a.ProviderId == p.Id && a.IsActive && a.CityId == pincode.CityId &&
+                    (a.PincodeId == null || a.PincodeId == pincode.Id)))
+            orderby pincode.Code, service.Name
+            select new MappedPincodeWithoutProviderCoverageResponse(mapping.Id, service.Id, service.Name, pincode.Id, pincode.Code)
+        ).ToListAsync();
+
     /// <summary>
     /// Shared by <see cref="ListPincodesWithProviderCoverageButNoServiceMappingAsync"/>
     /// (the admin-facing audit list, every gap) and

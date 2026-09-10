@@ -63,4 +63,14 @@ public interface IServicePincodeMappingRepository : IRepository<ServicePincodeMa
     /// provider's coverage changes.
     /// </summary>
     Task<bool> HasActiveProviderCoverageAsync(Guid serviceId, Guid pincodeId);
+
+    /// <summary>
+    /// Every currently-active <see cref="ServicePincodeMapping"/> for which
+    /// no active provider has matching skill + area coverage (see
+    /// <see cref="MappedPincodeWithoutProviderCoverageResponse"/>'s doc
+    /// comment) - the "mapped but not actually fulfillable" quadrant of the
+    /// coverage gap map, the inverse of
+    /// <see cref="ListPincodesWithProviderCoverageButNoServiceMappingAsync"/>.
+    /// </summary>
+    Task<IReadOnlyList<MappedPincodeWithoutProviderCoverageResponse>> ListMappedPincodesWithoutProviderCoverageAsync();
 }

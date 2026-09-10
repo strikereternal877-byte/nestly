@@ -264,6 +264,71 @@ public sealed class ServiceabilityMappingManagementServiceTests : IClassFixture<
         gaps.Should().Contain(g => g.ServiceId == catalogService.Id && g.PincodeId == pincode.Id);
     }
 
+    /// <summary>
+    /// docs/OPEN-FIXES-FEATURES.csv "Admin Web, Proposed new page, Coverage
+    /// gap map" - the third grid category: an active mapping with no active
+    /// provider covering it at all must show up as "mapped but not
+    /// fulfillable".
+    /// </summary>
+    [Fact]
+    public async Task ListMappedPincodesWithoutProviderCoverageAsync_includes_a_mapping_with_no_covering_provider()
+    {
+        var (service, _, _, catalogService, pincode) = SeedAndCreateService();
+        var mapping = (await service.CreateServicePincodeMappingAsync(new ServicePincodeMappingCreateRequest(catalogService.Id, pincode.Id))).Value;
+
+        var gaps = await service.ListMappedPincodesWithoutProviderCoverageAsync();
+
+        gaps.Should().Contain(g => g.MappingId == mapping.Id && g.ServiceId == catalogService.Id && g.PincodeId == pincode.Id);
+    }
+
+    /// <summary>A mapping actively covered by a qualified provider is not a gap.</summary>
+    [Fact]
+    public async Task ListMappedPincodesWithoutProviderCoverageAsync_excludes_a_mapping_with_an_active_covering_provider()
+    {
+        var (service, category, city, catalogService, pincode) = SeedAndCreateService();
+        var context = _db.CreateContext();
+        SeedActiveProviderCoveringPincode(context, category.Id, city.Id, pincode.Id);
+        var mapping = (await service.CreateServicePincodeMappingAsync(new ServicePincodeMappingCreateRequest(catalogService.Id, pincode.Id))).Value;
+
+        var gaps = await service.ListMappedPincodesWithoutProviderCoverageAsync();
+
+        gaps.Should().NotContain(g => g.MappingId == mapping.Id);
+    }
+
+    /// <summary>A suspended (deactivated) mapping is not "mapped" at all, so it is excluded even with no coverage.</summary>
+    [Fact]
+    public async Task ListMappedPincodesWithoutProviderCoverageAsync_excludes_a_deactivated_mapping()
+    {
+        var (service, _, _, catalogService, pincode) = SeedAndCreateService();
+        var mapping = (await service.CreateServicePincodeMappingAsync(new ServicePincodeMappingCreateRequest(catalogService.Id, pincode.Id))).Value;
+        (await service.DeactivateServicePincodeMappingAsync(mapping.Id)).IsSuccess.Should().BeTrue();
+
+        var gaps = await service.ListMappedPincodesWithoutProviderCoverageAsync();
+
+        gaps.Should().NotContain(g => g.MappingId == mapping.Id);
+    }
+
+    /// <summary>A suspended provider or a deactivated skill mapping does not count as coverage, mirroring the coverage-gap query.</summary>
+    [Fact]
+    public async Task ListMappedPincodesWithoutProviderCoverageAsync_treats_an_inactive_provider_or_skill_as_no_coverage()
+    {
+        var (service, category, city, catalogService, pincode) = SeedAndCreateService();
+        var context = _db.CreateContext();
+        var mapping = (await service.CreateServicePincodeMappingAsync(new ServicePincodeMappingCreateRequest(catalogService.Id, pincode.Id))).Value;
+
+        var suspendedProvider = new Provider(Guid.NewGuid(), "Legal", "Suspended Provider", ProviderType.Individual, "9" + Guid.NewGuid().ToString("N")[..9]);
+        suspendedProvider.ChangeStatus(ProviderStatus.Active);
+        suspendedProvider.ChangeStatus(ProviderStatus.Suspended);
+        context.Providers.Add(suspendedProvider);
+        context.ProviderSkillMappings.Add(new ProviderSkillMapping(Guid.NewGuid(), suspendedProvider.Id, category.Id));
+        context.ProviderServiceAreas.Add(new ProviderServiceArea(Guid.NewGuid(), suspendedProvider.Id, city.Id, pincodeId: pincode.Id));
+        context.SaveChanges();
+
+        var gaps = await service.ListMappedPincodesWithoutProviderCoverageAsync();
+
+        gaps.Should().Contain(g => g.MappingId == mapping.Id);
+    }
+
     private static Provider SeedActiveProviderCoveringPincode(NestlyDbContext context, Guid categoryId, Guid cityId, Guid pincodeId)
     {
         var provider = new Provider(Guid.NewGuid(), "Legal", "Covering Provider", ProviderType.Individual, "9" + Guid.NewGuid().ToString("N")[..9]);
