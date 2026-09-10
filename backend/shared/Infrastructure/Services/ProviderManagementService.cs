@@ -20,6 +20,7 @@ public class ProviderManagementService : IProviderManagementService
     private readonly IProviderServiceAreaRepository _serviceAreaRepository;
     private readonly IProviderSessionRepository _sessionRepository;
     private readonly IServiceabilityMappingManagementService _serviceabilityMappingManagementService;
+    private readonly IProviderAvailabilityWindowRepository _availabilityWindowRepository;
 
     public ProviderManagementService(
         IProviderRepository providerRepository,
@@ -31,7 +32,8 @@ public class ProviderManagementService : IProviderManagementService
         IProviderCapacityRepository capacityRepository,
         IProviderServiceAreaRepository serviceAreaRepository,
         IProviderSessionRepository sessionRepository,
-        IServiceabilityMappingManagementService serviceabilityMappingManagementService)
+        IServiceabilityMappingManagementService serviceabilityMappingManagementService,
+        IProviderAvailabilityWindowRepository availabilityWindowRepository)
     {
         _providerRepository = providerRepository;
         _kycDocumentRepository = kycDocumentRepository;
@@ -43,6 +45,7 @@ public class ProviderManagementService : IProviderManagementService
         _serviceAreaRepository = serviceAreaRepository;
         _sessionRepository = sessionRepository;
         _serviceabilityMappingManagementService = serviceabilityMappingManagementService;
+        _availabilityWindowRepository = availabilityWindowRepository;
     }
 
     public async Task<Result<ProviderSearchResponse>> SearchAsync(ProviderSearchRequest request)
@@ -92,6 +95,11 @@ public class ProviderManagementService : IProviderManagementService
         }
 
         await _providerRepository.AddAsync(provider);
+
+        // Row 31, docs/OPEN-FIXES-FEATURES.csv: without this the provider is
+        // invisible to matching until they set availability by hand.
+        await _availabilityWindowRepository.ReplaceForProviderAsync(
+            provider.Id, ProviderAvailabilityWindow.DefaultWeeklySchedule(provider.Id));
 
         return await BuildDetailAsync(provider);
     }

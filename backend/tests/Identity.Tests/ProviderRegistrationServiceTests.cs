@@ -44,6 +44,7 @@ public class ProviderRegistrationServiceTests : IDisposable
             _otpService.Object,
             new ProviderReferralRepository(context),
             new ProviderReferralProgramConfigRepository(context),
+            new ProviderAvailabilityWindowRepository(context),
             NullLogger<ProviderRegistrationService>.Instance,
             Options.Create(options ?? new ProviderAccountOptions()));
 
@@ -63,6 +64,25 @@ public class ProviderRegistrationServiceTests : IDisposable
         var stored = await context.Set<Provider>().SingleAsync();
         stored.ProviderType.Should().Be(ProviderType.Individual);
         stored.Phone.Should().Be(Mobile);
+    }
+
+    /// <summary>
+    /// Row 31, docs/OPEN-FIXES-FEATURES.csv: without a default weekly
+    /// schedule, a newly registered provider is invisible to matching until
+    /// they set availability by hand.
+    /// </summary>
+    [Fact]
+    public async Task RegisterAsync_seeds_a_non_empty_default_weekly_availability()
+    {
+        await using var context = _database.CreateContext();
+        var result = await CreateService(context).RegisterAsync(ValidRequest());
+
+        var windows = await new ProviderAvailabilityWindowRepository(context).GetByProviderAsync(result.Value.Id);
+
+        windows.Should().NotBeEmpty();
+        windows.Should().OnlyContain(w => w.IsActive);
+        windows.Select(w => w.DayOfWeek).Should().BeEquivalentTo(
+            [DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday, DayOfWeek.Saturday]);
     }
 
     [Fact]

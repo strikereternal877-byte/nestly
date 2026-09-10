@@ -31,6 +31,7 @@ public class ProviderRegistrationService : IProviderRegistrationService
     private readonly IProviderOtpService _otpService;
     private readonly IProviderReferralRepository _referralRepository;
     private readonly IProviderReferralProgramConfigRepository _referralProgramConfigRepository;
+    private readonly IProviderAvailabilityWindowRepository _availabilityWindowRepository;
     private readonly ILogger<ProviderRegistrationService> _logger;
     private readonly ProviderAccountOptions _options;
     private readonly PasswordHasher<Provider> _passwordHasher = new();
@@ -41,6 +42,7 @@ public class ProviderRegistrationService : IProviderRegistrationService
         IProviderOtpService otpService,
         IProviderReferralRepository referralRepository,
         IProviderReferralProgramConfigRepository referralProgramConfigRepository,
+        IProviderAvailabilityWindowRepository availabilityWindowRepository,
         ILogger<ProviderRegistrationService> logger,
         IOptions<ProviderAccountOptions> options)
     {
@@ -49,6 +51,7 @@ public class ProviderRegistrationService : IProviderRegistrationService
         _otpService = otpService;
         _referralRepository = referralRepository;
         _referralProgramConfigRepository = referralProgramConfigRepository;
+        _availabilityWindowRepository = availabilityWindowRepository;
         _logger = logger;
         _options = options.Value;
     }
@@ -112,6 +115,11 @@ public class ProviderRegistrationService : IProviderRegistrationService
         var provider = new Provider(
             Guid.NewGuid(), request.LegalName, request.DisplayName, ProviderType.Individual, request.Mobile, request.Email);
         await _providerRepository.AddAsync(provider);
+
+        // Row 31, docs/OPEN-FIXES-FEATURES.csv: without this the provider is
+        // invisible to matching until they set availability by hand.
+        await _availabilityWindowRepository.ReplaceForProviderAsync(
+            provider.Id, ProviderAvailabilityWindow.DefaultWeeklySchedule(provider.Id));
 
         var mobileIdentity = new ProviderAuthIdentity(
             Guid.NewGuid(), provider.Id, AuthProviderType.MobileOtp, request.Mobile, isPrimary: true);
@@ -196,6 +204,11 @@ public class ProviderRegistrationService : IProviderRegistrationService
         var provider = new Provider(
             Guid.NewGuid(), request.LegalName, request.DisplayName, ProviderType.Individual, request.Mobile, request.Email);
         await _providerRepository.AddAsync(provider);
+
+        // Row 31, docs/OPEN-FIXES-FEATURES.csv: without this the provider is
+        // invisible to matching until they set availability by hand.
+        await _availabilityWindowRepository.ReplaceForProviderAsync(
+            provider.Id, ProviderAvailabilityWindow.DefaultWeeklySchedule(provider.Id));
 
         // Email+password is the verified identity here - mobile was never
         // proven via OTP on this path, so no MobileOtp identity is created.

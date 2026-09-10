@@ -36,7 +36,8 @@ public sealed class ProviderManagementServiceTests : IDisposable
         new ProviderSessionRepository(context),
         new ServiceabilityMappingManagementService(
             new CategoryCityMappingRepository(context), new ServicePincodeMappingRepository(context), new CategoryRepository(context),
-            new CityRepository(context), new ServiceRepository(context), new PincodeRepository(context)));
+            new CityRepository(context), new ServiceRepository(context), new PincodeRepository(context)),
+        new ProviderAvailabilityWindowRepository(context));
 
     /// <summary>Seeds an Active provider with skill + area coverage for one (service, pincode) pair, and the resulting active mapping.</summary>
     private async Task<(Guid ProviderId, Guid ServiceId, Guid PincodeId)> SeedSoleCoverageAsync(NestlyDbContext context)
@@ -57,6 +58,22 @@ public sealed class ProviderManagementServiceTests : IDisposable
         await context.SaveChangesAsync();
 
         return (provider.Id, catalogService.Id, pincode.Id);
+    }
+
+    /// <summary>
+    /// Row 31, docs/OPEN-FIXES-FEATURES.csv: an admin-created provider must
+    /// be immediately matchable too, not just a self-registered one.
+    /// </summary>
+    [Fact]
+    public async Task CreateAsync_seeds_a_non_empty_default_weekly_availability()
+    {
+        await using var context = _database.CreateContext();
+        var result = await CreateService(context).CreateAsync(
+            new CreateProviderRequest("Ravi Kumar", "Ravi's Repairs", "+9198" + Guid.NewGuid().ToString("N")[..8], "ravi@example.com"));
+
+        result.IsSuccess.Should().BeTrue();
+        var windows = await new ProviderAvailabilityWindowRepository(context).GetByProviderAsync(result.Value.Id);
+        windows.Should().NotBeEmpty();
     }
 
     [Fact]

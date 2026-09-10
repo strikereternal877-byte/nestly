@@ -46,4 +46,32 @@ public class ProviderAvailabilityWindow : Entity<Guid>
 
     public void Activate() => IsActive = true;
     public void Deactivate() => IsActive = false;
+
+    /// <summary>
+    /// A sensible starting weekly schedule for a brand-new provider (row 31,
+    /// docs/OPEN-FIXES-FEATURES.csv) - without this, a provider's availability
+    /// starts completely empty until they set it by hand on the Availability
+    /// screen, which leaves them invisible to matching (and the customer sees
+    /// "No one is available for this slot") even though they already exist in
+    /// a serviced pincode. Monday-Saturday, 09:00-18:00: a conventional
+    /// working week that gives a new provider immediate bookable hours: they
+    /// can still edit or narrow this via the existing availability screen
+    /// (<see cref="Application.ProviderAvailability.IProviderAvailabilityService.UpdateWindowsAsync"/>)
+    /// at any time - this only seeds the starting point, it does not lock it in.
+    /// </summary>
+    public static IReadOnlyList<ProviderAvailabilityWindow> DefaultWeeklySchedule(Guid providerId)
+    {
+        var start = TimeSpan.FromHours(9);
+        var end = TimeSpan.FromHours(18);
+
+        return
+        [
+            new ProviderAvailabilityWindow(Guid.NewGuid(), providerId, DayOfWeek.Monday, start, end),
+            new ProviderAvailabilityWindow(Guid.NewGuid(), providerId, DayOfWeek.Tuesday, start, end),
+            new ProviderAvailabilityWindow(Guid.NewGuid(), providerId, DayOfWeek.Wednesday, start, end),
+            new ProviderAvailabilityWindow(Guid.NewGuid(), providerId, DayOfWeek.Thursday, start, end),
+            new ProviderAvailabilityWindow(Guid.NewGuid(), providerId, DayOfWeek.Friday, start, end),
+            new ProviderAvailabilityWindow(Guid.NewGuid(), providerId, DayOfWeek.Saturday, start, end),
+        ];
+    }
 }

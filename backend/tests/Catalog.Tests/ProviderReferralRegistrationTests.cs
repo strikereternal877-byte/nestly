@@ -39,6 +39,7 @@ public sealed class ProviderReferralRegistrationTests : IClassFixture<TestDataba
             otpService,
             new ProviderReferralRepository(context),
             new ProviderReferralProgramConfigRepository(context),
+            new ProviderAvailabilityWindowRepository(context),
             NullLogger<ProviderRegistrationService>.Instance,
             Options.Create(accountOptions ?? new ProviderAccountOptions()));
 
