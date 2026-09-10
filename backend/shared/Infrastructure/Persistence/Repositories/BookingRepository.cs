@@ -367,6 +367,26 @@ public class BookingRepository : IBookingRepository
             .Where(b => AwaitingPaymentStatuses.Contains(b.Status))
             .ToListAsync();
 
+    /// <summary>The operationally-live statuses <see cref="ListForFulfilmentBoardAsync"/> shows - see that method's doc comment.</summary>
+    private static readonly BookingStatus[] FulfilmentBoardStatuses =
+    [
+        BookingStatus.Confirmed,
+        BookingStatus.AwaitingFulfilment,
+        BookingStatus.Assigned,
+        BookingStatus.ProviderEnRoute,
+        BookingStatus.ProviderArrived,
+        BookingStatus.InProgress,
+        BookingStatus.Completed,
+    ];
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<Booking>> ListForFulfilmentBoardAsync(DateOnly date) =>
+        await _context.Bookings
+            .AsNoTracking()
+            .Include(b => b.Items)
+            .Where(b => b.SlotDate == date && FulfilmentBoardStatuses.Contains(b.Status))
+            .ToListAsync();
+
     /// <inheritdoc/>
     public async Task<IReadOnlyList<Guid>> ListServiceIdsEverBookedAsync() =>
         await _context.BookingItems

@@ -420,5 +420,6 @@ public sealed class BookingFulfilmentPromotionJobTests : IDisposable
         public Task<IReadOnlyDictionary<Guid, string>> ListServiceNamesByIdsAsync(IReadOnlyCollection<Guid> bookingIds) => inner.ListServiceNamesByIdsAsync(bookingIds);
         public Task<(IReadOnlyList<Booking> Rows, int TotalCount)> ListUnassignedAtRiskAsync(int page, int pageSize) => inner.ListUnassignedAtRiskAsync(page, pageSize);
         public Task<IReadOnlyList<Booking>> ListAwaitingPaymentAsync() => inner.ListAwaitingPaymentAsync();
+        public Task<IReadOnlyList<Booking>> ListForFulfilmentBoardAsync(DateOnly date) => inner.ListForFulfilmentBoardAsync(date);
     }
 }

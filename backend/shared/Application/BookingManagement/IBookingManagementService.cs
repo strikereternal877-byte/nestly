@@ -45,4 +45,11 @@ public interface IBookingManagementService
     /// <see cref="Bookings.IBookingRepository.ListUnassignedAtRiskAsync"/>.
     /// </summary>
     Task<Result<AdminUnassignedAtRiskBookingSearchResponse>> ListUnassignedAtRiskAsync(AdminUnassignedAtRiskBookingRequest request);
+
+    /// <summary>
+    /// Row "Fulfilment control room", docs/OPEN-FIXES-FEATURES.csv: every
+    /// operationally live booking for one day, flat, for admin-web's kanban
+    /// board. See <see cref="Bookings.IBookingRepository.ListForFulfilmentBoardAsync"/>.
+    /// </summary>
+    Task<Result<AdminFulfilmentBoardResponse>> GetFulfilmentBoardAsync(AdminFulfilmentBoardRequest request);
 }

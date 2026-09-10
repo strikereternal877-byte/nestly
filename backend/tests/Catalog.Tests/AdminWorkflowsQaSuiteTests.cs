@@ -259,7 +259,8 @@ public sealed class AdminWorkflowsQaSuiteTests : IClassFixture<TestDatabase>
             context, new NoOpMetricsService(), NullLogger<PaymentWebhookService>.Instance),
         new AuditLogWriter(context, new StubAuditContextProvider(AuditActorType.AdminUser, Guid.NewGuid())),
         context,
-        new BookingCompletionProofRepository(context));
+        new BookingCompletionProofRepository(context),
+        new ProviderRepository(context));
 
     private static SandboxPaymentGateway BuildGateway() =>
         new(Options.Create(new SandboxGatewayOptions { WebhookSigningSecret = "unit-test-signing-secret-value" }));

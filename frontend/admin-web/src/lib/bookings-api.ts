@@ -13,6 +13,7 @@ import type {
   AdminBookingStatusUpdateRequest,
   AdminBookingTrackingResponse,
   AdminCancelBookingRequest,
+  AdminFulfilmentBoardResponse,
   AdminManualPaymentRequest,
   AdminRefundRequest,
   AdminRescheduleBookingRequest,
@@ -127,5 +128,17 @@ export const getBookingTracking = (bookingId: string) =>
 export const getUnassignedAtRiskBookings = (page: number, pageSize: number) =>
   apiFetch<AdminUnassignedAtRiskBookingSearchResponse>(
     `${BOOKINGS_BASE}/unassigned-at-risk${query({ page, pageSize })}`,
+    { authenticated: true },
+  );
+
+/**
+ * Row "Fulfilment control room", docs/OPEN-FIXES-FEATURES.csv: every
+ * operationally live booking for one calendar day, flat - the /fulfilment
+ * page buckets these into status columns itself. `date` is a local
+ * "yyyy-MM-dd" (see lib/date.ts); omit it to let the server default to today.
+ */
+export const getFulfilmentBoard = (date?: string) =>
+  apiFetch<AdminFulfilmentBoardResponse>(
+    `${BOOKINGS_BASE}/fulfilment-board${query({ date })}`,
     { authenticated: true },
   );

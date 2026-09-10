@@ -178,4 +178,25 @@ public interface IBookingRepository
     /// need database-level paging" reasoning as <see cref="ListUnassignedAtRiskAsync"/>.
     /// </summary>
     Task<IReadOnlyList<Booking>> ListAwaitingPaymentAsync();
+
+    /// <summary>
+    /// Row "Fulfilment control room", docs/OPEN-FIXES-FEATURES.csv: every
+    /// booking whose <see cref="Booking.SlotDate"/> is <paramref name="date"/>
+    /// and that is in an operationally live status for that day - the same
+    /// Confirmed/AwaitingFulfilment/Assigned allow-list
+    /// <see cref="ListUnassignedAtRiskAsync"/> uses, plus the in-flight
+    /// fulfilment statuses (<see cref="BookingStatus.ProviderEnRoute"/>,
+    /// <see cref="BookingStatus.ProviderArrived"/>, <see cref="BookingStatus.InProgress"/>)
+    /// and <see cref="BookingStatus.Completed"/>, so the board also shows
+    /// today's jobs that already finished. Payment-pending/failed, cancelled,
+    /// refunded, rescheduled and expired bookings are excluded - none of
+    /// those are "a job happening today" operationally.
+    ///
+    /// Bounded to one calendar day's bookings, so - like
+    /// <see cref="ListUnassignedAtRiskAsync"/> and <see cref="ListAwaitingPaymentAsync"/> -
+    /// this returns every match unpaged rather than needing a database
+    /// Skip/Take; the admin-web fulfilment board buckets the flat result into
+    /// status columns itself.
+    /// </summary>
+    Task<IReadOnlyList<Booking>> ListForFulfilmentBoardAsync(DateOnly date);
 }

@@ -190,3 +190,38 @@ public sealed record AdminUnassignedAtRiskBookingResponse(
     DateTime CreatedAtUtc);
 
 public sealed record AdminUnassignedAtRiskBookingSearchResponse(IReadOnlyList<AdminUnassignedAtRiskBookingResponse> Items, int TotalCount, int Page, int PageSize);
+
+// ---- Fulfilment control room (docs/OPEN-FIXES-FEATURES.csv "Admin Web,
+// Proposed new page, Fulfilment control room"): a single day's operationally
+// live bookings, flat - admin-web buckets these into status columns
+// (Unassigned/Assigned/En route/In progress/Completed) and layers its own
+// "overdue/at-risk" read on top from Status/AssignedProviderId/SlotStartTime,
+// the same client-side urgency computation the unassigned-at-risk queue page
+// already does, rather than this response baking in a server-computed "now"
+// that would go stale the moment the admin's tab sits open. ----
+
+/// <summary><paramref name="Date"/> defaults to the caller's local "today" when omitted - see <see cref="Bookings.IBookingRepository.ListForFulfilmentBoardAsync"/> for which statuses this returns.</summary>
+public sealed record AdminFulfilmentBoardRequest(DateOnly? Date);
+
+/// <summary>
+/// One board card. <paramref name="SlotDate"/>/<paramref name="SlotStartTime"/>
+/// are raw, like <see cref="AdminUnassignedAtRiskBookingResponse"/>'s -
+/// admin-web derives and refreshes any "in 2h"/"overdue" label itself rather
+/// than trusting a value computed once at request time.
+/// </summary>
+public sealed record AdminFulfilmentBoardBookingResponse(
+    Guid Id,
+    string Reference,
+    string CustomerName,
+    string ServiceName,
+    DateOnly SlotDate,
+    TimeSpan SlotStartTime,
+    string City,
+    string Pincode,
+    BookingStatus Status,
+    string StatusLabel,
+    Guid? AssignedProviderId,
+    string? AssignedProviderName,
+    DateTime CreatedAtUtc);
+
+public sealed record AdminFulfilmentBoardResponse(DateOnly Date, IReadOnlyList<AdminFulfilmentBoardBookingResponse> Items);

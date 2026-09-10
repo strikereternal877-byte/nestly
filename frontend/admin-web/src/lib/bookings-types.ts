@@ -409,3 +409,34 @@ export interface AdminUnassignedAtRiskBookingSearchResponse {
   page: number;
   pageSize: number;
 }
+
+// ---- Fulfilment control room (docs/OPEN-FIXES-FEATURES.csv "Admin Web,
+// Proposed new page, Fulfilment control room") - mirrors
+// Nestly.Application.BookingManagement.AdminFulfilmentBoardBookingResponse.
+// A flat list for one day; the /fulfilment page buckets these into status
+// columns and layers its own "overdue/at-risk" read on top, same reasoning as
+// AdminUnassignedAtRiskBooking above. ----
+
+/** One board card. `slotDate`/`slotStartTime` come back raw, same as {@link AdminUnassignedAtRiskBooking}. */
+export interface AdminFulfilmentBoardBooking {
+  id: string;
+  reference: string;
+  customerName: string;
+  serviceName: string;
+  slotDate: string;
+  /** .NET TimeSpan serialises as "hh:mm:ss". */
+  slotStartTime: string;
+  city: string;
+  pincode: string;
+  status: BookingStatus;
+  statusLabel: string;
+  assignedProviderId: string | null;
+  assignedProviderName: string | null;
+  createdAtUtc: string;
+}
+
+export interface AdminFulfilmentBoardResponse {
+  /** The calendar date the board was built for, echoed back (.NET DateOnly, "yyyy-MM-dd"). */
+  date: string;
+  items: AdminFulfilmentBoardBooking[];
+}

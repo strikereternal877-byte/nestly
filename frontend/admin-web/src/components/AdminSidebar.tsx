@@ -28,7 +28,7 @@ import type { AdminSessionClaims } from "@/lib/types";
  */
 const GROUPS: readonly { label: string; keys: readonly NavModuleKey[] }[] = [
   { label: "Overview", keys: ["dashboard", "reports"] },
-  { label: "Operations", keys: ["bookings", "payments", "slots", "support", "chat", "reviews"] },
+  { label: "Operations", keys: ["fulfilment", "bookings", "payments", "slots", "support", "chat", "reviews"] },
   { label: "Catalog", keys: ["catalog", "pricing", "serviceability"] },
   { label: "People", keys: ["customers", "provider", "provider-referral", "admin-users"] },
   { label: "Growth", keys: ["coupons", "referral", "nestly-coins", "subscription"] },
@@ -60,6 +60,13 @@ const MODULE_ICONS: Record<NavModuleKey, ReactNode> = {
   reports: (
     <svg {...ICON_PROPS}>
       <path d="M4 20V10M12 20V4M20 20v-6" />
+    </svg>
+  ),
+  fulfilment: (
+    <svg {...ICON_PROPS}>
+      <rect x="3" y="4.5" width="4.5" height="15" rx="1.2" />
+      <rect x="9.75" y="4.5" width="4.5" height="15" rx="1.2" />
+      <rect x="16.5" y="4.5" width="4.5" height="9" rx="1.2" />
     </svg>
   ),
   bookings: (

@@ -247,7 +247,8 @@ public sealed class AdminAuditTrailQaSuiteTests : IClassFixture<TestDatabase>
             context, new NoOpMetricsService(), NullLogger<PaymentWebhookService>.Instance),
         new AuditLogWriter(context, new StubAuditContextProvider(actorId)),
         context,
-        new BookingCompletionProofRepository(context));
+        new BookingCompletionProofRepository(context),
+        new ProviderRepository(context));
 
     [Fact]
     public async Task Admin_cancelling_a_booking_is_audited()

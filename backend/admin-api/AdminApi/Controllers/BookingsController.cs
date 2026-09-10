@@ -161,6 +161,23 @@ public class BookingsController : ControllerBase
         return result.IsSuccess ? Ok(result.Value) : result.ToProblemResult();
     }
 
+    /// <summary>
+    /// Row "Fulfilment control room", docs/OPEN-FIXES-FEATURES.csv: every
+    /// operationally live booking on <paramref name="date"/> (defaults to
+    /// today), flat - admin-web buckets these into status columns itself, see
+    /// <see cref="IBookingManagementService.GetFulfilmentBoardAsync"/>. A
+    /// static route ahead of <see cref="GetDetail"/>'s <c>{bookingId:guid}</c>
+    /// route, same non-clash reasoning as <see cref="ListUnassignedAtRisk"/>.
+    /// </summary>
+    [HttpGet("fulfilment-board")]
+    [Authorize(Policy = ReadPolicy)]
+    [ProducesResponseType(typeof(AdminFulfilmentBoardResponse), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetFulfilmentBoard([FromQuery] DateOnly? date = null)
+    {
+        var result = await _bookingManagementService.GetFulfilmentBoardAsync(new AdminFulfilmentBoardRequest(date));
+        return result.IsSuccess ? Ok(result.Value) : result.ToProblemResult();
+    }
+
     /// <summary>Full detail: snapshots, status timeline, payment, cancellation/reschedule/refund history (SRS 12.11.2, tasks 115b-115c).</summary>
     [HttpGet("{bookingId:guid}")]
     [Authorize(Policy = ReadPolicy)]
