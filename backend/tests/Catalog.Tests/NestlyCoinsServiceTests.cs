@@ -23,7 +23,12 @@ public sealed class NestlyCoinsServiceTests : IClassFixture<TestDatabase>
             new BookingRepository(context),
             new WalletService(new WalletLedgerRepository(context), context),
             new WalletLedgerRepository(context),
-            new ProviderEarningLedgerService(new ProviderRepository(context), new ProviderEarningLedgerRepository(context)),
+            new ProviderEarningLedgerService(
+                new ProviderRepository(context),
+                new ProviderEarningLedgerRepository(context),
+                new BookingRepository(context),
+                new PaymentTransactionRepository(context),
+                new ProviderPayoutRepository(context)),
             new ProviderEarningLedgerRepository(context),
             NullLogger<NestlyCoinsService>.Instance);
 

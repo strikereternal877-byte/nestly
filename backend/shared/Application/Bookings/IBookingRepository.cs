@@ -138,6 +138,18 @@ public interface IBookingRepository
     Task<IReadOnlyList<Guid>> ListServiceIdsEverBookedAsync();
 
     /// <summary>
+    /// Comma-joined, de-duplicated <see cref="BookingItem.NameSnapshot"/>s for
+    /// a set of bookings, keyed by booking id (docs/OPEN-FIXES-FEATURES.csv
+    /// "Earnings detail and payouts" - the earnings ledger's "service"
+    /// column). A projection query, not <see cref="ListSummariesByIdsAsync"/>
+    /// plus a client-side join: that method deliberately omits
+    /// <see cref="Booking.Items"/> to keep list screens cheap, and loading
+    /// the full aggregate here just to read item names would undo that.
+    /// Ids with no matching booking are simply absent from the result.
+    /// </summary>
+    Task<IReadOnlyDictionary<Guid, string>> ListServiceNamesByIdsAsync(IReadOnlyCollection<Guid> bookingIds);
+
+    /// <summary>
     /// Row "Unassigned and at-risk queue", docs/OPEN-FIXES-FEATURES.csv: paid
     /// bookings a live assignment could still be pushed onto -
     /// <see cref="BookingStatus.Confirmed"/>, <see cref="BookingStatus.AwaitingFulfilment"/>

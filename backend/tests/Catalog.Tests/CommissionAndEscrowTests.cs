@@ -41,7 +41,9 @@ public sealed class CommissionAndEscrowTests : IClassFixture<TestDatabase>
         new(new PlatformEscrowLedgerRepository(context));
 
     private static ProviderEarningLedgerService BuildProviderEarningLedgerService(Nestly.Infrastructure.Persistence.NestlyDbContext context) =>
-        new(new ProviderRepository(context), new ProviderEarningLedgerRepository(context));
+        new(
+            new ProviderRepository(context), new ProviderEarningLedgerRepository(context),
+            new BookingRepository(context), new PaymentTransactionRepository(context), new ProviderPayoutRepository(context));
 
     private static PaymentWebhookService BuildWebhookService(
         Nestly.Infrastructure.Persistence.NestlyDbContext context, IPaymentGateway gateway, CommissionService? commissionService = null) =>

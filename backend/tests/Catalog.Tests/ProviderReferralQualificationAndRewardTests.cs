@@ -21,7 +21,12 @@ public sealed class ProviderReferralQualificationAndRewardTests : IClassFixture<
             new ProviderReferralRepository(context),
             new ProviderReferralProgramConfigRepository(context),
             new ProviderRepository(context),
-            new ProviderEarningLedgerService(new ProviderRepository(context), new ProviderEarningLedgerRepository(context)),
+            new ProviderEarningLedgerService(
+                new ProviderRepository(context),
+                new ProviderEarningLedgerRepository(context),
+                new BookingRepository(context),
+                new PaymentTransactionRepository(context),
+                new ProviderPayoutRepository(context)),
             NullLogger<ProviderReferralRewardService>.Instance);
 
     private static ProviderReferralQualifyingJobHandler BuildHandler(Nestly.Infrastructure.Persistence.NestlyDbContext context) =>

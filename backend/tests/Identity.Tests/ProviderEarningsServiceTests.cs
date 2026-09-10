@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Nestly.Application;
 using Nestly.Application.Abstractions.Auditing;
 using Nestly.Application.ProviderManagement;
 using Nestly.Domain;
@@ -6,6 +7,7 @@ using Nestly.Infrastructure.Auditing;
 using Nestly.Infrastructure.Persistence;
 using Nestly.Infrastructure.Persistence.Repositories;
 using Nestly.Infrastructure.Services;
+using Microsoft.EntityFrameworkCore;
 
 namespace Nestly.Identity.Tests;
 
@@ -33,8 +35,15 @@ public class ProviderEarningsServiceTests : IDisposable
     }
 
     private ProviderEarningsService CreateService(NestlyDbContext context) => new(
-        new ProviderEarningLedgerService(new ProviderRepository(context), new ProviderEarningLedgerRepository(context)),
+        BuildLedgerService(context),
         BuildPayoutService(context));
+
+    private static ProviderEarningLedgerService BuildLedgerService(NestlyDbContext context) => new(
+        new ProviderRepository(context),
+        new ProviderEarningLedgerRepository(context),
+        new BookingRepository(context),
+        new PaymentTransactionRepository(context),
+        new ProviderPayoutRepository(context));
 
     private static ProviderPayoutService BuildPayoutService(NestlyDbContext context) => new(
         new ProviderRepository(context),
@@ -50,7 +59,7 @@ public class ProviderEarningsServiceTests : IDisposable
 
     private async Task CreditAsync(NestlyDbContext context, Guid providerId, decimal amount)
     {
-        var ledgerService = new ProviderEarningLedgerService(new ProviderRepository(context), new ProviderEarningLedgerRepository(context));
+        var ledgerService = BuildLedgerService(context);
         var result = await ledgerService.RecordAdjustmentAsync(
             providerId, new RecordProviderEarningAdjustmentRequest(ProviderEarningEntryType.Credit, amount, ProviderEarningSourceType.JobCompletion, Guid.NewGuid(), "Job completed."));
         result.IsSuccess.Should().BeTrue();
@@ -191,6 +200,133 @@ public class ProviderEarningsServiceTests : IDisposable
         result.IsSuccess.Should().BeTrue();
         result.Value.Items.Should().BeEmpty("a page that far past the end is empty, not an error");
         result.Value.TotalCount.Should().Be(1);
+    }
+
+    /// <summary>
+    /// Seeds a completed, commission-recorded booking (mirrors
+    /// <c>ProviderJobServiceTests.SeedPaidCommissionAsync</c>'s payment-side
+    /// setup) plus the <see cref="ProviderEarningSourceType.JobCompletion"/>
+    /// ledger credit <see cref="EscrowReleaseOnCompletionHandler"/> records
+    /// for it, so <see cref="ProviderEarningLedgerService.GetJobEarningsAsync"/>
+    /// has something real to read. Returns the booking id and the net amount
+    /// credited (gross - commission), the same figure the handler passes on.
+    /// </summary>
+    private async Task<(Guid BookingId, decimal NetAmount)> SeedCompletedJobEarningAsync(
+        NestlyDbContext context, Guid providerId, DateOnly slotDate, decimal grossAmount = 1000m, decimal commissionAmount = 150m)
+    {
+        var customer = new Customer(Guid.NewGuid(), "9" + Guid.NewGuid().ToString("N")[..9], "Asha Rao", CustomerStatus.Active);
+        var booking = new Booking(
+            Guid.NewGuid(), customer.Id,
+            new CustomerSnapshot("Asha Rao", "9876543210"),
+            null,
+            new AddressSnapshot("Home", "221B Baker Street", null, null, "560001", "Bengaluru", "Karnataka", 12.9716m, 77.5946m, "Asha Rao", "9876543210"),
+            new SlotSnapshot(Guid.NewGuid(), slotDate, "Morning", TimeSpan.FromHours(9), TimeSpan.FromHours(13)),
+            new PriceSnapshot(grossAmount, 1, grossAmount, 0m, 0m, grossAmount, 0m, 0m, 0m, grossAmount));
+        booking.AddItem(Guid.NewGuid(), Guid.NewGuid(), "Deep Cleaning", "deep-cleaning", grossAmount, 1);
+        booking.TransitionTo(BookingStatus.PaymentPending);
+        booking.TransitionTo(BookingStatus.Confirmed);
+
+        var transaction = new PaymentTransaction(Guid.NewGuid(), booking.Id, customer.Id, grossAmount, "INR", Guid.NewGuid().ToString());
+        var attempt = transaction.StartAttempt(Guid.NewGuid(), "order_" + Guid.NewGuid());
+        transaction.MarkAttemptSucceeded(attempt.Id, "pay_" + Guid.NewGuid());
+        transaction.RecordCommission(15m, commissionAmount);
+
+        context.AddRange(customer, booking, transaction);
+        await context.SaveChangesAsync();
+
+        decimal netAmount = grossAmount - commissionAmount;
+        var ledgerService = BuildLedgerService(context);
+        var credit = await ledgerService.RecordAdjustmentAsync(
+            providerId,
+            new RecordProviderEarningAdjustmentRequest(
+                ProviderEarningEntryType.Credit, netAmount, ProviderEarningSourceType.JobCompletion, booking.Id, $"Job completed - booking {booking.Id}."));
+        credit.IsSuccess.Should().BeTrue();
+
+        return (booking.Id, netAmount);
+    }
+
+    [Fact]
+    public async Task GetJobEarningsAsync_returns_the_gross_commission_net_breakdown()
+    {
+        await using var context = _database.CreateContext();
+        var (bookingId, netAmount) = await SeedCompletedJobEarningAsync(context, _providerId, DateOnly.FromDateTime(DateTime.UtcNow), grossAmount: 1000m, commissionAmount: 150m);
+
+        var result = await CreateService(context).GetJobEarningsAsync(_providerId, fromDate: null, toDate: null, page: 1, pageSize: 20);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Items.Should().ContainSingle();
+        var row = result.Value.Items[0];
+        row.BookingId.Should().Be(bookingId);
+        row.ServiceName.Should().Be("Deep Cleaning");
+        row.CommissionAmount.Should().Be(150m);
+        row.NetAmountToProvider.Should().Be(netAmount);
+        row.GrossAmount.Should().Be(1000m);
+        row.PayoutStatus.Should().Be(ProviderJobPayoutStatus.AwaitingBatch, "no payout batch has been run yet for this job's period");
+    }
+
+    [Fact]
+    public async Task GetJobEarningsAsync_scopes_results_to_the_callers_own_jobs()
+    {
+        await using var context = _database.CreateContext();
+        await SeedCompletedJobEarningAsync(context, _otherProviderId, DateOnly.FromDateTime(DateTime.UtcNow));
+
+        var result = await CreateService(context).GetJobEarningsAsync(_providerId, fromDate: null, toDate: null, page: 1, pageSize: 20);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Items.Should().BeEmpty();
+        result.Value.TotalCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task GetJobEarningsAsync_mirrors_the_covering_payout_batchs_status()
+    {
+        await using var context = _database.CreateContext();
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        await SeedCompletedJobEarningAsync(context, _providerId, today);
+
+        var payoutService = BuildPayoutService(context);
+        var created = await payoutService.CreateBatchAsync(_providerId, new CreateProviderPayoutRequest(today.AddDays(-7), today));
+        created.IsSuccess.Should().BeTrue();
+        var marked = await payoutService.UpdateStatusAsync(created.Value.Id, new UpdateProviderPayoutStatusRequest(ProviderPayoutStatus.Processing, null, null));
+        marked.IsSuccess.Should().BeTrue();
+
+        var result = await CreateService(context).GetJobEarningsAsync(_providerId, fromDate: null, toDate: null, page: 1, pageSize: 20);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Items.Should().ContainSingle();
+        result.Value.Items[0].PayoutStatus.Should().Be(ProviderJobPayoutStatus.Processing);
+    }
+
+    [Fact]
+    public async Task GetJobEarningsAsync_excludes_jobs_outside_the_requested_date_range()
+    {
+        await using var context = _database.CreateContext();
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        await SeedCompletedJobEarningAsync(context, _providerId, today.AddDays(-60), grossAmount: 500m, commissionAmount: 75m);
+        await SeedCompletedJobEarningAsync(context, _providerId, today, grossAmount: 1000m, commissionAmount: 150m);
+
+        var result = await CreateService(context).GetJobEarningsAsync(_providerId, fromDate: today.AddDays(-1), toDate: today, page: 1, pageSize: 20);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Items.Should().ContainSingle();
+        result.Value.Items[0].GrossAmount.Should().Be(1000m);
+    }
+
+    [Fact]
+    public async Task GetJobEarningsAsync_summarizes_the_full_filtered_period_not_just_the_page()
+    {
+        await using var context = _database.CreateContext();
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        await SeedCompletedJobEarningAsync(context, _providerId, today, grossAmount: 1000m, commissionAmount: 150m);
+        await SeedCompletedJobEarningAsync(context, _providerId, today, grossAmount: 500m, commissionAmount: 75m);
+
+        var result = await CreateService(context).GetJobEarningsAsync(_providerId, fromDate: null, toDate: null, page: 1, pageSize: 1);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Items.Should().ContainSingle("the page size limits the returned page to one row");
+        result.Value.TotalCount.Should().Be(2);
+        result.Value.JobCount.Should().Be(2);
+        result.Value.TotalNetAmount.Should().Be(850m + 425m, "the summary covers the whole filtered period, not just the returned page");
     }
 
     public void Dispose() => _database.Dispose();

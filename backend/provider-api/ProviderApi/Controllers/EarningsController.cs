@@ -48,6 +48,24 @@ public class EarningsController : ControllerBase
         return result.IsSuccess ? Ok(result.Value) : result.ToProblemResult();
     }
 
+    /// <summary>
+    /// Job-level earnings ledger for the caller (docs/OPEN-FIXES-FEATURES.csv
+    /// "Earnings detail and payouts") - one row per completed job with its
+    /// gross/commission/net breakdown and payout status, newest first,
+    /// optionally narrowed to a completion-date range.
+    /// </summary>
+    [HttpGet("jobs")]
+    [ProducesResponseType(typeof(ProviderEarningJobSearchResponse), StatusCodes.Status200OK)]
+    public async Task<IActionResult> ListJobEarnings(
+        [FromQuery] DateOnly? fromDate,
+        [FromQuery] DateOnly? toDate,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20)
+    {
+        var result = await _earningsService.GetJobEarningsAsync(CurrentProviderId(), fromDate, toDate, page, pageSize);
+        return result.IsSuccess ? Ok(result.Value) : result.ToProblemResult();
+    }
+
     /// <summary>Payout batches for the caller.</summary>
     [HttpGet("payouts")]
     [ProducesResponseType(typeof(ProviderPayoutSearchResponse), StatusCodes.Status200OK)]

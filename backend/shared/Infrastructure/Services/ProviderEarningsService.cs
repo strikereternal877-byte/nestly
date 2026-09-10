@@ -28,6 +28,9 @@ public class ProviderEarningsService : IProviderEarningsService
             : summary.Error;
     }
 
+    public Task<Result<ProviderEarningJobSearchResponse>> GetJobEarningsAsync(Guid providerId, DateOnly? fromDate, DateOnly? toDate, int page, int pageSize) =>
+        _ledgerService.GetJobEarningsAsync(providerId, fromDate, toDate, page, pageSize);
+
     public Task<Result<ProviderPayoutSearchResponse>> ListPayoutsAsync(Guid providerId, ProviderPayoutStatus? status, int page, int pageSize) =>
         _payoutService.SearchAsync(providerId, status, page, pageSize);
 

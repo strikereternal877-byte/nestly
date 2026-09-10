@@ -96,3 +96,63 @@ export interface PayoutListResponse {
 
 /** GET /earnings/payouts/{id}'s response - same shape as a list row. */
 export type PayoutDetail = PayoutSummary;
+
+/**
+ * A completed job's payout status (ProviderJobPayoutStatus) - derived on the
+ * backend from whether the job's credit date falls inside one of the
+ * provider's payout batches, mirroring that batch's own PayoutStatus. Not the
+ * same enum as {@link PayoutStatus}: `AwaitingBatch`/`PendingSettlement` have
+ * no batch-level equivalent, and a job with no covering batch yet (the common
+ * case right after completion) is `AwaitingBatch`, not `Pending`.
+ */
+export enum JobPayoutStatus {
+  AwaitingBatch = 0,
+  PendingSettlement = 1,
+  Processing = 2,
+  Paid = 3,
+  Failed = 4,
+}
+
+const JOB_PAYOUT_STATUS_LABELS: Record<JobPayoutStatus, string> = {
+  [JobPayoutStatus.AwaitingBatch]: "Awaiting payout batch",
+  [JobPayoutStatus.PendingSettlement]: "Pending settlement",
+  [JobPayoutStatus.Processing]: "Processing",
+  [JobPayoutStatus.Paid]: "Paid",
+  [JobPayoutStatus.Failed]: "Failed",
+};
+
+export function jobPayoutStatusLabel(status: JobPayoutStatus): string {
+  return JOB_PAYOUT_STATUS_LABELS[status] ?? String(status);
+}
+
+/**
+ * One completed job's earning breakdown (ProviderEarningJobResponse) - the
+ * same gross/commission/net figures jobs/[id]'s payout panel shows, plus this
+ * job's place in the payout timeline.
+ */
+export interface JobEarning {
+  bookingId: string;
+  bookingReference: string;
+  serviceName: string;
+  /** Calendar date (`YYYY-MM-DD`) - the booking's slot date, not an instant. */
+  completionDate: string;
+  grossAmount: number;
+  commissionAmount: number;
+  netAmountToProvider: number;
+  payoutStatus: JobPayoutStatus;
+  creditedAtUtc: string;
+}
+
+/**
+ * GET /earnings/jobs's response (ProviderEarningJobSearchResponse).
+ * `totalNetAmount`/`jobCount` summarize the *entire filtered period*, not
+ * just `items` - the page the caller happens to have requested.
+ */
+export interface JobEarningsResponse {
+  items: JobEarning[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+  totalNetAmount: number;
+  jobCount: number;
+}

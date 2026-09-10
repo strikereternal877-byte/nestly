@@ -375,6 +375,28 @@ public class BookingRepository : IBookingRepository
             .Distinct()
             .ToListAsync();
 
+    /// <inheritdoc/>
+    public async Task<IReadOnlyDictionary<Guid, string>> ListServiceNamesByIdsAsync(IReadOnlyCollection<Guid> bookingIds)
+    {
+        if (bookingIds.Count == 0)
+        {
+            return new Dictionary<Guid, string>();
+        }
+
+        // Queries BookingItems directly (same DbSet ListServiceIdsEverBookedAsync
+        // reads) rather than Booking.Items, so this never loads a full
+        // Booking aggregate just to read item names.
+        var rows = await _context.BookingItems
+            .AsNoTracking()
+            .Where(i => bookingIds.Contains(i.BookingId))
+            .Select(i => new { i.BookingId, i.NameSnapshot })
+            .ToListAsync();
+
+        return rows
+            .GroupBy(r => r.BookingId)
+            .ToDictionary(g => g.Key, g => string.Join(", ", g.Select(r => r.NameSnapshot).Distinct()));
+    }
+
     private IQueryable<Booking> FullyLoaded() =>
         _context.Bookings
             .Include(b => b.Items).ThenInclude(i => i.AddOns)

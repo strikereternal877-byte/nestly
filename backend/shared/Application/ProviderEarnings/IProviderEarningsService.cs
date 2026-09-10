@@ -23,6 +23,17 @@ public interface IProviderEarningsService
     /// <summary>The caller's own append-only ledger entries, newest first.</summary>
     Task<Result<IReadOnlyList<ProviderEarningLedgerEntryResponse>>> GetLedgerAsync(Guid providerId);
 
+    /// <summary>
+    /// The caller's own job-level earnings breakdown (docs/OPEN-FIXES-FEATURES.csv
+    /// "Earnings detail and payouts") - one row per completed job with its
+    /// gross/commission/net figures and payout status. Passed straight
+    /// through to <see cref="IProviderEarningLedgerService.GetJobEarningsAsync"/>
+    /// with no extra IDOR check needed - <paramref name="providerId"/> already
+    /// scopes the query, same reasoning as <see cref="GetSummaryAsync"/>/<see cref="GetLedgerAsync"/>.
+    /// </summary>
+    Task<Result<ProviderEarningJobSearchResponse>> GetJobEarningsAsync(
+        Guid providerId, DateOnly? fromDate, DateOnly? toDate, int page, int pageSize);
+
     Task<Result<ProviderPayoutSearchResponse>> ListPayoutsAsync(Guid providerId, ProviderPayoutStatus? status, int page, int pageSize);
 
     /// <summary>One payout's detail - 404s (rather than the underlying service's plain not-found) when the payout exists but belongs to a different provider, so a caller can never probe another provider's payout by id.</summary>

@@ -14,4 +14,16 @@ public interface IProviderEarningLedgerService
     Task<Result<ProviderEarningLedgerEntryResponse>> RecordAdjustmentAsync(Guid providerId, RecordProviderEarningAdjustmentRequest request);
 
     Task<Result<ProviderEarningsSummaryResponse>> GetSummaryAsync(Guid providerId);
+
+    /// <summary>
+    /// Job-level breakdown of the provider's <see cref="ProviderEarningSourceType.JobCompletion"/>
+    /// ledger credits (docs/OPEN-FIXES-FEATURES.csv "Earnings detail and
+    /// payouts") - one row per completed job with its gross/commission/net
+    /// figures and payout status, newest first, optionally narrowed to a
+    /// completion-date range. <paramref name="page"/>/<paramref name="pageSize"/>
+    /// are clamped the same way <c>ProviderPayoutService.SearchAsync</c>
+    /// clamps its own (neither endpoint validates its query string).
+    /// </summary>
+    Task<Result<ProviderEarningJobSearchResponse>> GetJobEarningsAsync(
+        Guid providerId, DateOnly? fromDate, DateOnly? toDate, int page, int pageSize);
 }
