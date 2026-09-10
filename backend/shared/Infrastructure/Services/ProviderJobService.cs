@@ -168,6 +168,23 @@ public class ProviderJobService : IProviderJobService
         return await ToDetailResponseAsync(resolved.Value.Assignment, resolved.Value.Booking);
     }
 
+    public async Task<Result<ProviderJobDetailResponse>> ExtendResponseDeadlineAsync(Guid providerId, Guid bookingId)
+    {
+        var extendResult = await _assignmentService.ExtendResponseDeadlineAsync(bookingId, providerId);
+        if (extendResult.IsFailure)
+        {
+            return extendResult.Error;
+        }
+
+        var resolved = await ResolveAsync(providerId, bookingId);
+        if (resolved is null)
+        {
+            return NotFoundError();
+        }
+
+        return await ToDetailResponseAsync(resolved.Value.Assignment, resolved.Value.Booking);
+    }
+
     public async Task<Result<ProviderJobDetailResponse>> RejectAsync(Guid providerId, Guid bookingId, RejectJobRequest request)
     {
         var rejectResult = await _assignmentService.RejectByProviderAsync(bookingId, providerId, new RejectAssignmentRequest(request.Reason));

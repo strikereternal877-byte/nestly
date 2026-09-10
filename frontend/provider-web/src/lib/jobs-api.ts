@@ -40,6 +40,16 @@ export const getJobDetail = (jobId: string) =>
 export const acceptJob = (jobId: string) =>
   apiFetch<JobDetail>(`${JOBS_BASE}/${jobId}/accept`, { method: "POST", authenticated: true });
 
+/**
+ * Row 38, docs/OPEN-FIXES-FEATURES.csv: called after an accept attempt fails
+ * for a reason that was not the provider's fault (a transient server error,
+ * not the 401/session-expiry case `apiFetch` already retries transparently),
+ * so the response window is pushed out instead of silently lost while the
+ * provider retries.
+ */
+export const extendJobResponseDeadline = (jobId: string) =>
+  apiFetch<JobDetail>(`${JOBS_BASE}/${jobId}/extend-response-deadline`, { method: "POST", authenticated: true });
+
 export const rejectJob = (jobId: string) =>
   apiFetch<JobDetail>(`${JOBS_BASE}/${jobId}/reject`, { method: "POST", authenticated: true });
 

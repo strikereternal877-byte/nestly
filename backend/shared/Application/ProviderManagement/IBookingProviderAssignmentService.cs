@@ -62,6 +62,20 @@ public interface IBookingProviderAssignmentService
     Task<Result<BookingProviderAssignmentResponse>> RejectByProviderAsync(Guid bookingId, Guid providerId, RejectAssignmentRequest request);
 
     /// <summary>
+    /// Row 38, docs/OPEN-FIXES-FEATURES.csv: pushes an outstanding
+    /// assignment's response deadline out from now by
+    /// <c>AutoAssignmentOptions.ResponseWindowMinutes</c> - a provider whose
+    /// own <see cref="AcceptAsync"/> call failed for a reason that was not
+    /// their fault (a transient 5xx, not the 401-session-expiry case the
+    /// client already retries transparently) calls this so the response
+    /// window does not keep counting down while they retry, rather than
+    /// silently losing the job to the expiry sweep. Verifies
+    /// <paramref name="providerId"/> actually owns the outstanding
+    /// assignment first (SRS 28.3 IDOR), same as <see cref="AcceptAsync"/>.
+    /// </summary>
+    Task<Result<BookingProviderAssignmentResponse>> ExtendResponseDeadlineAsync(Guid bookingId, Guid providerId);
+
+    /// <summary>
     /// The assignment-response-expiry sweep's action on one unanswered,
     /// past-deadline assignment: marks it <see cref="Nestly.Domain.BookingProviderAssignmentStatus.Expired"/>
     /// and returns the booking to <see cref="Nestly.Domain.BookingStatus.AwaitingFulfilment"/>

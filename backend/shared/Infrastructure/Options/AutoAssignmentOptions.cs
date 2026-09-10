@@ -266,15 +266,26 @@ public class AutoAssignmentOptions
     /// <summary>
     /// How long a system-assigned provider has to accept or reject before the
     /// assignment-response-expiry sweep treats their silence as a decline and
-    /// tries the next candidate. Fifteen minutes: long enough that a provider
-    /// checking their phone between jobs still has a realistic window, short
-    /// enough that a customer whose provider never responds is not left
-    /// waiting for a manual admin to notice. Only system assignments get a
-    /// deadline from this value - an admin's own manual assignment still sets
+    /// tries the next candidate. Already externally configurable (per-API
+    /// appsettings.json/environment) - only the default has changed.
+    ///
+    /// Row 38, docs/OPEN-FIXES-FEATURES.csv: the previous 15-minute default
+    /// was "extremely short" for a working professional who may be mid-job,
+    /// driving, or simply not looking at their phone the instant an offer
+    /// lands - and, before task d9f557c's provider-web session-refresh fix,
+    /// a lapsed session could make the accept attempt itself fail silently
+    /// while the window kept counting down. Raised to thirty minutes: long
+    /// enough for a working professional to notice and act on an offer
+    /// between jobs, still short enough that a customer whose provider never
+    /// responds is not left waiting for a manual admin to notice. Only
+    /// system assignments get a deadline from this value - an admin's own
+    /// manual assignment still sets
     /// <see cref="Nestly.Domain.BookingProviderAssignment.ResponseDeadline"/>
-    /// explicitly via <c>AssignProviderRequest.ResponseDeadline</c>, or not at
-    /// all.
+    /// explicitly via <c>AssignProviderRequest.ResponseDeadline</c>, or not
+    /// at all - and it is also what <c>IBookingProviderAssignmentService.ExtendResponseDeadlineAsync</c>
+    /// extends an outstanding deadline by when a provider's own accept
+    /// attempt fails for a reason that was not their fault.
     /// </summary>
     [Range(1, 1440)]
-    public int ResponseWindowMinutes { get; set; } = 15;
+    public int ResponseWindowMinutes { get; set; } = 30;
 }

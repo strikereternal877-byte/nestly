@@ -169,6 +169,32 @@ public class BookingProviderAssignment : AggregateRoot<Guid>
     }
 
     /// <summary>
+    /// Row 38, docs/OPEN-FIXES-FEATURES.csv: pushes <see cref="ResponseDeadline"/>
+    /// out by <paramref name="extension"/> rather than letting the
+    /// assignment-response-expiry sweep treat a genuine delivery failure -
+    /// not the provider's own inaction - as a silent decline. Only ever
+    /// moves the deadline later (never shortens it, and is a no-op with no
+    /// deadline to extend) and only while the assignment is still
+    /// <see cref="BookingProviderAssignmentStatus.Assigned"/> - once the
+    /// provider has actually responded (or the assignment moved on) there is
+    /// nothing left to extend.
+    /// </summary>
+    public void ExtendResponseDeadline(TimeSpan extension)
+    {
+        EnsureOutstanding();
+        if (ResponseDeadline is null)
+        {
+            return;
+        }
+
+        var extended = DateTime.UtcNow.Add(extension);
+        if (extended > ResponseDeadline)
+        {
+            ResponseDeadline = extended;
+        }
+    }
+
+    /// <summary>
     /// The response window passed with no accept/reject from the provider -
     /// the assignment-response-expiry sweep's action, not the provider's own.
     /// <see cref="RespondedAt"/> is deliberately left null: it means exactly

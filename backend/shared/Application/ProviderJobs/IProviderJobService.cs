@@ -24,6 +24,14 @@ public interface IProviderJobService
     Task<Result<ProviderJobDetailResponse>> RejectAsync(Guid providerId, Guid bookingId, RejectJobRequest request);
 
     /// <summary>
+    /// Row 38, docs/OPEN-FIXES-FEATURES.csv: extends this job's response
+    /// deadline (see <see cref="Nestly.Application.ProviderManagement.IBookingProviderAssignmentService.ExtendResponseDeadlineAsync"/>)
+    /// after an accept attempt failed for a reason that was not the
+    /// provider's fault.
+    /// </summary>
+    Task<Result<ProviderJobDetailResponse>> ExtendResponseDeadlineAsync(Guid providerId, Guid bookingId);
+
+    /// <summary>
     /// Marks an accepted job as started - the provider has begun the work
     /// itself, moving the booking to
     /// <see cref="Nestly.Domain.BookingStatus.InProgress"/>. Arrival is no

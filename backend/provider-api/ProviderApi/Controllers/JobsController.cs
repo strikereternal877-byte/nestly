@@ -78,6 +78,23 @@ public class JobsController : ControllerBase
         return result.IsSuccess ? Ok(result.Value) : result.ToProblemResult();
     }
 
+    /// <summary>
+    /// Row 38, docs/OPEN-FIXES-FEATURES.csv: extends this job's response
+    /// deadline - called by provider-web when its own accept attempt failed
+    /// for a reason that was not the provider's fault (a transient error, not
+    /// the 401/session-expiry case the client already retries transparently),
+    /// so the response window is not silently lost while they retry.
+    /// </summary>
+    [HttpPost("{bookingId:guid}/extend-response-deadline")]
+    [ProducesResponseType(typeof(ProviderJobDetailResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status422UnprocessableEntity)]
+    public async Task<IActionResult> ExtendResponseDeadline(Guid bookingId)
+    {
+        var result = await _jobService.ExtendResponseDeadlineAsync(CurrentProviderId(), bookingId);
+        return result.IsSuccess ? Ok(result.Value) : result.ToProblemResult();
+    }
+
     /// <summary>Reject an assigned job (task 159 - returns the booking to the assignable pool for admin reassignment).</summary>
     [HttpPost("{bookingId:guid}/reject")]
     [ProducesResponseType(typeof(ProviderJobDetailResponse), StatusCodes.Status200OK)]
