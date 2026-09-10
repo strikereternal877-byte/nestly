@@ -67,6 +67,11 @@ export function ChatPanel({ bookingId }: { bookingId: string }) {
         withCredentials: false,
       })
       .withAutomaticReconnect()
+      // See useJobStatusLive's identical call for why this is here: without
+      // it, @microsoft/signalr's default Information level logs the
+      // fully-resolved connection URL - including ?access_token=<JWT> - to
+      // the browser console on every connect/reconnect.
+      .configureLogging(signalR.LogLevel.Warning)
       .build();
 
     // "MessageReceived" mirrors ChatHubBroadcastHandler.MessageReceivedMethod.

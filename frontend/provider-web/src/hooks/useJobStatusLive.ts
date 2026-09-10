@@ -47,6 +47,15 @@ export function useJobStatusLive(jobId: string) {
         withCredentials: false,
       })
       .withAutomaticReconnect()
+      // Explicit floor, not just the client's own default: @microsoft/
+      // signalr's Information level logs the fully-resolved connection URL
+      // ("WebSocket connected to wss://...?access_token=<JWT>...") to the
+      // browser console on every connect/reconnect - the token the
+      // handshake needs per SignalR's own negotiate protocol (there is no
+      // way to send it via a WebSocket header instead) then ends up
+      // readable in devtools/session recordings on top of the transport
+      // logs it was already in. Warning and above never include the URL.
+      .configureLogging(signalR.LogLevel.Warning)
       .build();
 
     connection.on("BookingStatusChanged", (payload: { bookingId: string }) => {
