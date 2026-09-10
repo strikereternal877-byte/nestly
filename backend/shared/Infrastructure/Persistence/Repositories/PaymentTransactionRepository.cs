@@ -144,6 +144,23 @@ public class PaymentTransactionRepository : IPaymentTransactionRepository
         return (rows, totalCount);
     }
 
+    public async Task<IReadOnlyList<PaymentCommissionSnapshot>> ListCommissionSnapshotsByBookingIdsAsync(IReadOnlyCollection<Guid> bookingIds)
+    {
+        if (bookingIds.Count == 0)
+        {
+            return [];
+        }
+
+        // No FullyLoaded()/Include(Attempts) here on purpose - same reasoning
+        // as BookingRepository.ListSummariesByIdsAsync: a page of jobs only
+        // needs these four columns per booking, not every gateway attempt.
+        return await _context.PaymentTransactions
+            .AsNoTracking()
+            .Where(t => bookingIds.Contains(t.BookingId))
+            .Select(t => new PaymentCommissionSnapshot(t.BookingId, t.Amount, t.CommissionRatePercentage, t.CommissionAmount))
+            .ToListAsync();
+    }
+
     private IQueryable<PaymentTransaction> FullyLoaded() =>
         _context.PaymentTransactions.Include(t => t.Attempts);
 }

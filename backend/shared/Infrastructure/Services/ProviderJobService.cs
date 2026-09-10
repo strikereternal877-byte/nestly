@@ -1,6 +1,7 @@
 using Nestly.Application;
 using Nestly.Application.Abstractions.Time;
 using Nestly.Application.Bookings;
+using Nestly.Application.Payments;
 using Nestly.Application.ProviderJobs;
 using Nestly.Application.ProviderManagement;
 using Nestly.Application.RecurringBookings;
@@ -23,6 +24,7 @@ public class ProviderJobService : IProviderJobService
     private readonly IFileStorageService _fileStorageService;
     private readonly IProviderActiveJobLimitService _activeJobLimitService;
     private readonly IOverrunReassignmentService _overrunReassignmentService;
+    private readonly IPaymentTransactionRepository _paymentTransactionRepository;
     private readonly IBusinessClock _clock;
 
     private static readonly BookingStatus[] ActiveJobStatuses =
@@ -42,6 +44,7 @@ public class ProviderJobService : IProviderJobService
         IFileStorageService fileStorageService,
         IProviderActiveJobLimitService activeJobLimitService,
         IOverrunReassignmentService overrunReassignmentService,
+        IPaymentTransactionRepository paymentTransactionRepository,
         IBusinessClock clock)
     {
         _bookingRepository = bookingRepository;
@@ -53,6 +56,7 @@ public class ProviderJobService : IProviderJobService
         _fileStorageService = fileStorageService;
         _activeJobLimitService = activeJobLimitService;
         _overrunReassignmentService = overrunReassignmentService;
+        _paymentTransactionRepository = paymentTransactionRepository;
         _clock = clock;
     }
 
@@ -77,6 +81,13 @@ public class ProviderJobService : IProviderJobService
                 .OfType<Guid>()
                 .Distinct()
                 .ToList());
+
+        // Bug fix (docs/OPEN-FIXES-FEATURES.csv "Payout figure"): payout
+        // breakdown per row, batched the same way - see ResolvePayoutAsync's
+        // doc comment for why the commission recorded on the transaction is
+        // the source of truth rather than recomputing it here.
+        var commissionByBookingId = (await _paymentTransactionRepository.ListCommissionSnapshotsByBookingIdsAsync(bookingsById.Keys.ToList()))
+            .ToDictionary(s => s.BookingId, s => s.CommissionAmount ?? 0m);
 
         var items = new List<ProviderJobSummaryResponse>();
         foreach (var assignment in assignments)
@@ -121,7 +132,9 @@ public class ProviderJobService : IProviderJobService
                 booking.RecurringBookingPlanId is { } planId && frequencyByPlanId.TryGetValue(planId, out var frequency)
                     ? frequency
                     : null,
-                booking.BookingReference));
+                booking.BookingReference,
+                commissionByBookingId.GetValueOrDefault(booking.Id),
+                booking.TotalPayableSnapshot - commissionByBookingId.GetValueOrDefault(booking.Id)));
         }
 
         return new ProviderJobSearchResponse(items);
@@ -135,7 +148,7 @@ public class ProviderJobService : IProviderJobService
             return NotFoundError();
         }
 
-        return ToDetailResponse(resolved.Value.Assignment, resolved.Value.Booking);
+        return await ToDetailResponseAsync(resolved.Value.Assignment, resolved.Value.Booking);
     }
 
     public async Task<Result<ProviderJobDetailResponse>> AcceptAsync(Guid providerId, Guid bookingId)
@@ -152,7 +165,7 @@ public class ProviderJobService : IProviderJobService
             return NotFoundError();
         }
 
-        return ToDetailResponse(resolved.Value.Assignment, resolved.Value.Booking);
+        return await ToDetailResponseAsync(resolved.Value.Assignment, resolved.Value.Booking);
     }
 
     public async Task<Result<ProviderJobDetailResponse>> RejectAsync(Guid providerId, Guid bookingId, RejectJobRequest request)
@@ -175,7 +188,7 @@ public class ProviderJobService : IProviderJobService
             return NotFoundError();
         }
 
-        return ToDetailResponse(assignment, booking);
+        return await ToDetailResponseAsync(assignment, booking);
     }
 
     public async Task<Result<ProviderJobDetailResponse>> StartAsync(Guid providerId, Guid bookingId)
@@ -216,7 +229,7 @@ public class ProviderJobService : IProviderJobService
 
         await _bookingRepository.UpdateAsync(booking);
 
-        return ToDetailResponse(assignment, booking);
+        return await ToDetailResponseAsync(assignment, booking);
     }
 
     public async Task<Result<ProviderJobDetailResponse>> MarkEnRouteAsync(Guid providerId, Guid bookingId)
@@ -294,7 +307,7 @@ public class ProviderJobService : IProviderJobService
         // fails on the transition table below.
         if (booking.Status == targetStatus)
         {
-            return ToDetailResponse(assignment, booking);
+            return await ToDetailResponseAsync(assignment, booking);
         }
 
         // One-active-job rule (provider-queue model). Only relevant for the
@@ -322,7 +335,7 @@ public class ProviderJobService : IProviderJobService
 
         await _bookingRepository.UpdateAsync(booking);
 
-        return ToDetailResponse(assignment, booking);
+        return await ToDetailResponseAsync(assignment, booking);
     }
 
     public async Task<Result<ProviderJobDetailResponse>> CompleteAsync(Guid providerId, Guid bookingId)
@@ -387,7 +400,7 @@ public class ProviderJobService : IProviderJobService
             }
         }
 
-        return ToDetailResponse(assignment, booking);
+        return await ToDetailResponseAsync(assignment, booking);
     }
 
     public async Task<Result<ProviderJobDetailResponse>> UploadCompletionProofAsync(Guid providerId, Guid bookingId, UploadJobCompletionProofRequest request)
@@ -412,7 +425,7 @@ public class ProviderJobService : IProviderJobService
 
         await _assignmentRepository.UpdateAsync(assignment);
 
-        return ToDetailResponse(assignment, booking);
+        return await ToDetailResponseAsync(assignment, booking);
     }
 
     public async Task<Result<UploadCompletionPhotoResponse>> UploadCompletionPhotoAsync(Guid providerId, Guid bookingId, Stream content, string fileNameHint, string contentType)
@@ -532,32 +545,63 @@ public class ProviderJobService : IProviderJobService
         _ => ProviderJobStatus.Assigned
     };
 
-    private static ProviderJobDetailResponse ToDetailResponse(BookingProviderAssignment assignment, Booking booking) => new(
-        assignment.Id,
-        booking.Id,
-        ToJobStatus(assignment, booking),
-        booking.CustomerNameSnapshot,
-        MaskMobileUntilAccepted(assignment, booking.CustomerMobileSnapshot),
-        booking.AddressLabelSnapshot,
-        booking.AddressLine1Snapshot,
-        booking.AddressLine2Snapshot,
-        booking.AddressLandmarkSnapshot,
-        booking.AddressCitySnapshot,
-        booking.AddressStateSnapshot,
-        booking.AddressPincodeSnapshot,
-        booking.AddressContactNameSnapshot,
-        MaskMobileUntilAccepted(assignment, booking.AddressContactMobileSnapshot),
-        booking.SlotDate,
-        booking.SlotStartTimeSnapshot,
-        booking.SlotEndTimeSnapshot,
-        booking.Items.Select(i => new ProviderJobItemResponse(i.NameSnapshot, i.Quantity, i.UnitPriceSnapshot)).ToList(),
-        booking.TotalPayableSnapshot,
-        assignment.AssignedAt,
-        assignment.RespondedAt,
-        assignment.ResponseDeadline,
-        assignment.Notes,
-        assignment.CompletionProofRef,
-        booking.BookingReference);
+    private async Task<ProviderJobDetailResponse> ToDetailResponseAsync(BookingProviderAssignment assignment, Booking booking)
+    {
+        var (commissionAmount, netAmountToProvider) = await ResolvePayoutAsync(booking.Id, booking.TotalPayableSnapshot);
+
+        return new(
+            assignment.Id,
+            booking.Id,
+            ToJobStatus(assignment, booking),
+            booking.CustomerNameSnapshot,
+            MaskMobileUntilAccepted(assignment, booking.CustomerMobileSnapshot),
+            booking.AddressLabelSnapshot,
+            booking.AddressLine1Snapshot,
+            booking.AddressLine2Snapshot,
+            booking.AddressLandmarkSnapshot,
+            booking.AddressCitySnapshot,
+            booking.AddressStateSnapshot,
+            booking.AddressPincodeSnapshot,
+            booking.AddressContactNameSnapshot,
+            MaskMobileUntilAccepted(assignment, booking.AddressContactMobileSnapshot),
+            booking.SlotDate,
+            booking.SlotStartTimeSnapshot,
+            booking.SlotEndTimeSnapshot,
+            booking.Items.Select(i => new ProviderJobItemResponse(i.NameSnapshot, i.Quantity, i.UnitPriceSnapshot)).ToList(),
+            booking.TotalPayableSnapshot,
+            assignment.AssignedAt,
+            assignment.RespondedAt,
+            assignment.ResponseDeadline,
+            assignment.Notes,
+            assignment.CompletionProofRef,
+            booking.BookingReference,
+            commissionAmount,
+            netAmountToProvider);
+    }
+
+    /// <summary>
+    /// Resolves one booking's provider payout breakdown (bug fix,
+    /// docs/OPEN-FIXES-FEATURES.csv "Payout figure") from the commission
+    /// <see cref="PaymentWebhookService"/> already records on its payment
+    /// transaction at confirmation time - the same figure
+    /// <see cref="EscrowReleaseOnCompletionHandler"/> actually deducts at
+    /// settlement, so this can never show the provider a number the ledger
+    /// later contradicts.
+    ///
+    /// A job is only ever assignable once its booking reaches Confirmed
+    /// (see the auto-assignment job's gate), which is exactly when commission
+    /// gets recorded - so a provider-visible job always has one. The
+    /// zero-both fallback below only fires for the one legitimate case where
+    /// it's still correct: a booking with nothing payable (fully wallet/AMC
+    /// covered) never gets a payment transaction at all, and 0 commission on
+    /// 0 gross is exactly right.
+    /// </summary>
+    private async Task<(decimal CommissionAmount, decimal NetAmountToProvider)> ResolvePayoutAsync(Guid bookingId, decimal totalPayable)
+    {
+        var transaction = await _paymentTransactionRepository.GetByBookingIdAsync(bookingId);
+        decimal commissionAmount = transaction?.CommissionAmount ?? 0m;
+        return (commissionAmount, totalPayable - commissionAmount);
+    }
 
     /// <summary>
     /// Privacy gate for the customer's phone number(s): a provider can see a

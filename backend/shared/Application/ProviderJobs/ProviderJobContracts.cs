@@ -81,14 +81,25 @@ public sealed record ProviderJobSummaryResponse(
     DateOnly SlotDate,
     TimeSpan SlotStartTimeSnapshot,
     TimeSpan SlotEndTimeSnapshot,
+    // The customer's gross booking total (service value + tax + platform
+    // fee) - NOT the provider's earning. See CommissionAmount/
+    // NetAmountToProvider below for the actual payout breakdown (bug fix:
+    // provider-web was previously showing this figure as "you'll earn").
     decimal TotalPayableSnapshot,
     DateTime AssignedAt,
     DateTime? ResponseDeadline,
     Guid? RecurringBookingPlanId,
     RecurringBookingRecurrenceFrequency? RecurringFrequency,
     // Short human-facing code ("NST-260825-K7F3M") - see Booking.BookingReference's
-    // doc comment. Appended last: this is a positional record.
-    string BookingReference);
+    // doc comment.
+    string BookingReference,
+    // Payout breakdown (bug fix, docs/OPEN-FIXES-FEATURES.csv "Payout
+    // figure"): the platform commission (task 157's ICommissionService,
+    // same rate/amount the escrow settlement in EscrowReleaseOnCompletionHandler
+    // actually deducts) and what is left for the provider once it is.
+    // Appended last: this is a positional record.
+    decimal CommissionAmount,
+    decimal NetAmountToProvider);
 
 public sealed record ProviderJobSearchResponse(IReadOnlyList<ProviderJobSummaryResponse> Items);
 
@@ -112,6 +123,10 @@ public sealed record ProviderJobDetailResponse(
     TimeSpan SlotStartTimeSnapshot,
     TimeSpan SlotEndTimeSnapshot,
     IReadOnlyList<ProviderJobItemResponse> Items,
+    // The customer's gross booking total (service value + tax + platform
+    // fee) - NOT the provider's earning. See CommissionAmount/
+    // NetAmountToProvider below for the actual payout breakdown (bug fix:
+    // provider-web was previously showing this figure as "you'll earn").
     decimal TotalPayableSnapshot,
     DateTime AssignedAt,
     DateTime? RespondedAt,
@@ -119,8 +134,15 @@ public sealed record ProviderJobDetailResponse(
     string? Notes,
     string? CompletionProofRef,
     // Short human-facing code ("NST-260825-K7F3M") - see Booking.BookingReference's
-    // doc comment. Appended last: this is a positional record.
-    string BookingReference);
+    // doc comment.
+    string BookingReference,
+    // Payout breakdown (bug fix, docs/OPEN-FIXES-FEATURES.csv "Payout
+    // figure"): the platform commission (task 157's ICommissionService, same
+    // rate/amount the escrow settlement in EscrowReleaseOnCompletionHandler
+    // actually deducts) and what is left for the provider once it is.
+    // Appended last: this is a positional record.
+    decimal CommissionAmount,
+    decimal NetAmountToProvider);
 
 /// <summary>Provider rejects an offered job (task 149a "reject job"), same shape as the admin-facing <c>RejectAssignmentRequest</c>.</summary>
 public sealed record RejectJobRequest(string? Reason);

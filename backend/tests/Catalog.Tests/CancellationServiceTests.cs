@@ -467,6 +467,7 @@ public sealed class CancellationServiceTests : IClassFixture<TestDatabase>
             new NoOpFileStorageService(),
             TestServices.ActiveJobLimit(readContext),
             TestServices.OverrunReassignment(readContext),
+            new PaymentTransactionRepository(readContext),
             TestServices.Clock());
         var jobDetail = await jobService.GetDetailAsync(providerId, fixture.BookingId);
         jobDetail.IsSuccess.Should().BeTrue();

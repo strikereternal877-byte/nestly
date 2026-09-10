@@ -77,6 +77,11 @@ export interface JobListItem {
   slotDate: string;
   slotStartTimeSnapshot: string;
   slotEndTimeSnapshot: string;
+  /**
+   * The customer's gross booking total (service value + tax + platform fee)
+   * - NOT the provider's earning. Render `netAmountToProvider` for that; see
+   * its doc comment for why (docs/OPEN-FIXES-FEATURES.csv "Payout figure").
+   */
   totalPayableSnapshot: number;
   assignedAt: string;
   responseDeadline: string | null;
@@ -91,6 +96,10 @@ export interface JobListItem {
   recurringFrequency: RecurrenceFrequency | null;
   /** Short human-facing code ("NST-260825-K7F3M") - what to show instead of `bookingId`. */
   bookingReference: string;
+  /** Platform commission deducted from `totalPayableSnapshot` before it reaches the provider (backend's ICommissionService, task 157). */
+  commissionAmount: number;
+  /** What the provider actually earns on this job: `totalPayableSnapshot - commissionAmount`. This is the figure to show as "you'll earn" - never `totalPayableSnapshot`. */
+  netAmountToProvider: number;
 }
 
 /** GET /jobs's actual response envelope (ProviderJobSearchResponse). */
@@ -130,6 +139,11 @@ export interface JobDetail {
   slotStartTimeSnapshot: string;
   slotEndTimeSnapshot: string;
   items: JobLineItem[];
+  /**
+   * The customer's gross booking total (service value + tax + platform fee)
+   * - NOT the provider's earning. Render `netAmountToProvider` for that; see
+   * its doc comment for why (docs/OPEN-FIXES-FEATURES.csv "Payout figure").
+   */
   totalPayableSnapshot: number;
   assignedAt: string;
   respondedAt: string | null;
@@ -138,6 +152,10 @@ export interface JobDetail {
   completionProofRef: string | null;
   /** Short human-facing code ("NST-260825-K7F3M") - what to show instead of `bookingId`. */
   bookingReference: string;
+  /** Platform commission deducted from `totalPayableSnapshot` before it reaches the provider (backend's ICommissionService, task 157). */
+  commissionAmount: number;
+  /** What the provider actually earns on this job: `totalPayableSnapshot - commissionAmount`. This is the figure to show as "you'll earn" - never `totalPayableSnapshot`. */
+  netAmountToProvider: number;
 }
 
 export interface SubmitCompletionProofRequest {

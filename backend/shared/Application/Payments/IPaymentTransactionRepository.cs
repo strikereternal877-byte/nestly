@@ -2,6 +2,21 @@ using Nestly.Domain;
 
 namespace Nestly.Application.Payments;
 
+/// <summary>
+/// The commission fields recorded on one booking's payment transaction (task
+/// 157), projected without its <see cref="PaymentTransaction.Attempts"/> -
+/// used by <see cref="IPaymentTransactionRepository.ListCommissionSnapshotsByBookingIdsAsync"/>
+/// so a page of provider jobs can compute each row's payout without paying
+/// for a fully-loaded transaction per booking (task 255's batching pattern;
+/// see <c>IBookingRepository.ListSummariesByIdsAsync</c>).
+/// <see cref="CommissionRatePercentage"/>/<see cref="CommissionAmount"/> are
+/// null when the transaction has not (yet) had <see cref="PaymentTransaction.RecordCommission"/>
+/// applied - only possible for a booking a provider should never be able to
+/// see yet, since jobs are only assignable once a booking is Confirmed,
+/// which is exactly when commission is recorded.
+/// </summary>
+public sealed record PaymentCommissionSnapshot(Guid BookingId, decimal Amount, decimal? CommissionRatePercentage, decimal? CommissionAmount);
+
 public interface IPaymentTransactionRepository
 {
     Task AddAsync(PaymentTransaction transaction);
@@ -53,4 +68,7 @@ public interface IPaymentTransactionRepository
     /// </summary>
     Task<(IReadOnlyList<PaymentTransaction> Rows, int TotalCount)> SearchAsync(
         Guid? bookingId, PaymentTransactionStatus? status, DateTime? fromUtc, DateTime? toUtc, int page, int pageSize);
+
+    /// <summary>Batched, attempts-free read of the commission snapshot for each of the given bookings (task 255 pattern) - see <see cref="PaymentCommissionSnapshot"/>. Bookings with no transaction are simply absent from the result.</summary>
+    Task<IReadOnlyList<PaymentCommissionSnapshot>> ListCommissionSnapshotsByBookingIdsAsync(IReadOnlyCollection<Guid> bookingIds);
 }

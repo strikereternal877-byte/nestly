@@ -72,7 +72,8 @@ public class ProviderLocationIngestServiceTests : IDisposable
         new BookingCompletionProofRepository(context),
         new NoOpBookingEtaService(),
         new RecurringBookingPlanRepository(context), new NoOpFileStorageService(),
-        TestServices.ActiveJobLimit(context), TestServices.OverrunReassignment(context), TestServices.Clock());
+        TestServices.ActiveJobLimit(context), TestServices.OverrunReassignment(context),
+        new PaymentTransactionRepository(context), TestServices.Clock());
 
     private static BookingProviderAssignmentService CreateAssignmentService(NestlyDbContext context) => new(
         new BookingRepository(context), new ProviderRepository(context), new ServiceRepository(context),

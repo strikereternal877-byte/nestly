@@ -47,7 +47,8 @@ public class ProviderJobServiceTests : IDisposable
         new BookingCompletionProofRepository(context),
         new NoOpBookingEtaService(),
         new RecurringBookingPlanRepository(context), new NoOpFileStorageService(),
-        TestServices.ActiveJobLimit(context), TestServices.OverrunReassignment(context), TestServices.Clock());
+        TestServices.ActiveJobLimit(context), TestServices.OverrunReassignment(context),
+        new PaymentTransactionRepository(context), TestServices.Clock());
 
     private BookingProviderAssignmentService CreateAssignmentService(NestlyDbContext context) => new(
         new BookingRepository(context), new ProviderRepository(context), new ServiceRepository(context),
@@ -244,6 +245,85 @@ public class ProviderJobServiceTests : IDisposable
 
         result.IsFailure.Should().BeTrue();
         result.Error.Code.Should().Be("ProviderJob.NotFound");
+    }
+
+    /// <summary>
+    /// Records a successfully-paid, commission-recorded transaction for a
+    /// booking - the same state <see cref="PaymentWebhookService"/> leaves
+    /// behind at confirmation time (task 157) - so <see cref="ProviderJobService"/>'s
+    /// payout breakdown has something real to read.
+    /// </summary>
+    private static async Task<PaymentTransaction> SeedPaidCommissionAsync(NestlyDbContext context, Guid bookingId, decimal ratePercentage)
+    {
+        var booking = await context.Bookings.SingleAsync(b => b.Id == bookingId);
+        var transaction = new PaymentTransaction(Guid.NewGuid(), bookingId, booking.CustomerId, booking.TotalPayableSnapshot, "INR", Guid.NewGuid().ToString());
+        var attempt = transaction.StartAttempt(Guid.NewGuid(), "order_" + Guid.NewGuid());
+        transaction.MarkAttemptSucceeded(attempt.Id, "pay_" + Guid.NewGuid());
+        transaction.RecordCommission(ratePercentage, CommissionCalculator.Calculate(transaction.Amount, ratePercentage));
+
+        await context.PaymentTransactions.AddAsync(transaction);
+        await context.SaveChangesAsync();
+        return transaction;
+    }
+
+    /// <summary>
+    /// Bug fix (docs/OPEN-FIXES-FEATURES.csv "Payout figure"): provider-web
+    /// was showing <c>TotalPayableSnapshot</c> - the customer's gross total
+    /// including tax and platform fee - as the provider's payout, with no
+    /// commission deducted anywhere. Job detail must instead expose the
+    /// commission actually recorded on the booking's payment (task 157) and
+    /// a net payout with it deducted.
+    /// </summary>
+    [Fact]
+    public async Task GetDetailAsync_computes_net_payout_from_recorded_commission_not_gross_total()
+    {
+        await using var context = _database.CreateContext();
+        var bookingId = await SeedAssignedBookingAsync(context);
+        await SeedPaidCommissionAsync(context, bookingId, ratePercentage: 15m);
+
+        var result = await CreateJobService(context).GetDetailAsync(_providerId, bookingId);
+
+        result.IsSuccess.Should().BeTrue();
+        var detail = result.Value;
+        detail.TotalPayableSnapshot.Should().Be(999m, "the gross customer total must still be exposed, just never as the provider's earning");
+        detail.CommissionAmount.Should().Be(149.85m, "15% of the 999 gross, CommissionCalculator's own rounding");
+        detail.NetAmountToProvider.Should().Be(849.15m);
+        detail.NetAmountToProvider.Should().BeLessThan(detail.TotalPayableSnapshot, "the payout must never equal (let alone exceed) the customer's gross total");
+    }
+
+    /// <summary>
+    /// A booking with nothing payable (fully wallet/AMC covered) never gets a
+    /// payment transaction at all (see <c>EscrowReleaseOnCompletionHandler</c>'s
+    /// task 331 comment) - the payout breakdown must degrade to zero-and-zero
+    /// rather than crash or fall back to showing the (here, zero) gross total
+    /// as if it were unearned income.
+    /// </summary>
+    [Fact]
+    public async Task GetDetailAsync_reports_zero_payout_when_no_payment_transaction_exists()
+    {
+        await using var context = _database.CreateContext();
+        var bookingId = await SeedAssignedBookingAsync(context);
+
+        var result = await CreateJobService(context).GetDetailAsync(_providerId, bookingId);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.CommissionAmount.Should().Be(0m);
+        result.Value.NetAmountToProvider.Should().Be(result.Value.TotalPayableSnapshot);
+    }
+
+    [Fact]
+    public async Task ListAsync_computes_net_payout_from_recorded_commission_per_row()
+    {
+        await using var context = _database.CreateContext();
+        var bookingId = await SeedAssignedBookingAsync(context);
+        await SeedPaidCommissionAsync(context, bookingId, ratePercentage: 15m);
+
+        var result = await CreateJobService(context).ListAsync(_providerId, status: null, date: null);
+
+        result.IsSuccess.Should().BeTrue();
+        var row = result.Value.Items.Should().ContainSingle().Subject;
+        row.CommissionAmount.Should().Be(149.85m);
+        row.NetAmountToProvider.Should().Be(849.15m);
     }
 
     [Fact]

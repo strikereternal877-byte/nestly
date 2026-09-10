@@ -195,8 +195,11 @@ function JobCard({ job }: { job: JobListItem }) {
                 look at, not a footnote. */}
             {isRecurring ? <RecurringJobBadge frequency={job.recurringFrequency} /> : null}
           </div>
+          {/* Net payout, not the customer's gross booking total (bug fix,
+              docs/OPEN-FIXES-FEATURES.csv "Payout figure") - job detail
+              breaks it down further into booking total minus commission. */}
           <span className="nums shrink-0 text-sm font-semibold text-fg">
-            {formatInr(job.totalPayableSnapshot)}
+            {formatInr(job.netAmountToProvider)}
           </span>
         </div>
 

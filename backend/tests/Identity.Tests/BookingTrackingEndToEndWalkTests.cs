@@ -61,7 +61,8 @@ public class BookingTrackingEndToEndWalkTests : IDisposable
         new BookingCompletionProofRepository(context),
         etaService,
         new RecurringBookingPlanRepository(context), new NoOpFileStorageService(),
-        TestServices.ActiveJobLimit(context), TestServices.OverrunReassignment(context), TestServices.Clock());
+        TestServices.ActiveJobLimit(context), TestServices.OverrunReassignment(context),
+        new PaymentTransactionRepository(context), TestServices.Clock());
 
     private static ProviderLocationIngestService CreateIngestService(
         NestlyDbContext context, IBookingEtaService etaService) => new(

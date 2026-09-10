@@ -26,7 +26,7 @@ import {
 import { useJobStatusLive } from "@/hooks/useJobStatusLive";
 import { isLocationShareable, useLocationSharing } from "@/hooks/useLocationSharing";
 import { describeError, isNotImplemented } from "@/lib/api";
-import { formatDateTime, formatInr, formatIsoDate, formatTime } from "@/lib/format";
+import { formatDateTime, formatInr, formatIsoDate, formatSignedInr, formatTime } from "@/lib/format";
 import {
   acceptJob,
   completeJob,
@@ -317,7 +317,8 @@ export default function JobDetailPage() {
             </Button>
             <p className="nums text-center text-sm text-fg-muted">
               You&apos;ll earn{" "}
-              <span className="font-semibold text-fg">{formatInr(job.totalPayableSnapshot)}</span>
+              <span className="font-semibold text-fg">{formatInr(job.netAmountToProvider)}</span>{" "}
+              after platform commission
             </p>
           </div>
         </section>
@@ -357,8 +358,8 @@ export default function JobDetailPage() {
             {formatIsoDate(job.slotDate)} · {formatTime(job.slotStartTimeSnapshot)}–
             {formatTime(job.slotEndTimeSnapshot)}
           </DetailRow>
-          <DetailRow label="Payout">
-            <span className="nums">{formatInr(job.totalPayableSnapshot)}</span>
+          <DetailRow label="Your payout">
+            <span className="nums">{formatInr(job.netAmountToProvider)}</span>
           </DetailRow>
         </dl>
       </Modal>
@@ -474,11 +475,29 @@ export default function JobDetailPage() {
           ) : null}
 
           <Divider className="my-5" />
-          <div className="flex items-baseline justify-between gap-4">
-            <span className="text-sm font-medium text-fg-muted">Your payout</span>
-            <span className="nums text-xl font-semibold text-fg">
-              {formatInr(job.totalPayableSnapshot)}
-            </span>
+          {/* Payout breakdown (bug fix, docs/OPEN-FIXES-FEATURES.csv "Payout
+              figure"): the booking total the customer paid (service value +
+              tax + platform fee) is never the provider's earning - the
+              platform commission (job.commissionAmount, backend's
+              ICommissionService) comes out of it first. */}
+          <div className="flex flex-col gap-2">
+            <div className="flex items-baseline justify-between gap-4 text-sm">
+              <span className="text-fg-muted">Booking total</span>
+              <span className="nums text-fg-muted">{formatInr(job.totalPayableSnapshot)}</span>
+            </div>
+            <div className="flex items-baseline justify-between gap-4 text-sm">
+              <span className="text-fg-muted">Platform commission</span>
+              <span className="nums text-fg-muted">
+                {formatSignedInr(job.commissionAmount, /* isDebit */ true)}
+              </span>
+            </div>
+            <Divider />
+            <div className="flex items-baseline justify-between gap-4">
+              <span className="text-sm font-medium text-fg-muted">Your payout</span>
+              <span className="nums text-xl font-semibold text-fg">
+                {formatInr(job.netAmountToProvider)}
+              </span>
+            </div>
           </div>
         </Card>
 
