@@ -59,4 +59,49 @@ public sealed class UpsertAddressRequestValidatorTests
         result.Errors.Should().ContainSingle()
             .Which.ErrorMessage.Should().Be("Pincode must be 6 digits");
     }
+
+    private static UpsertAddressRequest RequestWithLine1(string line1) =>
+        Request("560034") with { Line1 = line1 };
+
+    /// <summary>
+    /// Address snapshot fix: junk like "kuchh ni" (filler text, no address
+    /// content) reached a live booking's stored address unvalidated. These
+    /// tests cover the structural screen that replaces the old "any non-empty
+    /// string up to 300 chars" rule - see BeMeaningfulAddressLine's doc
+    /// comment for what it deliberately does not attempt to catch.
+    /// </summary>
+    [Theory]
+    [InlineData("")]           // NotEmpty
+    [InlineData("   ")]        // whitespace only
+    [InlineData("abc")]        // shorter than the minimum
+    [InlineData(".....")]      // mashed/placeholder run, no letters or digits
+    [InlineData("aaaaaaaaaa")] // repeated-character run
+    [InlineData("!!!!!!!!!!")]  // punctuation only, no alphanumeric content
+    public void Junk_address_line_1_fails(string line1)
+    {
+        _validator.Validate(RequestWithLine1(line1)).IsValid.Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("221B Baker Street")]
+    [InlineData("Flat 4B, Sunrise Apartments")]
+    [InlineData("12345 Main Road")]
+    public void Real_address_line_1_passes(string line1)
+    {
+        _validator.Validate(RequestWithLine1(line1)).IsValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Empty_optional_line_2_still_passes()
+    {
+        var request = Request("560034") with { Line2 = "" };
+        _validator.Validate(request).IsValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Junk_line_2_fails_when_provided()
+    {
+        var request = Request("560034") with { Line2 = "....." };
+        _validator.Validate(request).IsValid.Should().BeFalse();
+    }
 }

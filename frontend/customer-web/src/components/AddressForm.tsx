@@ -14,10 +14,38 @@ import type { CustomerAddress, PincodeLookup } from "@/lib/types";
  * UpsertAddressRequest shape (AddressContracts.cs), so the field list and its
  * validation live in one place.
  */
+/**
+ * Screens out obviously-junk address text before it ever reaches the API
+ * (mirrors AddressValidators.cs' BeMeaningfulAddressLine - same three checks,
+ * same "structural not semantic" scope: long enough, has real
+ * letters/digits, isn't a mashed/placeholder run like "....." or "aaaaaa").
+ * Real-but-meaningless filler ("kuchh ni") is a semantic problem no
+ * client-side regex can catch without address verification, which is out of
+ * scope here (see docs/OPEN-FIXES-FEATURES.csv "Address snapshot" row).
+ */
+const ADDRESS_LINE_MIN_LENGTH = 5;
+const REPEATED_CHARACTER_RUN = /(.)\1{2,}/;
+
+function isMeaningfulAddressLine(value: string): boolean {
+  const trimmed = value.trim();
+  if (trimmed.length < ADDRESS_LINE_MIN_LENGTH) return false;
+  if (!/[a-zA-Z0-9]/.test(trimmed)) return false;
+  return !REPEATED_CHARACTER_RUN.test(trimmed);
+}
+
+const ADDRESS_LINE_MESSAGE = `Enter at least ${ADDRESS_LINE_MIN_LENGTH} characters of real address content, not filler text.`;
+
 export const addressSchema = z.object({
   label: z.string().min(1, "Label is required").max(50),
-  line1: z.string().min(1, "Address line 1 is required").max(200),
-  line2: z.string().max(200),
+  line1: z
+    .string()
+    .min(1, "Address line 1 is required")
+    .max(200)
+    .refine(isMeaningfulAddressLine, ADDRESS_LINE_MESSAGE),
+  line2: z
+    .string()
+    .max(200)
+    .refine((value) => value === "" || isMeaningfulAddressLine(value), ADDRESS_LINE_MESSAGE),
   landmark: z.string().max(200),
   pincode: z.string().regex(/^\d{6}$/, "Pincode must be 6 digits"),
   city: z.string().min(1, "City is required").max(100),
