@@ -21,6 +21,13 @@ public class SlotWindowConfiguration : IEntityTypeConfiguration<SlotWindow>
             .WithMany()
             .HasForeignKey(x => x.CityId)
             .OnDelete(DeleteBehavior.Restrict);
-        builder.HasIndex(x => x.CityId);
+        // Composite, not a plain CityId index (backend response time fix):
+        // the /slots hot path (SlotWindowRepository.ListActiveForCityAndDayAsync,
+        // called on every SlotAvailabilityService.GetAvailableSlotsAsync
+        // request) filters CityId + IsActive together, same reasoning as
+        // Service's CategoryId+IsActive composite. The leading column still
+        // serves ListAsync's cityId-only filter (admin slot-window listing),
+        // so a separate single-column index would be redundant overhead.
+        builder.HasIndex(x => new { x.CityId, x.IsActive });
     }
 }
