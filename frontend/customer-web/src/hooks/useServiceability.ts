@@ -34,5 +34,13 @@ export function useServiceability(serviceId: string) {
     isServiceable: query.data ? query.data.isServiceable : false,
     /** No locality picked yet, so the question has not been asked. */
     isUnknown: localityId === null || query.isPending,
+    /**
+     * Surfaced so the availability panel can render a distinct error state
+     * with retry, rather than only ever showing loading or the (functionally
+     * identical) "not serviceable" copy for a request that actually failed.
+     */
+    isError: query.isError,
+    error: query.error,
+    refetch: query.refetch,
   };
 }

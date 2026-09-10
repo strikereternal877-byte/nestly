@@ -5,11 +5,12 @@ import { useState } from "react";
 import { CitySelector } from "@/components/CitySelector";
 import { LocalitySelector } from "@/components/LocalitySelector";
 import { Alert, Button, Skeleton } from "@/components/ui";
+import { useServiceability } from "@/hooks/useServiceability";
 import { useSelectedCity } from "@/hooks/useSelectedCity";
 import { API_V1, apiFetch, describeError } from "@/lib/api";
 import { todayIsoDate } from "@/lib/date";
 import { clearSelectedLocality } from "@/lib/location";
-import type { ServiceabilityResult, SlotAvailability } from "@/lib/types";
+import type { SlotAvailability } from "@/lib/types";
 
 /**
  * Serviceability + slot availability at the customer's location (SRS 11.4,
@@ -59,17 +60,19 @@ function ServiceLocalityAvailability({
   localityId: string;
   localityName: string;
 }) {
-  const serviceabilityQuery = useQuery({
-    queryKey: ["serviceability", "service", serviceId, localityId],
-    queryFn: () =>
-      apiFetch<ServiceabilityResult>(`${API_V1}/serviceability/services/${serviceId}?localityId=${localityId}`),
-  });
+  // Shared with `BookingCta` (see useServiceability's doc comment) so this
+  // panel and the "Book now" CTA can never disagree, and so there is exactly
+  // one place that fires the serviceability request for a given
+  // service/locality pair.
+  const { isUnknown, isUnserviceable, isServiceable, isError, error, refetch } =
+    useServiceability(serviceId);
 
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between gap-3 text-sm">
         <p className="min-w-0 truncate text-fg-muted">
-          Checking for <span className="font-medium text-fg">{localityName}</span>
+          {isUnknown ? "Checking for" : isServiceable ? "Available in" : "Checked for"}{" "}
+          <span className="font-medium text-fg">{localityName}</span>
         </p>
         <button
           type="button"
@@ -80,25 +83,30 @@ function ServiceLocalityAvailability({
         </button>
       </div>
 
-      {serviceabilityQuery.isPending ? (
+      {isUnknown ? (
         <Skeleton className="h-16 w-full" />
-      ) : serviceabilityQuery.isError ? (
+      ) : isError ? (
         <Alert
           tone="error"
           action={
-            <Button size="sm" variant="secondary" onClick={() => serviceabilityQuery.refetch()}>
+            <Button size="sm" variant="secondary" onClick={() => refetch()}>
               Retry
             </Button>
           }
         >
-          {describeError(serviceabilityQuery.error)}
+          {describeError(error)}
         </Alert>
-      ) : !serviceabilityQuery.data.isServiceable ? (
+      ) : isUnserviceable ? (
         <Alert tone="error" title="Not available here">
           This service isn&apos;t available in your area yet.
         </Alert>
       ) : (
-        <SlotPreview serviceId={serviceId} localityId={localityId} />
+        <div className="flex flex-col gap-3">
+          <Alert tone="success" title="Available in your area">
+            This service can be booked at {localityName}.
+          </Alert>
+          <SlotPreview serviceId={serviceId} localityId={localityId} />
+        </div>
       )}
     </div>
   );
