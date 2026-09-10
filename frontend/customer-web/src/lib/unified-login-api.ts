@@ -1,22 +1,25 @@
 /**
  * Cross-origin calls the unified login entry point (task 206) makes directly
- * against admin-api/provider-api - the two backends this app's own `apiFetch`
+ * against provider-api - the one backend this app's own `apiFetch`
  * (lib/api.ts) can't reach, since it's hardcoded to consumer-api's base URL.
+ *
+ * Admin sign-in deliberately has no counterpart here (docs/OPEN-FIXES-
+ * FEATURES.csv "Account type switcher"): staff authentication does not
+ * belong on this public consumer domain, so this module only ever talks to
+ * provider-api.
  *
  * This exists only because there is no shared parent domain across the
  * three frontends yet (docs/DEVOPS.md's hosting/domain decisions are still
- * open) and no API gateway in front of the three backends - see
+ * open) and no API gateway in front of the backends - see
  * docs/ARCHITECTURE.md's "UNIFIED LOGIN" section for the full reasoning.
- * Each backend keeps issuing its own independently-audienced token exactly
+ * provider-api keeps issuing its own independently-audienced token exactly
  * as it does today; only the *routing* to reach it is shared.
  */
 import { ApiError, type ProblemDetails } from "./api";
 
-const ADMIN_API_BASE_URL = process.env.NEXT_PUBLIC_ADMIN_API_URL ?? "http://localhost:5177";
 const PROVIDER_API_BASE_URL = process.env.NEXT_PUBLIC_PROVIDER_API_URL ?? "http://localhost:5337";
 
-/** The admin-web/provider-web origins this page hands the browser off to after a successful sign-in. */
-export const ADMIN_WEB_URL = process.env.NEXT_PUBLIC_ADMIN_WEB_URL ?? "http://localhost:3001";
+/** The provider-web origin this page hands the browser off to after a successful provider sign-in. */
 export const PROVIDER_WEB_URL = process.env.NEXT_PUBLIC_PROVIDER_WEB_URL ?? "http://localhost:3002";
 
 /** Same shape every backend's login endpoint returns (AdminLoginResponse/ProviderLoginResponse/LoginResponse are structurally identical). */
@@ -49,9 +52,6 @@ async function crossOriginFetch<T>(baseUrl: string, path: string, body: unknown)
 
   return (await response.json()) as T;
 }
-
-export const loginAdmin = (email: string, password: string) =>
-  crossOriginFetch<CrossOriginSession>(ADMIN_API_BASE_URL, "/api/v1/admin/auth/login", { email, password });
 
 export const requestProviderLoginOtp = (mobile: string) =>
   crossOriginFetch<void>(PROVIDER_API_BASE_URL, "/api/v1/auth/login/otp", { mobile });

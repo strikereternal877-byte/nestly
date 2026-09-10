@@ -19,9 +19,7 @@ import { storeSession } from "@/lib/auth";
 import { RETURN_TO_PARAM, resolvePostLoginPath } from "@/lib/return-to";
 import type { LoginResponse } from "@/lib/types";
 import {
-  ADMIN_WEB_URL,
   PROVIDER_WEB_URL,
-  loginAdmin,
   loginProviderWithPassword,
   redirectWithSession,
   requestProviderLoginOtp,
@@ -44,7 +42,6 @@ const passwordSchema = z.object({
   email: z.email("Enter a valid email address"),
   password: z.string().min(1, "Password is required"),
 });
-const adminPasswordSchema = passwordSchema;
 const providerMobileSchema = z.object({ mobile: mobileSchema });
 // ProviderOtpService.GenerateAsync (backend/shared) always generates a
 // 6-digit code, same as the customer flow - mirror that here rather than the
@@ -55,11 +52,16 @@ const providerOtpSchema = z.object({
 });
 
 type Mode = "otp" | "password";
-type AccountType = "customer" | "admin" | "provider";
+// Staff (admin) sign-in deliberately has no entry point here - task 206's
+// unified switcher used to offer Customer / Admin / Provider on this public
+// consumer domain, exposing the internal admin authentication surface on
+// the same origin a shopper lands on. admin-web keeps its own `/login` at
+// its own (internal) origin; this app only ever authenticates customers and
+// providers.
+type AccountType = "customer" | "provider";
 
 const ACCOUNT_TYPES = [
   { value: "customer" as const, label: "Customer" },
-  { value: "admin" as const, label: "Admin" },
   { value: "provider" as const, label: "Provider" },
 ];
 
@@ -77,22 +79,24 @@ const SIGN_IN_MODES = [
 const SHOW_MOBILE_OTP_LOGIN = false;
 
 /**
- * Single sign-in entry point for all three Nestly apps (task 206). Before
- * this, customer-web, admin-web and provider-web each had their own
- * independent `/login` at their own origin with no way to reach the other
- * two from one place. There is no shared parent domain across the three
- * origins yet (docs/DEVOPS.md's hosting/domain decisions are still open),
- * so admin/provider sign-in still authenticates against admin-api/provider-api
- * directly from here, then hands the browser off to that app's own origin
- * with the session in the URL fragment (see lib/unified-login-api.ts)
- * rather than a subdomain-gateway/shared-cookie approach, which real infra
- * doesn't exist to support yet. Each backend keeps issuing its own
- * independently-audienced token exactly as before - only the routing to
- * reach it is shared.
+ * Sign-in entry point for customer-web (task 206), also reachable by a
+ * provider who lands here instead of provider-web's own origin. There is no
+ * shared parent domain across the three frontends yet (docs/DEVOPS.md's
+ * hosting/domain decisions are still open), so a provider sign-in still
+ * authenticates against provider-api directly from here, then hands the
+ * browser off to provider-web's own origin with the session in the URL
+ * fragment (see lib/unified-login-api.ts) rather than a subdomain-gateway/
+ * shared-cookie approach, which real infra doesn't exist to support yet.
+ * provider-api keeps issuing its own independently-audienced token exactly
+ * as before - only the routing to reach it is shared.
  *
- * admin-web's and provider-web's own `/login` pages are intentionally left in
- * place (not removed) so a bookmarked/direct visit to either app's own
- * origin still works.
+ * Deliberately does NOT offer admin sign-in: staff authentication is not
+ * exposed on this public consumer-facing domain (see the Account type
+ * fix note on `AccountType` above). admin-web keeps its own `/login` at its
+ * own origin.
+ *
+ * provider-web's own `/login` page is intentionally left in place (not
+ * removed) so a bookmarked/direct visit to that app's origin still works.
  */
 export default function LoginPage() {
   // Suspense for useSearchParams below (see booking/summary/page.tsx for the
@@ -159,8 +163,6 @@ function LoginScreen() {
             ) : null}
             {mode === "otp" ? <OtpLogin /> : <PasswordLogin />}
           </>
-        ) : accountType === "admin" ? (
-          <AdminLoginUnified />
         ) : (
           <ProviderLoginUnified />
         )}
@@ -353,52 +355,6 @@ function PasswordLogin() {
       >
         Forgot your password?
       </Link>
-    </form>
-  );
-}
-
-/** Admin sign-in from the unified entry point - calls admin-api directly, then hands off to admin-web's own origin. */
-function AdminLoginUnified() {
-  const [error, setError] = useState<string | null>(null);
-
-  const form = useForm<z.infer<typeof adminPasswordSchema>>({
-    resolver: zodResolver(adminPasswordSchema),
-    defaultValues: { email: "", password: "" },
-  });
-
-  const onSubmit = form.handleSubmit(async (values) => {
-    setError(null);
-    try {
-      const session = await loginAdmin(values.email, values.password);
-      redirectWithSession(ADMIN_WEB_URL, "/dashboard", session);
-    } catch (err) {
-      setError(describeError(err));
-    }
-  });
-
-  return (
-    <form method="post" onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
-      {error ? <Alert>{error}</Alert> : null}
-      <Field
-        label="Email"
-        type="email"
-        autoComplete="email"
-        error={form.formState.errors.email?.message}
-        {...form.register("email")}
-      />
-      <Field
-        label="Password"
-        type="password"
-        autoComplete="current-password"
-        error={form.formState.errors.password?.message}
-        {...form.register("password")}
-      />
-      <Button type="submit" size="lg" fullWidth loading={form.formState.isSubmitting}>
-        Sign in to admin
-      </Button>
-      <p className="text-center text-xs text-fg-subtle">
-        You&apos;ll be taken to the admin panel on its own address.
-      </p>
     </form>
   );
 }
