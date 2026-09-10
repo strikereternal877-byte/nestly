@@ -135,13 +135,21 @@ public class Booking : AggregateRoot<Guid>
     public DateTime CreatedAtUtc { get; private set; }
 
     /// <summary>
-    /// Short human-facing booking code (e.g. "NST-260825-K7F3M"), distinct
+    /// Short human-facing booking code (e.g. "GLX-260825-K7F3M"), distinct
     /// from <see cref="AggregateRoot{TId}.Id"/> - the GUID stays the real
     /// primary key everywhere internally (URLs, foreign keys, API calls);
     /// this is only ever what a customer reads over the phone, a support
     /// agent searches by, or an invoice prints. Generated once here, at
     /// construction, from the same instant as <see cref="CreatedAtUtc"/> -
     /// never regenerated, never exposed as editable.
+    ///
+    /// The brand prefix (see <see cref="GenerateReference"/>) changed from
+    /// "NST-" to "GLX-" as part of the Glavyx rebrand (matching
+    /// JwtOptions.Issuer). Only new bookings get the new prefix - a booking
+    /// created before the rebrand keeps its original "NST-..." reference
+    /// forever (never regenerated), and every lookup here matches on the
+    /// stored string, not on a parsed/assumed prefix, so historical
+    /// references keep resolving exactly as before.
     /// </summary>
     public string BookingReference { get; private set; } = string.Empty;
 
@@ -459,7 +467,7 @@ public class Booking : AggregateRoot<Guid>
     private const string ReferenceAlphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 
     /// <summary>
-    /// "NST-YYMMDD-XXXXX": brand prefix, creation date (sorts and reads
+    /// "GLX-YYMMDD-XXXXX": brand prefix, creation date (sorts and reads
     /// chronologically at a glance), then a 5-character random suffix from a
     /// 32-symbol alphabet - roughly 33.5M combinations per day, which makes a
     /// same-day collision astronomically unlikely at this product's volume
@@ -468,6 +476,11 @@ public class Booking : AggregateRoot<Guid>
     /// worrying about it: the risk this is guarding against is negligible,
     /// and BookingConfiguration's unique index is the actual backstop if it
     /// is ever wrong.
+    ///
+    /// "GLX-" (Glavyx rebrand) replaces the earlier "NST-" prefix for every
+    /// reference generated from here on; a booking already carrying an
+    /// "NST-..." reference is never touched, and BookingReference's own doc
+    /// comment covers why that's safe.
     /// </summary>
     private static string GenerateReference(DateTime createdAtUtc)
     {
@@ -478,6 +491,6 @@ public class Booking : AggregateRoot<Guid>
         {
             suffix[i] = ReferenceAlphabet[randomBytes[i] % ReferenceAlphabet.Length];
         }
-        return $"NST-{createdAtUtc:yyMMdd}-{new string(suffix)}";
+        return $"GLX-{createdAtUtc:yyMMdd}-{new string(suffix)}";
     }
 }

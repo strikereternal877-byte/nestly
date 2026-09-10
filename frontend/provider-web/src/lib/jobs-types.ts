@@ -94,7 +94,7 @@ export interface JobListItem {
   recurringBookingPlanId: string | null;
   /** The plan's cadence, read live from the plan rather than snapshotted onto the booking. Null exactly when `recurringBookingPlanId` is. */
   recurringFrequency: RecurrenceFrequency | null;
-  /** Short human-facing code ("NST-260825-K7F3M") - what to show instead of `bookingId`. */
+  /** Short human-facing code ("GLX-260825-K7F3M") - what to show instead of `bookingId`. */
   bookingReference: string;
   /** Platform commission deducted from `totalPayableSnapshot` before it reaches the provider (backend's ICommissionService, task 157). */
   commissionAmount: number;
@@ -150,7 +150,7 @@ export interface JobDetail {
   responseDeadline: string | null;
   notes: string | null;
   completionProofRef: string | null;
-  /** Short human-facing code ("NST-260825-K7F3M") - what to show instead of `bookingId`. */
+  /** Short human-facing code ("GLX-260825-K7F3M") - what to show instead of `bookingId`. */
   bookingReference: string;
   /** Platform commission deducted from `totalPayableSnapshot` before it reaches the provider (backend's ICommissionService, task 157). */
   commissionAmount: number;

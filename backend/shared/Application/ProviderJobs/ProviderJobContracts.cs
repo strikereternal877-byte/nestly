@@ -90,7 +90,7 @@ public sealed record ProviderJobSummaryResponse(
     DateTime? ResponseDeadline,
     Guid? RecurringBookingPlanId,
     RecurringBookingRecurrenceFrequency? RecurringFrequency,
-    // Short human-facing code ("NST-260825-K7F3M") - see Booking.BookingReference's
+    // Short human-facing code ("GLX-260825-K7F3M") - see Booking.BookingReference's
     // doc comment.
     string BookingReference,
     // Payout breakdown (bug fix, docs/OPEN-FIXES-FEATURES.csv "Payout
@@ -133,7 +133,7 @@ public sealed record ProviderJobDetailResponse(
     DateTime? ResponseDeadline,
     string? Notes,
     string? CompletionProofRef,
-    // Short human-facing code ("NST-260825-K7F3M") - see Booking.BookingReference's
+    // Short human-facing code ("GLX-260825-K7F3M") - see Booking.BookingReference's
     // doc comment.
     string BookingReference,
     // Payout breakdown (bug fix, docs/OPEN-FIXES-FEATURES.csv "Payout

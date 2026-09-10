@@ -64,7 +64,7 @@ export interface AdminBookingListItem {
   totalPayable: number;
   couponCode: string | null;
   createdAtUtc: string;
-  /** Short human-facing code ("NST-260825-K7F3M") - what to show/search on instead of `id`. */
+  /** Short human-facing code ("GLX-260825-K7F3M") - what to show/search on instead of `id`. */
   reference: string;
 }
 
@@ -91,7 +91,7 @@ export interface AdminBookingSearchParams {
   couponCode?: string;
   page?: number;
   pageSize?: number;
-  /** Short human-facing code ("NST-260825-K7F3M") or any substring of one - matches server-side against `Booking.BookingReference`. */
+  /** Short human-facing code ("GLX-260825-K7F3M") or any substring of one - matches server-side against `Booking.BookingReference`. */
   reference?: string;
 }
 
@@ -229,7 +229,7 @@ export interface AdminBookingDetail {
   reschedules: AdminBookingReschedule[];
   refunds: AdminBookingRefund[];
   createdAtUtc: string;
-  /** Short human-facing code ("NST-260825-K7F3M") - what to show/search on instead of `id`. */
+  /** Short human-facing code ("GLX-260825-K7F3M") - what to show/search on instead of `id`. */
   reference: string;
 }
 

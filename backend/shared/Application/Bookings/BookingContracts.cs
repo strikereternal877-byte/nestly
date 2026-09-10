@@ -224,7 +224,7 @@ public record BookingDetailResponse(
     // Wallet balance applied at checkout (task 310), mirroring
     // Domain.Booking.WalletCreditAppliedSnapshot. Null when none was applied.
     decimal? WalletCreditApplied = null,
-    // Short human-facing code ("NST-260825-K7F3M") - see Booking.BookingReference's
+    // Short human-facing code ("GLX-260825-K7F3M") - see Booking.BookingReference's
     // doc comment. What the customer reads/quotes, never the GUID in Id.
     string Reference = "");
 
@@ -237,7 +237,7 @@ public record BookingListItemResponse(
     BookingStatus Status,
     string StatusLabel,
     DateTime CreatedAtUtc,
-    // Short human-facing code ("NST-260825-K7F3M") - see Booking.BookingReference's
+    // Short human-facing code ("GLX-260825-K7F3M") - see Booking.BookingReference's
     // doc comment. Appended last: this is a positional record.
     string Reference);
 

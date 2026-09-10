@@ -20,7 +20,7 @@ public sealed record AdminBookingSearchRequest(
     string? CouponCode,
     int Page = 1,
     int PageSize = 20,
-    // Short human-facing code ("NST-260825-K7F3M") or any substring of one -
+    // Short human-facing code ("GLX-260825-K7F3M") or any substring of one -
     // see Booking.BookingReference's doc comment. Separate from BookingId
     // (exact GUID match) rather than replacing it: existing API callers that
     // already search by GUID keep working unchanged.
@@ -39,7 +39,7 @@ public sealed record AdminBookingListItemResponse(
     decimal TotalPayable,
     string? CouponCode,
     DateTime CreatedAtUtc,
-    // Short human-facing code ("NST-260825-K7F3M") - see Booking.BookingReference's
+    // Short human-facing code ("GLX-260825-K7F3M") - see Booking.BookingReference's
     // doc comment. Appended last: this is a positional record.
     string Reference);
 
@@ -118,7 +118,7 @@ public sealed record AdminBookingDetailResponse(
     IReadOnlyList<AdminBookingRescheduleResponse> Reschedules,
     IReadOnlyList<AdminBookingRefundResponse> Refunds,
     DateTime CreatedAtUtc,
-    // Short human-facing code ("NST-260825-K7F3M") - see Booking.BookingReference's
+    // Short human-facing code ("GLX-260825-K7F3M") - see Booking.BookingReference's
     // doc comment. Appended last: this is a positional record.
     string Reference);
 
