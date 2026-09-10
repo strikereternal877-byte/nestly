@@ -5,6 +5,7 @@ import { GoLiveChecklistSection } from "./_components/GoLiveChecklistSection";
 import { KycSection } from "./_components/KycSection";
 import { PhotoSection } from "./_components/PhotoSection";
 import { ProfileDetailsSection } from "./_components/ProfileDetailsSection";
+import { RatingsPromoSection } from "./_components/RatingsPromoSection";
 import { ReferralPromoSection } from "./_components/ReferralPromoSection";
 import { ServiceAreasSection } from "./_components/ServiceAreasSection";
 import { SkillsSection } from "./_components/SkillsSection";
@@ -39,6 +40,7 @@ export default function ProfilePage() {
       <div id="skills" className="scroll-mt-24">
         <SkillsSection />
       </div>
+      <RatingsPromoSection />
       <ReferralPromoSection />
     </div>
   );

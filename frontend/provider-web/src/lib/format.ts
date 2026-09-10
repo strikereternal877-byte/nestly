@@ -80,3 +80,42 @@ export function formatTime(value: string | null | undefined): string {
   if (!value) return "—";
   return value.slice(0, 5);
 }
+
+const RELATIVE_UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
+  ["year", 60 * 60 * 24 * 365],
+  ["month", 60 * 60 * 24 * 30],
+  ["week", 60 * 60 * 24 * 7],
+  ["day", 60 * 60 * 24],
+  ["hour", 60 * 60],
+  ["minute", 60],
+];
+
+const relativeTimeFormat = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+
+/**
+ * An instant as a short relative phrase, e.g. "3 days ago" - what a review
+ * feed reads best with (docs/OPEN-FIXES-FEATURES.csv "Ratings and feedback").
+ * Falls back to {@link formatDate} beyond a year, where "N years ago" stops
+ * being more useful than the actual date, and for anything under a minute
+ * ("just now" - reviews are never that fresh in practice, but an honest
+ * floor beats a negative/zero relative value).
+ */
+export function formatRelativeDate(value: string | null | undefined): string {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+
+  const elapsedSeconds = Math.round((date.getTime() - Date.now()) / 1000);
+  const absSeconds = Math.abs(elapsedSeconds);
+
+  if (absSeconds < 60) return "Just now";
+
+  for (const [unit, secondsPerUnit] of RELATIVE_UNITS) {
+    if (absSeconds >= secondsPerUnit || unit === "minute") {
+      const roundedValue = Math.round(elapsedSeconds / secondsPerUnit);
+      return relativeTimeFormat.format(roundedValue, unit);
+    }
+  }
+
+  return formatDate(value);
+}
