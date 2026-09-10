@@ -48,4 +48,18 @@ public interface IReviewRepository
 
     /// <summary>The full (unpaginated, capped) set of rows matching an export request (SRS 12.15 "Export reviews", task 122).</summary>
     Task<IReadOnlyList<ReviewModerationRow>> ListForExportAsync(ReviewModerationCriteria criteria, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Paginated, provider-safe read of a provider's own reviews
+    /// (docs/OPEN-FIXES-FEATURES.csv "Ratings and feedback"), newest first.
+    /// Excludes <see cref="ReviewStatus.Hidden"/> reviews (same rule as
+    /// <see cref="GetProviderRatingAsync"/>) and, additionally, any review
+    /// currently <see cref="Review.IsFlagged"/> - a review flagged for abuse
+    /// should not reach the professional it describes until a moderator
+    /// resolves the flag, even though a flagged review can otherwise still be
+    /// publicly <see cref="ReviewStatus.Visible"/>. Joined with the customer
+    /// only to carry their raw name back for display-name minimization one
+    /// layer up (see <see cref="ProviderVisibleReviewRow"/>).
+    /// </summary>
+    Task<ProviderVisibleReviewSearchResult> SearchVisibleForProviderAsync(Guid providerId, int page, int pageSize, CancellationToken cancellationToken = default);
 }

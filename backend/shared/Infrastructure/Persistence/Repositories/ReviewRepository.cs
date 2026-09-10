@@ -214,6 +214,32 @@ public class ReviewRepository : IReviewRepository
     private static ReviewModerationRow ToRow(ReviewJoinRow joined) =>
         new(joined.Review, joined.Customer.Name, joined.Service.Name, joined.Category.Id, joined.Category.Name);
 
+    /// <inheritdoc/>
+    public async Task<ProviderVisibleReviewSearchResult> SearchVisibleForProviderAsync(
+        Guid providerId, int page, int pageSize, CancellationToken cancellationToken = default)
+    {
+        var filtered = _context.Reviews
+            .Where(r => r.ProviderId == providerId && r.Status == ReviewStatus.Visible && !r.IsFlagged);
+
+        int totalCount = await filtered.CountAsync(cancellationToken);
+
+        var pagedReviews = filtered
+            .OrderByDescending(r => r.CreatedAtUtc)
+            .ApplyPaging(page, pageSize);
+
+        // Same reasoning as JoinNames/SearchAsync above: join only over the
+        // already-paged rows, then re-sort the small materialized list -
+        // SQL joins do not guarantee preserving the driving query's order.
+        var rows = await (
+            from review in pagedReviews
+            join customer in _context.Set<Customer>() on review.CustomerId equals customer.Id
+            select new ProviderVisibleReviewRow(review, customer.Name)).ToListAsync(cancellationToken);
+
+        rows = rows.OrderByDescending(r => r.Review.CreatedAtUtc).ToList();
+
+        return new ProviderVisibleReviewSearchResult(rows, totalCount);
+    }
+
     /// <summary>The raw entities behind one moderation row, before the display-only name projection in <see cref="ToRow"/>.</summary>
     private sealed record ReviewJoinRow(Review Review, Service Service, Category Category, Customer Customer);
 }

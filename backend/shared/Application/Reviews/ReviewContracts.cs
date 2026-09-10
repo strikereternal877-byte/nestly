@@ -29,3 +29,17 @@ public record ReviewResponse(
     string? IssueTags,
     ReviewStatus Status,
     DateTime CreatedAtUtc);
+
+/// <summary>
+/// One provider-scoped review joined with the reviewing customer's raw name
+/// (docs/OPEN-FIXES-FEATURES.csv "Ratings and feedback"), as read by
+/// <see cref="IReviewRepository.SearchVisibleForProviderAsync"/> - the
+/// repository boundary only, never returned from an API. The full customer
+/// name still needs minimizing to a display name before it reaches the
+/// provider; that happens one layer up, in
+/// <c>ProviderRatings.IProviderRatingsService</c>.
+/// </summary>
+public sealed record ProviderVisibleReviewRow(Review Review, string CustomerName);
+
+/// <summary>A page of <see cref="ProviderVisibleReviewRow"/> plus the total match count, for pagination.</summary>
+public sealed record ProviderVisibleReviewSearchResult(IReadOnlyList<ProviderVisibleReviewRow> Rows, int TotalCount);

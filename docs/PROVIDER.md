@@ -100,6 +100,7 @@ Note on terminology: the SRS uses "vendor" only to mean external third-party pro
 - **Availability:** get/update availability, set blackout dates
 - **Jobs:** list jobs (filter by status/date), get job detail, accept/reject/start/complete job, mark en-route/arrived (task 270 — both optional, start stays reachable without them), report location (task 269), upload completion proof
 - **Earnings:** get earnings summary, get earnings ledger, list payouts, get payout detail
+- **Ratings:** get running rating summary (average + count), list own recent reviews (paginated, PII-minimized)
 
 ### Admin-Facing Additions (extend existing `admin-api`)
 

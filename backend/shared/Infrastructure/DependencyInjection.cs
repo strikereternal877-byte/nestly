@@ -35,6 +35,7 @@ using Nestly.Application.Pricing;
 using Nestly.Application.Notifications;
 using Nestly.Application.ProviderAvailability;
 using Nestly.Application.ProviderEarnings;
+using Nestly.Application.ProviderRatings;
 using Nestly.Application.ProviderIdentity;
 using Nestly.Application.ProviderJobs;
 using Nestly.Application.ProviderManagement;
@@ -801,6 +802,12 @@ public static class DependencyInjection
         // near-duplicate options class for the same submission-window policy.
         services.AddScoped<ICustomerRatingRepository, CustomerRatingRepository>();
         services.AddScoped<ICustomerRatingService, CustomerRatingService>();
+
+        // docs/OPEN-FIXES-FEATURES.csv "Ratings and feedback": provider-api's
+        // own self-service view of the ratings/comments customers leave about
+        // them, over the same IReviewRepository above - same read-only,
+        // ownership-scoped facade shape as IProviderEarningsService.
+        services.AddScoped<IProviderRatingsService, ProviderRatingsService>();
 
         // Tasks 124a-125c: CMS - static pages, banners, and site-level FAQs
         // with draft/publish, scheduling, media, and placement (SRS 12.16;
