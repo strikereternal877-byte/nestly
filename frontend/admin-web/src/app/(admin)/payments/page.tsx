@@ -14,6 +14,7 @@ import {
   formatDateTime,
 } from "@/components/data-table";
 import type { DataTableColumn } from "@/components/data-table";
+import { PaymentsTabs } from "@/components/PaymentsTabs";
 import { searchBookings } from "@/lib/bookings-api";
 import { searchPaymentTransactions } from "@/lib/payments-api";
 import { PaymentTransactionStatus } from "@/lib/payments-types";
@@ -175,6 +176,8 @@ export default function PaymentsPage() {
         title="Payments"
         subtitle="Every payment transaction, filterable by booking and gateway status - the reconciliation surface for ops (SRS 12.13.1)."
       />
+
+      <PaymentsTabs />
 
       <FilterBar
         onSubmit={onSubmit}
