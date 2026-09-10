@@ -23,6 +23,17 @@ public interface IReviewRepository
     /// </summary>
     Task<ProviderRatingSummary?> GetProviderRatingAsync(Guid providerId, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Same aggregate as <see cref="GetProviderRatingAsync"/>, batched for
+    /// every provider with at least one visible review, in one round trip -
+    /// the performance-ranking rollup's rating column (docs/OPEN-FIXES-FEATURES.csv
+    /// "Provider performance") needs every provider's rating at once, not one
+    /// provider at a time. A provider with no visible review is simply absent
+    /// from the result, mirroring <c>IProviderRepository.GetDisplayNamesByIdsAsync</c>'s
+    /// "missing means keep your own fallback" convention.
+    /// </summary>
+    Task<IReadOnlyDictionary<Guid, ProviderRatingSummary>> GetProviderRatingsAsync(CancellationToken cancellationToken = default);
+
     /// <summary>The bare review entity for a moderation action (task 122) - no joined display fields, just the aggregate to mutate.</summary>
     Task<Review?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
 

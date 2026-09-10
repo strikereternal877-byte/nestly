@@ -21,6 +21,8 @@ import type {
   ProviderPhoto,
   ProviderPayoutSearchResponse,
   ProviderPerformance,
+  ProviderPerformanceListParams,
+  ProviderPerformanceListResponse,
   ProviderSearchParams,
   ProviderSearchResponse,
   ProviderBackgroundCheck,
@@ -137,6 +139,10 @@ export const setProviderCapacity = (providerId: string, request: SetProviderCapa
 
 export const getProviderPerformance = (providerId: string) =>
   apiFetch<ProviderPerformance>(`${PROVIDERS_BASE}/${providerId}/performance`, { authenticated: true });
+
+/** The provider-performance ranking list (docs/OPEN-FIXES-FEATURES.csv "Provider performance"). */
+export const listProviderPerformance = (params: ProviderPerformanceListParams) =>
+  apiFetch<ProviderPerformanceListResponse>(`${PROVIDERS_BASE}/performance${query(params)}`, { authenticated: true });
 
 export const getProviderEarnings = (providerId: string) =>
   apiFetch<ProviderEarningsSummary>(`${PROVIDERS_BASE}/${providerId}/earnings`, { authenticated: true });

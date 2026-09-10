@@ -51,6 +51,21 @@ public class ReviewRepository : IReviewRepository
             : new ProviderRatingSummary(providerId, Math.Round(aggregate.Average, 1), aggregate.Count);
     }
 
+    /// <inheritdoc/>
+    public async Task<IReadOnlyDictionary<Guid, ProviderRatingSummary>> GetProviderRatingsAsync(CancellationToken cancellationToken = default)
+    {
+        var aggregates = await _context.Reviews
+            .AsNoTracking()
+            .Where(r => r.ProviderId != null && r.Status == ReviewStatus.Visible)
+            .GroupBy(r => r.ProviderId!.Value)
+            .Select(g => new { ProviderId = g.Key, Average = g.Average(r => (double)r.Rating), Count = g.Count() })
+            .ToListAsync(cancellationToken);
+
+        return aggregates.ToDictionary(
+            a => a.ProviderId,
+            a => new ProviderRatingSummary(a.ProviderId, Math.Round(a.Average, 1), a.Count));
+    }
+
     public Task<Review?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
         _context.Reviews.FirstOrDefaultAsync(r => r.Id == id, cancellationToken);
 

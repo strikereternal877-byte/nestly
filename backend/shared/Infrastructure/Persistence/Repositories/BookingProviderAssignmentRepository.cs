@@ -66,4 +66,11 @@ public class BookingProviderAssignmentRepository : IBookingProviderAssignmentRep
                 && a.ResponseDeadline != null
                 && a.ResponseDeadline < nowUtc)
             .ToListAsync();
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<BookingProviderAssignment>> ListSinceAsync(DateTime sinceUtc) =>
+        await _context.BookingProviderAssignments
+            .AsNoTracking()
+            .Where(a => a.AssignedAt >= sinceUtc)
+            .ToListAsync();
 }

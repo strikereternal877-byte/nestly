@@ -48,4 +48,18 @@ public interface IProviderRepository : IRepository<Provider>
     /// staffing signal rather than a query problem.
     /// </summary>
     Task<IReadOnlyList<Provider>> ListPendingPhotoModerationAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Every provider, for the performance-ranking rollup (docs/OPEN-FIXES-FEATURES.csv
+    /// "Provider performance"). Unpaginated and loaded in full, then computed
+    /// and sorted in memory by <c>ProviderManagementService.ListPerformanceAsync</c>
+    /// - mirrors <see cref="ListPendingPhotoModerationAsync"/>'s own
+    /// precedent. Ranking "who is my best/worst provider" by a *computed*
+    /// rate needs the whole set before it can be sorted, which a DB-level
+    /// OFFSET/LIMIT page cannot give a caller correctly - the page boundary
+    /// has to land after sorting, not before. Fine at this marketplace's
+    /// real scale (hundreds, not millions, of providers); revisit with a
+    /// DB-side aggregate query if that assumption stops holding.
+    /// </summary>
+    Task<IReadOnlyList<Provider>> ListAllAsync(CancellationToken cancellationToken = default);
 }

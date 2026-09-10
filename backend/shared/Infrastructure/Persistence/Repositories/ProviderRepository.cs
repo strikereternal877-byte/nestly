@@ -71,6 +71,12 @@ public class ProviderRepository : IProviderRepository
             .OrderBy(p => p.UpdatedAt)
             .ToListAsync(cancellationToken);
 
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<Provider>> ListAllAsync(CancellationToken cancellationToken = default) =>
+        await _context.Set<Provider>()
+            .AsNoTracking()
+            .ToListAsync(cancellationToken);
+
     public Task<bool> ExistsAsync(Guid id) =>
         _context.Set<Provider>().AnyAsync(p => p.Id == id);
 

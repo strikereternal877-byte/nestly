@@ -13,6 +13,7 @@ import { describeError } from "@/lib/api";
 import { getUnassignedAtRiskBookings } from "@/lib/bookings-api";
 import type { AdminUnassignedAtRiskBooking } from "@/lib/bookings-types";
 import { assignProviderToBooking, getEligibleProviders } from "@/lib/providers-api";
+import type { EligibleProvider } from "@/lib/providers-types";
 import { useAdminClaims } from "@/lib/use-admin-claims";
 
 const PAGE_SIZE = 20;
@@ -28,6 +29,21 @@ const URGENCY_TICK_MS = 60_000;
 const URGENT_THRESHOLD_MINUTES = 180;
 /** Under this many minutes (and at or past {@link URGENT_THRESHOLD_MINUTES}), the row is amber. */
 const WARNING_THRESHOLD_MINUTES = 24 * 60;
+
+/**
+ * Docs/OPEN-FIXES-FEATURES.csv "Provider performance": "expose the key
+ * metrics inline in the assignment picker" - appended to the native
+ * `<Select>` option text below, since a plain HTML `<option>` cannot render
+ * a badge. Both null (no data yet) and a real value are handled the same
+ * way the pincode/service flags above are: shown only when there is
+ * something to show.
+ */
+function formatPerformanceSuffix(candidate: EligibleProvider): string {
+  const parts: string[] = [];
+  if (candidate.acceptanceRatePercent !== null) parts.push(`${candidate.acceptanceRatePercent}% accept`);
+  if (candidate.averageRating !== null) parts.push(`★${candidate.averageRating}`);
+  return parts.length > 0 ? ` · ${parts.join(" · ")}` : "";
+}
 
 function formatSlotDate(dateOnly: string): string {
   // dateOnly is a .NET DateOnly ("yyyy-MM-dd"), business-local - displayed as
@@ -317,7 +333,7 @@ function AssignProviderModal({
               value: candidate.providerId,
               label: `${candidate.displayName} — ${candidate.assignedJobsToday} jobs today${
                 candidate.pincodeMatch ? " · pincode" : ""
-              }${candidate.serviceMatch ? " · service" : ""}`,
+              }${candidate.serviceMatch ? " · service" : ""}${formatPerformanceSuffix(candidate)}`,
             })),
           ]}
         />

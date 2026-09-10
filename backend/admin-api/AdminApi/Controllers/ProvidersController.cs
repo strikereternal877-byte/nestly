@@ -43,6 +43,7 @@ public class ProvidersController : ControllerBase
     private readonly IValidator<RecordBackgroundCheckRequest> _backgroundCheckValidator;
     private readonly IValidator<RecordProviderEarningAdjustmentRequest> _earningAdjustmentValidator;
     private readonly IValidator<SetProviderCapacityRequest> _setCapacityValidator;
+    private readonly IValidator<ProviderPerformanceListRequest> _performanceListValidator;
 
     public ProvidersController(
         IProviderManagementService providerManagementService,
@@ -57,7 +58,8 @@ public class ProvidersController : ControllerBase
         IValidator<RejectProviderPhotoRequest> rejectPhotoValidator,
         IValidator<RecordBackgroundCheckRequest> backgroundCheckValidator,
         IValidator<RecordProviderEarningAdjustmentRequest> earningAdjustmentValidator,
-        IValidator<SetProviderCapacityRequest> setCapacityValidator)
+        IValidator<SetProviderCapacityRequest> setCapacityValidator,
+        IValidator<ProviderPerformanceListRequest> performanceListValidator)
     {
         _providerManagementService = providerManagementService;
         _kycApprovalService = kycApprovalService;
@@ -72,6 +74,7 @@ public class ProvidersController : ControllerBase
         _backgroundCheckValidator = backgroundCheckValidator;
         _earningAdjustmentValidator = earningAdjustmentValidator;
         _setCapacityValidator = setCapacityValidator;
+        _performanceListValidator = performanceListValidator;
     }
 
     // ---- CRUD (task 150a) ----
@@ -343,9 +346,42 @@ public class ProvidersController : ControllerBase
         return result.IsSuccess ? Ok(result.Value) : result.ToProblemResult();
     }
 
-    // ---- Performance (task 150c) ----
+    // ---- Performance (task 150c; ranking list added for docs/OPEN-FIXES-FEATURES.csv "Provider performance") ----
 
-    /// <summary>Job-fulfilment performance summary (PROVIDER.md API surface "get provider performance metrics", task 150c).</summary>
+    /// <summary>
+    /// The provider-performance ranking list (docs/OPEN-FIXES-FEATURES.csv
+    /// "Provider performance"): offers received, acceptance rate, average
+    /// response time, completion rate and average rating, per provider, over
+    /// a rolling window (default 30 days) - sortable by any of those columns.
+    /// A static route ahead of <see cref="GetPerformance"/>'s
+    /// <c>{providerId:guid}/performance</c> route, same non-clash reasoning
+    /// as <see cref="GetFulfilmentBoard"/> in BookingsController (the guid
+    /// constraint there never matches the literal "performance" segment
+    /// here either way, but the static route reads clearer listed first).
+    /// </summary>
+    [HttpGet("performance")]
+    [Authorize(Policy = ReadPolicy)]
+    [ProducesResponseType(typeof(ProviderPerformanceListResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> ListPerformance(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        [FromQuery] int periodDays = 30,
+        [FromQuery] ProviderPerformanceSortField sortBy = ProviderPerformanceSortField.OffersReceived,
+        [FromQuery] bool sortDescending = true)
+    {
+        var request = new ProviderPerformanceListRequest(page, pageSize, periodDays, sortBy, sortDescending);
+        var validation = await _performanceListValidator.ValidateAsync(request);
+        if (!validation.IsValid)
+        {
+            return ValidationProblem(ToModelState(validation));
+        }
+
+        var result = await _providerManagementService.ListPerformanceAsync(request);
+        return result.IsSuccess ? Ok(result.Value) : result.ToProblemResult();
+    }
+
+    /// <summary>Single-provider job-fulfilment performance summary, all-time (PROVIDER.md API surface "get provider performance metrics", task 150c).</summary>
     [HttpGet("{providerId:guid}/performance")]
     [Authorize(Policy = ReadPolicy)]
     [ProducesResponseType(typeof(ProviderPerformanceResponse), StatusCodes.Status200OK)]

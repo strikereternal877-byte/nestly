@@ -15,6 +15,21 @@ public class ProviderSearchRequestValidator : AbstractValidator<ProviderSearchRe
     }
 }
 
+/// <summary>Bounds paging/window for the performance ranking list, mirroring <see cref="ProviderSearchRequestValidator"/>.</summary>
+public class ProviderPerformanceListRequestValidator : AbstractValidator<ProviderPerformanceListRequest>
+{
+    public const int MaxPageSize = 100;
+    public const int MaxPeriodDays = 365;
+
+    public ProviderPerformanceListRequestValidator()
+    {
+        RuleFor(x => x.Page).GreaterThanOrEqualTo(1);
+        RuleFor(x => x.PageSize).InclusiveBetween(1, MaxPageSize);
+        RuleFor(x => x.PeriodDays).InclusiveBetween(1, MaxPeriodDays);
+        RuleFor(x => x.SortBy).IsInEnum();
+    }
+}
+
 public class CreateProviderRequestValidator : AbstractValidator<CreateProviderRequest>
 {
     public CreateProviderRequestValidator()

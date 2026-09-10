@@ -141,10 +141,46 @@ public sealed record SetProviderCapacityRequest(int? MaxJobsPerDay, int? MaxJobs
 /// <summary>
 /// A provider's job-fulfilment performance summary (PROVIDER.md API surface
 /// "get provider performance metrics"). Built from <see cref="Booking"/>/<see cref="BookingProviderAssignment"/>
-/// history rather than a new rollup table - <c>provider_rating_summary</c> is
-/// out of this pass's scope (PROVIDER.md OPEN DECISIONS #4: rating does not
-/// affect assignment, and no review-to-provider link exists yet).
+/// history rather than a new rollup table. All-time (unlike the ranking list
+/// in <see cref="ProviderPerformanceListResponse"/>, which defaults to a
+/// rolling window) - matches <see cref="InProgressJobs"/>/<see cref="LifetimeEarnings"/>,
+/// which were already all-time before this record grew the rate/rating
+/// fields below.
 /// </summary>
+/// <param name="AcceptanceRatePercent">
+/// <c>AcceptedAssignments / TotalAssignments * 100</c>, rounded to one
+/// decimal - null when <see cref="TotalAssignments"/> is zero (no offers to
+/// rate, not a 0% rate).
+/// </param>
+/// <param name="AverageResponseTimeMinutes">
+/// Mean minutes between <c>BookingProviderAssignment.AssignedAt</c> and
+/// <c>RespondedAt</c>, over every assignment the provider actually answered
+/// (Accepted/Rejected/Completed - Completed's <c>RespondedAt</c> is its
+/// original Accept, per <see cref="Domain.BookingProviderAssignment.Accept"/>).
+/// Null when the provider has never responded to an offer. Computable only
+/// because both timestamps are tracked on the assignment row - see
+/// PROVIDER.md OPEN-FIXES-FEATURES.csv "Provider performance" row for why
+/// this metric would otherwise have to be skipped.
+/// </param>
+/// <param name="CompletionRatePercent">
+/// <c>CompletedJobs / AcceptedAssignments * 100</c>, rounded to one decimal
+/// - null when the provider has never accepted an offer. Deliberately
+/// against accepted work, not total offers: a provider who never gets
+/// offered a job they'd finish should not be penalised the same as one who
+/// accepts and then does not deliver.
+/// </param>
+/// <param name="AverageRating">
+/// From <see cref="Review.ProviderId"/> (task 293) via
+/// <see cref="Reviews.IReviewRepository.GetProviderRatingAsync"/> - visible
+/// reviews only, all-time, rounded to one decimal. Null when the provider
+/// has no visible provider-scoped review yet, which is not the same as a
+/// rating of zero.
+/// </param>
+/// <param name="RatingCount">
+/// Appended last, matching this positional record's own append-only rule -
+/// how many reviews <see cref="AverageRating"/> is averaged over, so the UI
+/// can show "4.6 (12)" rather than a bare, potentially thin, average.
+/// </param>
 public sealed record ProviderPerformanceResponse(
     Guid ProviderId,
     int TotalAssignments,
@@ -152,4 +188,77 @@ public sealed record ProviderPerformanceResponse(
     int RejectedAssignments,
     int CompletedJobs,
     int InProgressJobs,
-    decimal LifetimeEarnings);
+    decimal LifetimeEarnings,
+    double? AcceptanceRatePercent,
+    double? AverageResponseTimeMinutes,
+    double? CompletionRatePercent,
+    double? AverageRating,
+    int RatingCount);
+
+// ---- Performance ranking list (docs/OPEN-FIXES-FEATURES.csv "Provider performance") ----
+
+/// <summary>
+/// One row of the provider-performance ranking list - the per-provider
+/// numbers admin/ops actually need to judge or rank providers, and to weigh
+/// alongside the assignment picker's existing pincode-match/jobs-today
+/// signals (<see cref="EligibleProviderResponse"/>).
+///
+/// <see cref="Cancellations"/> is deliberately NOT a field here. The CSV row
+/// asks for "cancellations", but <see cref="Domain.BookingProviderAssignmentStatus"/>
+/// has no state for "provider accepted, then backed out" - only
+/// <see cref="Domain.BookingProviderAssignmentStatus.Rejected"/> (declined
+/// before ever accepting, already counted in <see cref="AcceptanceRatePercent"/>)
+/// and <see cref="Domain.BookingProviderAssignmentStatus.Withdrawn"/>
+/// (the booking itself was cancelled out from under a live assignment - not
+/// the provider's doing). Reporting either of those as "cancellations" would
+/// misattribute a customer/admin cancellation to the provider, or silently
+/// double-count a decline this same row already reports. Rather than
+/// fabricate a number from data that does not exist, this is omitted; a real
+/// "provider cancelled after accepting" metric needs its own tracked event.
+/// </summary>
+/// <param name="OffersReceived">Every <see cref="Domain.BookingProviderAssignment"/> row created for this provider within the requested window, regardless of outcome.</param>
+/// <param name="AcceptedOffers">Offers the provider accepted (Accepted or since-Completed) within the window.</param>
+/// <param name="AcceptanceRatePercent">Rounded to one decimal; null when <see cref="OffersReceived"/> is zero.</param>
+/// <param name="AverageResponseTimeMinutes">Mean minutes AssignedAt→RespondedAt over answered offers in the window; null when none were answered.</param>
+/// <param name="CompletedJobs">Offers completed (verified) within the window.</param>
+/// <param name="CompletionRatePercent"><see cref="CompletedJobs"/> / <see cref="AcceptedOffers"/>, rounded to one decimal; null when nothing was accepted.</param>
+/// <param name="AverageRating">All-time (not window-scoped - a rating reflects the person, not this period), from <see cref="Review.ProviderId"/>; null with no visible review yet.</param>
+/// <param name="RatingCount">How many visible reviews <see cref="AverageRating"/> is averaged over.</param>
+public sealed record ProviderPerformanceSummaryResponse(
+    Guid ProviderId,
+    string DisplayName,
+    ProviderStatus Status,
+    int OffersReceived,
+    int AcceptedOffers,
+    double? AcceptanceRatePercent,
+    double? AverageResponseTimeMinutes,
+    int CompletedJobs,
+    double? CompletionRatePercent,
+    double? AverageRating,
+    int RatingCount);
+
+/// <summary>Sortable columns for <see cref="ProviderPerformanceListRequest"/> - mirrors the admin-web table's own sortable columns.</summary>
+public enum ProviderPerformanceSortField
+{
+    DisplayName,
+    OffersReceived,
+    AcceptanceRate,
+    AverageResponseTime,
+    CompletionRate,
+    AverageRating
+}
+
+/// <param name="PeriodDays">Rolling window in days over which offers/rates/response-time/completions are computed - defaults to 30 (task's "some period... pick one, make it filterable if cheap"). Does not affect <see cref="ProviderPerformanceSummaryResponse.AverageRating"/>, which is always all-time.</param>
+public sealed record ProviderPerformanceListRequest(
+    int Page = 1,
+    int PageSize = 20,
+    int PeriodDays = 30,
+    ProviderPerformanceSortField SortBy = ProviderPerformanceSortField.OffersReceived,
+    bool SortDescending = true);
+
+public sealed record ProviderPerformanceListResponse(
+    IReadOnlyList<ProviderPerformanceSummaryResponse> Items,
+    int TotalCount,
+    int Page,
+    int PageSize,
+    int PeriodDays);

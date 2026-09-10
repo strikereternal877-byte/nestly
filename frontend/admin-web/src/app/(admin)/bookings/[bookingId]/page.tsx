@@ -57,6 +57,7 @@ import {
   rejectBookingAssignment,
 } from "@/lib/providers-api";
 import { BookingAssignedByType, BookingProviderAssignmentStatus, ProviderOnboardingStatus } from "@/lib/providers-types";
+import type { EligibleProvider } from "@/lib/providers-types";
 import { BookingStatus } from "@/lib/types";
 
 const BOOKING_STATUS_LABELS: Record<BookingStatus, string> = {
@@ -77,6 +78,20 @@ const BOOKING_STATUS_LABELS: Record<BookingStatus, string> = {
   [BookingStatus.Refunded]: "Refunded",
   [BookingStatus.Expired]: "Expired",
 };
+
+/**
+ * Docs/OPEN-FIXES-FEATURES.csv "Provider performance": "expose the key
+ * metrics inline in the assignment picker" - appended to the native
+ * `<Select>` option text below, since a plain HTML `<option>` cannot render
+ * a badge. Shown only when there is data to show (null means no offers/no
+ * visible review yet, not zero).
+ */
+function formatPerformanceSuffix(candidate: EligibleProvider): string {
+  const parts: string[] = [];
+  if (candidate.acceptanceRatePercent !== null) parts.push(`${candidate.acceptanceRatePercent}% accept`);
+  if (candidate.averageRating !== null) parts.push(`★${candidate.averageRating}`);
+  return parts.length > 0 ? ` · ${parts.join(" · ")}` : "";
+}
 
 // Statuses reachable through the generic status-update action. Cancel/
 // reschedule/refund each go through their own dedicated action below - the
@@ -630,7 +645,7 @@ export default function BookingDetailPage() {
                         p.pincodeMatch ? "this pincode" : "city-wide"
                       }${p.serviceMatch ? "" : ", category-wide"} · ${p.assignedJobsToday}${
                         p.maxJobsPerDay !== null ? `/${p.maxJobsPerDay}` : ""
-                      } jobs today`,
+                      } jobs today${formatPerformanceSuffix(p)}`,
                     }))}
                   />
                 )}

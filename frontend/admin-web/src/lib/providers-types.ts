@@ -245,8 +245,18 @@ export interface RecordBackgroundCheckRequest {
   notes?: string;
 }
 
-// ---- Performance (task 150c) ----
+// ---- Performance (task 150c; ranking list for docs/OPEN-FIXES-FEATURES.csv "Provider performance") ----
 
+/**
+ * All-time (unlike `ProviderPerformanceSummary` below, which defaults to a
+ * rolling window) - matches `inProgressJobs`/`lifetimeEarnings`, which were
+ * already all-time before this shape grew the rate/rating fields.
+ *
+ * `acceptanceRatePercent`/`averageResponseTimeMinutes`/`completionRatePercent`/
+ * `averageRating` are null exactly when there is no data to compute them
+ * from yet (no offers ever, no response ever, no acceptance ever, no visible
+ * review yet respectively) - not the same as zero.
+ */
 export interface ProviderPerformance {
   providerId: string;
   totalAssignments: number;
@@ -255,6 +265,63 @@ export interface ProviderPerformance {
   completedJobs: number;
   inProgressJobs: number;
   lifetimeEarnings: number;
+  acceptanceRatePercent: number | null;
+  averageResponseTimeMinutes: number | null;
+  completionRatePercent: number | null;
+  averageRating: number | null;
+  ratingCount: number;
+}
+
+/**
+ * One row of the provider-performance ranking list (docs/OPEN-FIXES-FEATURES.csv
+ * "Provider performance"). Deliberately has NO `cancellations` field - see
+ * `ProviderPerformanceSummaryResponse`'s C# doc comment
+ * (ProviderManagementContracts.cs) for why: nothing in
+ * `BookingProviderAssignmentStatus` distinguishes "provider accepted, then
+ * backed out" from a plain decline (`Rejected`, already folded into
+ * `acceptanceRatePercent`) or a booking-side cancellation (`Withdrawn`, not
+ * the provider's doing) - reporting either as "cancellations" would
+ * misattribute or double-count, so it is omitted rather than fabricated.
+ */
+export interface ProviderPerformanceSummary {
+  providerId: string;
+  displayName: string;
+  status: ProviderStatus;
+  offersReceived: number;
+  acceptedOffers: number;
+  acceptanceRatePercent: number | null;
+  averageResponseTimeMinutes: number | null;
+  completedJobs: number;
+  completionRatePercent: number | null;
+  averageRating: number | null;
+  ratingCount: number;
+}
+
+/** Mirrors Nestly.Application.ProviderManagement.ProviderPerformanceSortField's declaration order exactly. */
+export enum ProviderPerformanceSortField {
+  DisplayName = 0,
+  OffersReceived = 1,
+  AcceptanceRate = 2,
+  AverageResponseTime = 3,
+  CompletionRate = 4,
+  AverageRating = 5,
+}
+
+export interface ProviderPerformanceListParams {
+  page?: number;
+  pageSize?: number;
+  /** Rolling window in days the offers/rate/response-time/completion columns are computed over - defaults to 30 server-side. Does not affect `averageRating`, which is always all-time. */
+  periodDays?: number;
+  sortBy?: ProviderPerformanceSortField;
+  sortDescending?: boolean;
+}
+
+export interface ProviderPerformanceListResponse {
+  items: ProviderPerformanceSummary[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+  periodDays: number;
 }
 
 // ---- Earnings ledger and payouts (task 148) ----
@@ -351,6 +418,15 @@ export interface BookingProviderAssignment {
  * EligibleProviderResponse doc comment for why rating is deliberately not a
  * signal here (PROVIDER.md OPEN DECISIONS #4).
  */
+/**
+ * `acceptanceRatePercent`/`averageRating` (docs/OPEN-FIXES-FEATURES.csv
+ * "Provider performance": "expose the key metrics inline in the assignment
+ * picker") are display-only, like every other field here except the ranking
+ * itself - see EligibleProviderResponse's C# doc comment
+ * (BookingProviderAssignmentContracts.cs) for why rating/rate never affect
+ * candidate order (PROVIDER.md OPEN DECISIONS #4/#3). Null means no data yet
+ * (no offers ever / no visible review yet), not zero.
+ */
 export interface EligibleProvider {
   providerId: string;
   displayName: string;
@@ -359,4 +435,6 @@ export interface EligibleProvider {
   serviceMatch: boolean;
   maxJobsPerDay: number | null;
   assignedJobsToday: number;
+  acceptanceRatePercent: number | null;
+  averageRating: number | null;
 }

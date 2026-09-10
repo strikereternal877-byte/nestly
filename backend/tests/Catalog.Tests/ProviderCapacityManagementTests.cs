@@ -32,7 +32,8 @@ public sealed class ProviderCapacityManagementTests : IClassFixture<TestDatabase
         new Nestly.Infrastructure.Services.ServiceabilityMappingManagementService(
             new CategoryCityMappingRepository(context), new ServicePincodeMappingRepository(context), new CategoryRepository(context),
             new CityRepository(context), new ServiceRepository(context), new PincodeRepository(context)),
-        new ProviderAvailabilityWindowRepository(context));
+        new ProviderAvailabilityWindowRepository(context),
+        new ReviewRepository(context));
 
     private async Task<Guid> SeedProviderAsync()
     {

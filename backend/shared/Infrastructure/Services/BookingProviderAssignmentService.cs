@@ -547,6 +547,30 @@ public class BookingProviderAssignmentService : IBookingProviderAssignmentServic
             .Select(g => new { ProviderId = g.Key, Count = g.Count() })
             .ToDictionaryAsync(x => x.ProviderId, x => x.Count);
 
+        // Docs/OPEN-FIXES-FEATURES.csv "Provider performance": "expose the
+        // key metrics inline in the assignment picker" - display only (OPEN
+        // DECISIONS #4/#3, see EligibleProviderResponse's doc comment), so
+        // this never touches the ranking below. Batched for the whole
+        // candidate set in one query each, same shape as capacityByProvider/
+        // jobsTodayByProvider above - never one query per candidate.
+        var acceptanceStatsByProvider = await _context.BookingProviderAssignments
+            .Where(a => providerIds.Contains(a.ProviderId))
+            .GroupBy(a => a.ProviderId)
+            .Select(g => new
+            {
+                ProviderId = g.Key,
+                Total = g.Count(),
+                Accepted = g.Count(a =>
+                    a.Status == BookingProviderAssignmentStatus.Accepted || a.Status == BookingProviderAssignmentStatus.Completed)
+            })
+            .ToDictionaryAsync(x => x.ProviderId, x => x);
+
+        var ratingByProvider = await _context.Reviews
+            .Where(r => r.ProviderId != null && providerIds.Contains(r.ProviderId!.Value) && r.Status == ReviewStatus.Visible)
+            .GroupBy(r => r.ProviderId!.Value)
+            .Select(g => new { ProviderId = g.Key, Average = g.Average(r => (double)r.Rating) })
+            .ToDictionaryAsync(x => x.ProviderId, x => x.Average);
+
         var results = bestPerProvider
             .Select(x => new EligibleProviderResponse(
                 x.ProviderId,
@@ -555,7 +579,13 @@ public class BookingProviderAssignmentService : IBookingProviderAssignmentServic
                 x.PincodeMatch,
                 x.ServiceMatch,
                 capacityByProvider.GetValueOrDefault(x.ProviderId),
-                jobsTodayByProvider.GetValueOrDefault(x.ProviderId)))
+                jobsTodayByProvider.GetValueOrDefault(x.ProviderId),
+                AcceptanceRatePercent: acceptanceStatsByProvider.TryGetValue(x.ProviderId, out var stats) && stats.Total > 0
+                    ? Math.Round(100.0 * stats.Accepted / stats.Total, 1)
+                    : null,
+                AverageRating: ratingByProvider.TryGetValue(x.ProviderId, out var avgRating)
+                    ? Math.Round(avgRating, 1)
+                    : null))
             // Most specific match first (exact pincode, exact service), then
             // least-loaded today - never by rating (OPEN DECISIONS #4).
             .OrderByDescending(r => r.PincodeMatch)

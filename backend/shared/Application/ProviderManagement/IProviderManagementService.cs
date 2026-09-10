@@ -38,6 +38,16 @@ public interface IProviderManagementService
     /// <summary>Job-fulfilment performance summary (task 150c).</summary>
     Task<Result<ProviderPerformanceResponse>> GetPerformanceAsync(Guid providerId);
 
+    /// <summary>
+    /// The provider-performance ranking list (docs/OPEN-FIXES-FEATURES.csv
+    /// "Provider performance"): offers received, acceptance rate, average
+    /// response time, completion rate and average rating, per provider, over
+    /// a rolling window - the data admin/ops needs to judge or rank
+    /// providers that the assignment picker's own pincode-match/jobs-today
+    /// signals never provided.
+    /// </summary>
+    Task<Result<ProviderPerformanceListResponse>> ListPerformanceAsync(ProviderPerformanceListRequest request);
+
     /// <summary>Current dispatch capacity limits (task 245/308). Unlimited (both null) when no <c>ProviderCapacity</c> row exists yet.</summary>
     Task<Result<ProviderCapacityResponse>> GetCapacityAsync(Guid providerId);
 

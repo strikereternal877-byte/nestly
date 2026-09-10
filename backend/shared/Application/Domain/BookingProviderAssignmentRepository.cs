@@ -29,4 +29,14 @@ public interface IBookingProviderAssignmentRepository
     /// manual assignment with no deadline set is never auto-expired).
     /// </summary>
     Task<IReadOnlyList<BookingProviderAssignment>> ListUnansweredPastDeadlineAsync(DateTime nowUtc);
+
+    /// <summary>
+    /// Every assignment created on/after <paramref name="sinceUtc"/>, across
+    /// every provider, in one round trip - the batched input to the
+    /// performance-ranking rollup (docs/OPEN-FIXES-FEATURES.csv "Provider
+    /// performance"). Grouped by <see cref="BookingProviderAssignment.ProviderId"/>
+    /// in memory by the caller rather than here, so one query serves the
+    /// whole ranking list instead of one query per provider.
+    /// </summary>
+    Task<IReadOnlyList<BookingProviderAssignment>> ListSinceAsync(DateTime sinceUtc);
 }

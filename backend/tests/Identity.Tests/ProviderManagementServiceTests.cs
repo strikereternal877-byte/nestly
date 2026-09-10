@@ -37,7 +37,8 @@ public sealed class ProviderManagementServiceTests : IDisposable
         new ServiceabilityMappingManagementService(
             new CategoryCityMappingRepository(context), new ServicePincodeMappingRepository(context), new CategoryRepository(context),
             new CityRepository(context), new ServiceRepository(context), new PincodeRepository(context)),
-        new ProviderAvailabilityWindowRepository(context));
+        new ProviderAvailabilityWindowRepository(context),
+        new ReviewRepository(context));
 
     /// <summary>Seeds an Active provider with skill + area coverage for one (service, pincode) pair, and the resulting active mapping.</summary>
     private async Task<(Guid ProviderId, Guid ServiceId, Guid PincodeId)> SeedSoleCoverageAsync(NestlyDbContext context)

@@ -21,6 +21,7 @@ import { ProviderOnboardingStatus, ProviderStatus } from "@/lib/providers-types"
 import type { CreateProviderRequest, ProviderSummary } from "@/lib/providers-types";
 import { listCities } from "@/lib/serviceability-api";
 import { useAdminClaims } from "@/lib/use-admin-claims";
+import { ProvidersTabs } from "./_components/ProvidersTabs";
 
 const PAGE_SIZE = 20;
 
@@ -212,6 +213,7 @@ export default function ProvidersPage() {
           canWrite ? <Button onClick={() => setShowCreateForm(true)}>New provider</Button> : undefined
         }
       />
+      <ProvidersTabs />
 
       <FilterBar
         onSubmit={onSubmit}

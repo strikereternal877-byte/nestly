@@ -41,6 +41,22 @@ public sealed record BookingProviderAssignmentResponse(
 /// in v1... an admin can consult them when hand-assigning a booking" - this
 /// is that consultation, still nothing enforced automatically.
 /// </summary>
+/// <param name="AcceptanceRatePercent">
+/// Docs/OPEN-FIXES-FEATURES.csv "Provider performance": "expose the key
+/// metrics inline in the assignment picker" - all-time, rounded to one
+/// decimal, null with no offers yet. Display only, exactly like
+/// <see cref="AverageRating"/> below - it does not change
+/// <see cref="ProviderId"/>'s position in the already-ranked list this
+/// record is one row of (still specificity-then-load, never rating/rate;
+/// OPEN DECISIONS #4/#3).
+/// </param>
+/// <param name="AverageRating">
+/// Appended last, matching this record's own append-only convention. From
+/// <see cref="Review.ProviderId"/> (task 293) - display only, per OPEN
+/// DECISIONS #4: "`provider_rating_summary` exists for display (provider
+/// performance views, admin provider detail)... does not read it to rank or
+/// restrict candidates." Null with no visible review yet.
+/// </param>
 public sealed record EligibleProviderResponse(
     Guid ProviderId,
     string DisplayName,
@@ -48,4 +64,6 @@ public sealed record EligibleProviderResponse(
     bool PincodeMatch,
     bool ServiceMatch,
     int? MaxJobsPerDay,
-    int AssignedJobsToday);
+    int AssignedJobsToday,
+    double? AcceptanceRatePercent,
+    double? AverageRating);
