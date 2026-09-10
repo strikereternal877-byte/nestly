@@ -911,8 +911,8 @@ public static class DependencyInjection
         var jwtSection = configuration.GetSection(JwtOptions.SectionName);
         var signingKey = jwtSection[nameof(JwtOptions.SigningKey)] ??
             throw new InvalidOperationException($"Configuration section '{JwtOptions.SectionName}:{nameof(JwtOptions.SigningKey)}' is not configured.");
-        var issuer = jwtSection[nameof(JwtOptions.Issuer)] ?? "Nestly";
-        var audience = jwtSection[nameof(JwtOptions.Audience)] ?? "Nestly.Customers";
+        var issuer = jwtSection[nameof(JwtOptions.Issuer)] ?? JwtOptions.LegacyIssuer;
+        var audience = jwtSection[nameof(JwtOptions.Audience)] ?? JwtOptions.LegacyAudience;
 
         services
             .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -926,10 +926,19 @@ public static class DependencyInjection
                 options.MapInboundClaims = false;
                 options.TokenValidationParameters = new TokenValidationParameters
                 {
+                    // ValidIssuers/ValidAudiences (plural), not the singular
+                    // properties: the rebrand changed the configured value
+                    // from "Nestly"/"Nestly.Customers" to "Glavyx"/
+                    // "Glavyx.Customers" (docs/OPEN-FIXES-FEATURES.csv "Token
+                    // issuer and audience"), but a token issued before the
+                    // rollout still carries the old value and must keep
+                    // validating until it expires on its own - only newly
+                    // issued tokens (TokenService, which reads the same
+                    // configured value) pick up the new one.
                     ValidateIssuer = true,
-                    ValidIssuer = issuer,
+                    ValidIssuers = new[] { issuer, JwtOptions.LegacyIssuer },
                     ValidateAudience = true,
-                    ValidAudience = audience,
+                    ValidAudiences = new[] { audience, JwtOptions.LegacyAudience },
                     ValidateIssuerSigningKey = true,
                     IssuerSigningKey = new SymmetricSecurityKey(Convert.FromBase64String(signingKey)),
                     ValidateLifetime = true,
@@ -961,8 +970,8 @@ public static class DependencyInjection
         var jwtSection = configuration.GetSection(AdminJwtOptions.SectionName);
         var signingKey = jwtSection[nameof(AdminJwtOptions.SigningKey)] ??
             throw new InvalidOperationException($"Configuration section '{AdminJwtOptions.SectionName}:{nameof(AdminJwtOptions.SigningKey)}' is not configured.");
-        var issuer = jwtSection[nameof(AdminJwtOptions.Issuer)] ?? "Nestly";
-        var audience = jwtSection[nameof(AdminJwtOptions.Audience)] ?? "Nestly.AdminUsers";
+        var issuer = jwtSection[nameof(AdminJwtOptions.Issuer)] ?? AdminJwtOptions.LegacyIssuer;
+        var audience = jwtSection[nameof(AdminJwtOptions.Audience)] ?? AdminJwtOptions.LegacyAudience;
 
         services
             .AddAuthentication(AdminJwtBearerScheme)
@@ -974,10 +983,13 @@ public static class DependencyInjection
                 options.MapInboundClaims = false;
                 options.TokenValidationParameters = new TokenValidationParameters
                 {
+                    // See AddJwtAuthentication's identical comment: accepts
+                    // both the pre- and post-rebrand issuer/audience so a
+                    // token issued before the rollout keeps validating.
                     ValidateIssuer = true,
-                    ValidIssuer = issuer,
+                    ValidIssuers = new[] { issuer, AdminJwtOptions.LegacyIssuer },
                     ValidateAudience = true,
-                    ValidAudience = audience,
+                    ValidAudiences = new[] { audience, AdminJwtOptions.LegacyAudience },
                     ValidateIssuerSigningKey = true,
                     IssuerSigningKey = new SymmetricSecurityKey(Convert.FromBase64String(signingKey)),
                     ValidateLifetime = true,
@@ -1020,8 +1032,8 @@ public static class DependencyInjection
         var jwtSection = configuration.GetSection(ProviderJwtOptions.SectionName);
         var signingKey = jwtSection[nameof(ProviderJwtOptions.SigningKey)] ??
             throw new InvalidOperationException($"Configuration section '{ProviderJwtOptions.SectionName}:{nameof(ProviderJwtOptions.SigningKey)}' is not configured.");
-        var issuer = jwtSection[nameof(ProviderJwtOptions.Issuer)] ?? "Nestly";
-        var audience = jwtSection[nameof(ProviderJwtOptions.Audience)] ?? "Nestly.Providers";
+        var issuer = jwtSection[nameof(ProviderJwtOptions.Issuer)] ?? ProviderJwtOptions.LegacyIssuer;
+        var audience = jwtSection[nameof(ProviderJwtOptions.Audience)] ?? ProviderJwtOptions.LegacyAudience;
 
         services
             .AddAuthentication(ProviderJwtBearerScheme)
@@ -1032,10 +1044,13 @@ public static class DependencyInjection
                 options.MapInboundClaims = false;
                 options.TokenValidationParameters = new TokenValidationParameters
                 {
+                    // See AddJwtAuthentication's identical comment: accepts
+                    // both the pre- and post-rebrand issuer/audience so a
+                    // token issued before the rollout keeps validating.
                     ValidateIssuer = true,
-                    ValidIssuer = issuer,
+                    ValidIssuers = new[] { issuer, ProviderJwtOptions.LegacyIssuer },
                     ValidateAudience = true,
-                    ValidAudience = audience,
+                    ValidAudiences = new[] { audience, ProviderJwtOptions.LegacyAudience },
                     ValidateIssuerSigningKey = true,
                     IssuerSigningKey = new SymmetricSecurityKey(Convert.FromBase64String(signingKey)),
                     ValidateLifetime = true,
