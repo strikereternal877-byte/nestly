@@ -77,6 +77,16 @@ export default function JobsPage() {
       <PageHeading
         title="Jobs"
         subtitle="Bookings assigned to you — accept, decline and track progress."
+        actions={
+          // Entry point into /calendar (docs/OPEN-FIXES-FEATURES.csv
+          // "Calendar and week view") - see that page's own header comment
+          // for the nav-placement reasoning.
+          <Link href="/calendar">
+            <Button type="button" variant="secondary" size="sm">
+              View week calendar
+            </Button>
+          </Link>
+        }
       />
 
       <Card title="Filters" description="Narrow the list to a status or a single day.">
