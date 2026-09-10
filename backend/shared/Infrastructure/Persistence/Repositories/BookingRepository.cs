@@ -311,6 +311,14 @@ public class BookingRepository : IBookingRepository
             .ToListAsync();
     }
 
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<Guid>> ListServiceIdsEverBookedAsync() =>
+        await _context.BookingItems
+            .AsNoTracking()
+            .Select(i => i.ServiceId)
+            .Distinct()
+            .ToListAsync();
+
     private IQueryable<Booking> FullyLoaded() =>
         _context.Bookings
             .Include(b => b.Items).ThenInclude(i => i.AddOns)

@@ -40,4 +40,16 @@ public class ServiceCityPriceRepository : IServiceCityPriceRepository
             .Where(p => cityId == null || p.CityId == cityId)
             .OrderByDescending(p => p.EffectiveStartDate)
             .ToListAsync();
+
+    public async Task<IReadOnlyList<Guid>> ListServiceIdsWithActivePriceAsync()
+    {
+        // Inlines ServiceCityPrice.IsEffectiveOn's condition rather than
+        // calling it - an instance method call doesn't translate to SQL.
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        return await _context.Set<ServiceCityPrice>()
+            .Where(p => p.EffectiveStartDate <= today && (p.EffectiveEndDate == null || p.EffectiveEndDate >= today))
+            .Select(p => p.ServiceId)
+            .Distinct()
+            .ToListAsync();
+    }
 }

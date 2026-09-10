@@ -127,4 +127,13 @@ public interface IBookingRepository
     /// Ids with no matching booking are simply absent from the result.
     /// </summary>
     Task<IReadOnlyList<Booking>> ListSummariesByIdsAsync(IReadOnlyCollection<Guid> ids);
+
+    /// <summary>
+    /// Distinct <see cref="BookingItem.ServiceId"/>s that appear in ANY
+    /// booking ever placed, regardless of that booking's current status -
+    /// docs/OPEN-FIXES-FEATURES.csv "Admin Web, Proposed new page, Catalog
+    /// health"'s "never booked" check. A service absent from this set has no
+    /// booking history at all, launched or not.
+    /// </summary>
+    Task<IReadOnlyList<Guid>> ListServiceIdsEverBookedAsync();
 }
