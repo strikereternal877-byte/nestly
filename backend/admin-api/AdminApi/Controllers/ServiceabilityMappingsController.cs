@@ -139,6 +139,19 @@ public class ServiceabilityMappingsController : ControllerBase
         return result.IsSuccess ? NoContent() : result.ToProblemResult();
     }
 
+    /// <summary>
+    /// docs/OPEN-FIXES-FEATURES.csv "Service pincode mapping coverage": a
+    /// warning list, not a blocker - every active service that has no active
+    /// pincode mapping anywhere, so an admin can catch a launched-but-
+    /// unbookable service (like the AC installation flagship service the CSV
+    /// row describes) before a customer does.
+    /// </summary>
+    [HttpGet("unmapped-active-services")]
+    [Authorize(Policy = ReadPolicy)]
+    [ProducesResponseType(typeof(IReadOnlyList<UnmappedActiveServiceResponse>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> ListUnmappedActiveServices() =>
+        Ok(await _mappingManagementService.ListUnmappedActiveServicesAsync());
+
     private static ModelStateDictionary ToModelState(ValidationResult validation)
     {
         var modelState = new ModelStateDictionary();

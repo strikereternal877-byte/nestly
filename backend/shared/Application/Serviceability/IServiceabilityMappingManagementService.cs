@@ -39,4 +39,17 @@ public interface IServiceabilityMappingManagementService
 
     Task<Result> ActivateServicePincodeMappingAsync(Guid id);
     Task<Result> DeactivateServicePincodeMappingAsync(Guid id);
+
+    /// <summary>
+    /// docs/OPEN-FIXES-FEATURES.csv "Service pincode mapping coverage":
+    /// active services with no active pincode mapping anywhere - launched,
+    /// but unbookable in every city, with nothing today that would have told
+    /// an admin. Non-destructive by design (see the CSV row's own suggested
+    /// fix): a warning list for the serviceability screen to surface, not a
+    /// guard that blocks activating a service or launching it without a
+    /// mapping - a service is legitimately created before its first pincode
+    /// is mapped, so hard-blocking that ordering would break the normal
+    /// catalog-then-serviceability setup flow.
+    /// </summary>
+    Task<IReadOnlyList<UnmappedActiveServiceResponse>> ListUnmappedActiveServicesAsync();
 }

@@ -139,4 +139,51 @@ public sealed class ServiceabilityMappingManagementServiceTests : IClassFixture<
         var list = await service.ListServicePincodeMappingsAsync(catalogService.Id, pincode.Id);
         list.Single().IsActive.Should().BeTrue();
     }
+
+    /// <summary>
+    /// docs/OPEN-FIXES-FEATURES.csv "Service pincode mapping coverage": the
+    /// exact shape the CSV row describes - an active, launched service with
+    /// zero pincode mappings - must show up in the warning list so an admin
+    /// can catch it before a customer finds "not serviceable" everywhere.
+    /// </summary>
+    [Fact]
+    public async Task ListUnmappedActiveServicesAsync_includes_an_active_service_with_no_pincode_mapping_at_all()
+    {
+        var (service, category, _, catalogService, _) = SeedAndCreateService();
+
+        var unmapped = await service.ListUnmappedActiveServicesAsync();
+
+        unmapped.Should().Contain(u =>
+            u.ServiceId == catalogService.Id && u.ServiceName == "Deep Cleaning" && u.CategoryId == category.Id);
+    }
+
+    [Fact]
+    public async Task ListUnmappedActiveServicesAsync_excludes_a_service_once_it_has_an_active_pincode_mapping()
+    {
+        var (service, _, _, catalogService, pincode) = SeedAndCreateService();
+        (await service.CreateServicePincodeMappingAsync(new ServicePincodeMappingCreateRequest(catalogService.Id, pincode.Id)))
+            .IsSuccess.Should().BeTrue();
+
+        var unmapped = await service.ListUnmappedActiveServicesAsync();
+
+        unmapped.Should().NotContain(u => u.ServiceId == catalogService.Id);
+    }
+
+    /// <summary>
+    /// A service whose only mapping has been suspended (deactivated) is not
+    /// currently serviceable anywhere - IsServiceServiceableByPincodeAsync
+    /// requires an *active* mapping - so it must reappear in the warning list
+    /// exactly as if it had never been mapped.
+    /// </summary>
+    [Fact]
+    public async Task ListUnmappedActiveServicesAsync_includes_a_service_whose_only_mapping_was_deactivated()
+    {
+        var (service, _, _, catalogService, pincode) = SeedAndCreateService();
+        var mapping = (await service.CreateServicePincodeMappingAsync(new ServicePincodeMappingCreateRequest(catalogService.Id, pincode.Id))).Value;
+        (await service.DeactivateServicePincodeMappingAsync(mapping.Id)).IsSuccess.Should().BeTrue();
+
+        var unmapped = await service.ListUnmappedActiveServicesAsync();
+
+        unmapped.Should().Contain(u => u.ServiceId == catalogService.Id);
+    }
 }

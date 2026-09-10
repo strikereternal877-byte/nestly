@@ -47,4 +47,19 @@ public class ServicePincodeMappingRepository : IServicePincodeMappingRepository
             select new ServicePincodeMappingResponse(
                 mapping.Id, service.Id, service.Name, pincode.Id, pincode.Code, mapping.IsActive)
         ).ToListAsync();
+
+    public async Task<IReadOnlyList<UnmappedActiveServiceResponse>> ListUnmappedActiveServicesAsync()
+    {
+        var activelyMappedServiceIds = _context.Set<ServicePincodeMapping>()
+            .Where(m => m.IsActive)
+            .Select(m => m.ServiceId);
+
+        return await (
+            from service in _context.Set<Service>()
+            join category in _context.Set<Category>() on service.CategoryId equals category.Id
+            where service.IsActive && !activelyMappedServiceIds.Contains(service.Id)
+            orderby service.Name
+            select new UnmappedActiveServiceResponse(service.Id, service.Name, service.Slug, category.Id, category.Name)
+        ).ToListAsync();
+    }
 }

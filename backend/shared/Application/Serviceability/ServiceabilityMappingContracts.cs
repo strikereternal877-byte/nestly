@@ -29,3 +29,21 @@ public sealed record CategoryLookupResponse(Guid Id, string Name);
 
 /// <summary>Lightweight service lookup for the mapping admin screen's service picker.</summary>
 public sealed record ServiceLookupResponse(Guid Id, string Name);
+
+/// <summary>
+/// docs/OPEN-FIXES-FEATURES.csv "Serviceability mappings ... Service pincode
+/// mapping coverage": an active service with zero active
+/// <see cref="Nestly.Domain.ServicePincodeMapping"/> rows - launched, but
+/// silently unbookable everywhere, since <c>SlotAvailabilityService</c> and
+/// <c>ServiceabilityValidationService</c> both fail closed on exactly this
+/// (no active mapping means not serviceable, by design - see
+/// BookabilityProbe's identical reasoning for the platform-wide version of
+/// this same gap). Surfaced to admins as a warning to investigate and map,
+/// not blocked - see <see cref="IServiceabilityMappingManagementService.ListUnmappedActiveServicesAsync"/>.
+/// </summary>
+public sealed record UnmappedActiveServiceResponse(
+    Guid ServiceId,
+    string ServiceName,
+    string ServiceSlug,
+    Guid CategoryId,
+    string CategoryName);

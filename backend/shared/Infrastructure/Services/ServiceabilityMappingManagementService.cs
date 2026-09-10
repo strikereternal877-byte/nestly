@@ -169,4 +169,7 @@ public class ServiceabilityMappingManagementService : IServiceabilityMappingMana
         await _servicePincodeMappingRepository.UpdateAsync(mapping);
         return Result.Success();
     }
+
+    public Task<IReadOnlyList<UnmappedActiveServiceResponse>> ListUnmappedActiveServicesAsync() =>
+        _servicePincodeMappingRepository.ListUnmappedActiveServicesAsync();
 }
