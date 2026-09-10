@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Alert, Button, Field, Skeleton, cx } from "@/components/ui";
 import { API_V1, apiFetch, describeError } from "@/lib/api";
 import { setSelectedLocality } from "@/lib/location";
@@ -17,6 +17,31 @@ export function LocalitySelector({ cityId }: { cityId: string }) {
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  /**
+   * Selecting a locality both writes it to storage (which immediately
+   * re-renders the parent away from this component - see
+   * `setSelectedLocality`'s dispatch) and updates local highlight state.
+   * Called from `onMouseDown` on each result rather than only `onClick`:
+   * `onClick` only fires once the browser sees a `mousedown` and `mouseup`
+   * resolve on the *same* element, so if a result re-renders between press
+   * and release - e.g. the debounced search settling mid-click and
+   * swapping the filtered list in - the click can silently fail to land.
+   * `onMouseDown` commits the selection on press, before any such swap has
+   * a chance to happen; `onClick` stays too so keyboard (Enter/Space) and
+   * assistive-tech activation, which never dispatch `mousedown`, keep
+   * working. Calling it twice for one real pointer click is harmless - both
+   * calls write the same value.
+   */
+  const selectLocality = (locality: LocalitySearchResult) => {
+    setSelectedLocality({
+      id: locality.id,
+      name: locality.name,
+      pincodeId: locality.pincodeId,
+    });
+    setSelectedId(locality.id);
+  };
 
   // The search term is part of the query key, so without this every keystroke
   // fired a fresh request at the geography API and raced the previous one.
@@ -39,29 +64,42 @@ export function LocalitySelector({ cityId }: { cityId: string }) {
 
   return (
     <div className="flex flex-col gap-3">
-      <Field
-        label="Find your locality"
-        name="locality-search"
-        type="text"
-        value={search}
-        onChange={(event) => setSearch(event.target.value)}
-        placeholder="Locality name or pincode"
-        hint="We use this to check availability and show accurate slots."
-        leading={
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            className="h-4 w-4"
-            aria-hidden
-          >
-            <circle cx="11" cy="11" r="7" />
-            <path d="m20 20-3.2-3.2" />
-          </svg>
-        }
-      />
+      <div
+        // Belt-and-braces around the native click-to-focus behaviour: a
+        // press anywhere in the field's row (not just squarely on the
+        // `<input>`) still lands focus on the input, rather than being
+        // absorbed by the row and doing nothing.
+        onMouseDown={(event) => {
+          if (event.target !== inputRef.current) {
+            inputRef.current?.focus();
+          }
+        }}
+      >
+        <Field
+          ref={inputRef}
+          label="Find your locality"
+          name="locality-search"
+          type="text"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder="Locality name or pincode"
+          hint="We use this to check availability and show accurate slots."
+          leading={
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              className="h-4 w-4"
+              aria-hidden
+            >
+              <circle cx="11" cy="11" r="7" />
+              <path d="m20 20-3.2-3.2" />
+            </svg>
+          }
+        />
+      </div>
 
       {query.isPending ? (
         <div className="flex flex-col gap-1.5">
@@ -98,14 +136,16 @@ export function LocalitySelector({ cityId }: { cityId: string }) {
               <li key={locality.id}>
                 <button
                   type="button"
-                  onClick={() => {
-                    setSelectedLocality({
-                      id: locality.id,
-                      name: locality.name,
-                      pincodeId: locality.pincodeId,
-                    });
-                    setSelectedId(locality.id);
+                  onMouseDown={(event) => {
+                    // Prevents the browser from also trying to move focus
+                    // to the button on press, which would blur the search
+                    // input a beat before this commits - kept purely
+                    // cosmetic here since selecting unmounts the whole
+                    // input a moment later regardless.
+                    event.preventDefault();
+                    selectLocality(locality);
                   }}
+                  onClick={() => selectLocality(locality)}
                   aria-current={isSelected ? "true" : undefined}
                   className={cx(
                     "flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition-colors duration-fast ease-out",
