@@ -203,4 +203,44 @@ public class ServiceabilityMappingManagementService : IServiceabilityMappingMana
 
         return enabled;
     }
+
+    public Task<IReadOnlyList<ServiceabilityCoverageGapResponse>> ListMappedPairsCoveredByProviderAsync(Guid providerId) =>
+        _servicePincodeMappingRepository.ListMappedPairsCoveredByProviderAsync(providerId);
+
+    /// <inheritdoc/>
+    public async Task<int> AutoDisableUnservedMappingsAsync(Guid providerId, IReadOnlyList<ServiceabilityCoverageGapResponse>? candidatePairs = null)
+    {
+        // No explicit snapshot supplied - this is the suspend/deactivate call
+        // shape, where the provider's skill/area rows are untouched by the
+        // status change, so "what they currently satisfy" IS the "before"
+        // picture (see the interface doc comment).
+        var candidates = candidatePairs ?? await _servicePincodeMappingRepository.ListMappedPairsCoveredByProviderAsync(providerId);
+        if (candidates.Count == 0)
+        {
+            return 0;
+        }
+
+        var disabled = 0;
+        foreach (var pair in candidates)
+        {
+            // Re-checked against current state (after whatever change
+            // triggered this call), not the snapshot - another active
+            // provider may still cover this pair, or this same provider may
+            // still cover it if only one of skill/area changed.
+            if (await _servicePincodeMappingRepository.HasActiveProviderCoverageAsync(pair.ServiceId, pair.PincodeId))
+            {
+                continue;
+            }
+
+            var mapping = await _servicePincodeMappingRepository.FindAsync(pair.ServiceId, pair.PincodeId);
+            if (mapping is not null && mapping.IsActive)
+            {
+                mapping.Deactivate();
+                await _servicePincodeMappingRepository.UpdateAsync(mapping);
+                disabled++;
+            }
+        }
+
+        return disabled;
+    }
 }

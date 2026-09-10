@@ -69,6 +69,64 @@ public class ServicePincodeMappingRepository : IServicePincodeMappingRepository
     public async Task<IReadOnlyList<ServiceabilityCoverageGapResponse>> ListCoverablePairsForProviderAsync(Guid providerId) =>
         await CoverageGapQuery(providerId).ToListAsync();
 
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<ServiceabilityCoverageGapResponse>> ListMappedPairsCoveredByProviderAsync(Guid providerId) =>
+        await (
+            from service in _context.Set<Service>()
+            where service.IsActive
+            from pincode in _context.Set<Pincode>()
+            where pincode.IsActive
+            where _context.Set<ServicePincodeMapping>().Any(m =>
+                m.IsActive && m.ServiceId == service.Id && m.PincodeId == pincode.Id)
+            // Deliberately no Provider.Status check here - see the interface
+            // doc comment. The caller takes this snapshot right before the
+            // rows it reads (this provider's own skill/area rows, or their
+            // Status) change, so the provider's current status is not part
+            // of the "was this provider propping the mapping up" question.
+            where _context.Set<ProviderSkillMapping>().Any(s =>
+                s.ProviderId == providerId && s.IsActive && s.CategoryId == service.CategoryId &&
+                (s.ServiceId == null || s.ServiceId == service.Id))
+            where _context.Set<ProviderServiceArea>().Any(a =>
+                a.ProviderId == providerId && a.IsActive && a.CityId == pincode.CityId &&
+                (a.PincodeId == null || a.PincodeId == pincode.Id))
+            orderby pincode.Code, service.Name
+            select new ServiceabilityCoverageGapResponse(service.Id, service.Name, pincode.Id, pincode.Code)
+        ).ToListAsync();
+
+    /// <inheritdoc/>
+    public async Task<bool> HasActiveProviderCoverageAsync(Guid serviceId, Guid pincodeId)
+    {
+        var service = await _context.Set<Service>()
+            .Where(s => s.Id == serviceId)
+            .Select(s => new { s.CategoryId })
+            .FirstOrDefaultAsync();
+        if (service is null)
+        {
+            return false;
+        }
+
+        var pincode = await _context.Set<Pincode>()
+            .Where(p => p.Id == pincodeId)
+            .Select(p => new { p.CityId })
+            .FirstOrDefaultAsync();
+        if (pincode is null)
+        {
+            return false;
+        }
+
+        // Same eligibility as CoverageGapQuery's inner provider-match Any(),
+        // scoped to one known (service, pincode) pair rather than iterating
+        // every combination - see the interface doc comment.
+        return await _context.Set<Provider>().AnyAsync(p =>
+            p.Status == ProviderStatus.Active &&
+            _context.Set<ProviderSkillMapping>().Any(s =>
+                s.ProviderId == p.Id && s.IsActive && s.CategoryId == service.CategoryId &&
+                (s.ServiceId == null || s.ServiceId == serviceId)) &&
+            _context.Set<ProviderServiceArea>().Any(a =>
+                a.ProviderId == p.Id && a.IsActive && a.CityId == pincode.CityId &&
+                (a.PincodeId == null || a.PincodeId == pincodeId)));
+    }
+
     /// <summary>
     /// Shared by <see cref="ListPincodesWithProviderCoverageButNoServiceMappingAsync"/>
     /// (the admin-facing audit list, every gap) and

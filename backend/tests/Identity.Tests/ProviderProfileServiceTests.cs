@@ -249,6 +249,129 @@ public class ProviderProfileServiceTests : IDisposable
         mappings.Single().IsActive.Should().BeTrue();
     }
 
+    /// <summary>
+    /// docs/OPEN-FIXES-FEATURES.csv "Service to pincode mapping" - follow-up
+    /// review ("I think auto deactivating is required as well"). This
+    /// provider is the sole coverage for the pincode; dropping their skill
+    /// (via a skills replace-all that no longer includes it) must
+    /// auto-deactivate the mapping it was propping up.
+    /// </summary>
+    [Fact]
+    public async Task UpdateSkillsAsync_auto_disables_a_mapping_that_loses_its_sole_coverage()
+    {
+        await using var context = _database.CreateContext();
+        var provider = await context.Set<Provider>().SingleAsync(p => p.Id == _providerId);
+        provider.ChangeStatus(ProviderStatus.Active);
+        var pincode = new Pincode(Guid.NewGuid(), _cityId, "560" + Guid.NewGuid().ToString("N")[..3]);
+        var catalogService = new Service(Guid.NewGuid(), _categoryId, "Deep Clean", "deep-clean-" + Guid.NewGuid(), "desc", 500m);
+        context.Add(pincode);
+        context.Add(catalogService);
+        await context.SaveChangesAsync();
+
+        var service = CreateService(context);
+        await service.UpdateServiceAreasAsync(_providerId,
+            new UpdateProviderServiceAreasRequest([new ProviderServiceAreaInput(_cityId, null, pincode.Id)]));
+        await service.UpdateSkillsAsync(_providerId, new UpdateProviderSkillsRequest([new ProviderSkillInput(_categoryId, catalogService.Id)]));
+
+        var mappingBeforeDrop = await context.Set<ServicePincodeMapping>()
+            .SingleAsync(m => m.ServiceId == catalogService.Id && m.PincodeId == pincode.Id);
+        mappingBeforeDrop.IsActive.Should().BeTrue();
+
+        // Skills replace-all with an empty set - the provider no longer has
+        // any skill covering this service.
+        var result = await service.UpdateSkillsAsync(_providerId, new UpdateProviderSkillsRequest([]));
+
+        result.IsSuccess.Should().BeTrue();
+        var mapping = await context.Set<ServicePincodeMapping>()
+            .SingleAsync(m => m.ServiceId == catalogService.Id && m.PincodeId == pincode.Id);
+        mapping.IsActive.Should().BeFalse();
+    }
+
+    /// <summary>Same auto-disable, triggered from the area side instead of the skill side.</summary>
+    [Fact]
+    public async Task UpdateServiceAreasAsync_auto_disables_a_mapping_that_loses_its_sole_coverage()
+    {
+        await using var context = _database.CreateContext();
+        var provider = await context.Set<Provider>().SingleAsync(p => p.Id == _providerId);
+        provider.ChangeStatus(ProviderStatus.Active);
+        var pincode = new Pincode(Guid.NewGuid(), _cityId, "560" + Guid.NewGuid().ToString("N")[..3]);
+        var catalogService = new Service(Guid.NewGuid(), _categoryId, "Deep Clean", "deep-clean-" + Guid.NewGuid(), "desc", 500m);
+        context.Add(pincode);
+        context.Add(catalogService);
+        await context.SaveChangesAsync();
+
+        var service = CreateService(context);
+        await service.UpdateSkillsAsync(_providerId, new UpdateProviderSkillsRequest([new ProviderSkillInput(_categoryId, catalogService.Id)]));
+        await service.UpdateServiceAreasAsync(_providerId,
+            new UpdateProviderServiceAreasRequest([new ProviderServiceAreaInput(_cityId, null, pincode.Id)]));
+
+        // Areas replace-all that drops the pincode entirely.
+        await service.UpdateServiceAreasAsync(_providerId, new UpdateProviderServiceAreasRequest([]));
+
+        var mapping = await context.Set<ServicePincodeMapping>()
+            .SingleAsync(m => m.ServiceId == catalogService.Id && m.PincodeId == pincode.Id);
+        mapping.IsActive.Should().BeFalse();
+    }
+
+    /// <summary>A second active provider still covering the pincode means the mapping must stay bookable.</summary>
+    [Fact]
+    public async Task UpdateSkillsAsync_does_not_auto_disable_a_mapping_another_provider_still_covers()
+    {
+        await using var context = _database.CreateContext();
+        var provider = await context.Set<Provider>().SingleAsync(p => p.Id == _providerId);
+        provider.ChangeStatus(ProviderStatus.Active);
+        var pincode = new Pincode(Guid.NewGuid(), _cityId, "560" + Guid.NewGuid().ToString("N")[..3]);
+        var catalogService = new Service(Guid.NewGuid(), _categoryId, "Deep Clean", "deep-clean-" + Guid.NewGuid(), "desc", 500m);
+        context.Add(pincode);
+        context.Add(catalogService);
+
+        var otherProvider = new Provider(Guid.NewGuid(), "Meena Iyer", "Meena's Services", ProviderType.Individual, "+919876500000");
+        otherProvider.ChangeStatus(ProviderStatus.Active);
+        context.Add(otherProvider);
+        context.Add(new ProviderSkillMapping(Guid.NewGuid(), otherProvider.Id, _categoryId, catalogService.Id));
+        context.Add(new ProviderServiceArea(Guid.NewGuid(), otherProvider.Id, _cityId, pincodeId: pincode.Id));
+        await context.SaveChangesAsync();
+
+        var service = CreateService(context);
+        await service.UpdateServiceAreasAsync(_providerId,
+            new UpdateProviderServiceAreasRequest([new ProviderServiceAreaInput(_cityId, null, pincode.Id)]));
+        await service.UpdateSkillsAsync(_providerId, new UpdateProviderSkillsRequest([new ProviderSkillInput(_categoryId, catalogService.Id)]));
+
+        await service.UpdateSkillsAsync(_providerId, new UpdateProviderSkillsRequest([]));
+
+        var mapping = await context.Set<ServicePincodeMapping>()
+            .SingleAsync(m => m.ServiceId == catalogService.Id && m.PincodeId == pincode.Id);
+        mapping.IsActive.Should().BeTrue("the other provider's own skill + area still cover this service/pincode");
+    }
+
+    /// <summary>Idempotent: re-saving the already-empty skill set must not error or re-toggle anything.</summary>
+    [Fact]
+    public async Task UpdateSkillsAsync_auto_disable_is_idempotent_across_repeated_saves()
+    {
+        await using var context = _database.CreateContext();
+        var provider = await context.Set<Provider>().SingleAsync(p => p.Id == _providerId);
+        provider.ChangeStatus(ProviderStatus.Active);
+        var pincode = new Pincode(Guid.NewGuid(), _cityId, "560" + Guid.NewGuid().ToString("N")[..3]);
+        var catalogService = new Service(Guid.NewGuid(), _categoryId, "Deep Clean", "deep-clean-" + Guid.NewGuid(), "desc", 500m);
+        context.Add(pincode);
+        context.Add(catalogService);
+        await context.SaveChangesAsync();
+
+        var service = CreateService(context);
+        await service.UpdateServiceAreasAsync(_providerId,
+            new UpdateProviderServiceAreasRequest([new ProviderServiceAreaInput(_cityId, null, pincode.Id)]));
+        await service.UpdateSkillsAsync(_providerId, new UpdateProviderSkillsRequest([new ProviderSkillInput(_categoryId, catalogService.Id)]));
+
+        var first = await service.UpdateSkillsAsync(_providerId, new UpdateProviderSkillsRequest([]));
+        var second = await service.UpdateSkillsAsync(_providerId, new UpdateProviderSkillsRequest([]));
+
+        first.IsSuccess.Should().BeTrue();
+        second.IsSuccess.Should().BeTrue();
+        var mapping = await context.Set<ServicePincodeMapping>()
+            .SingleAsync(m => m.ServiceId == catalogService.Id && m.PincodeId == pincode.Id);
+        mapping.IsActive.Should().BeFalse();
+    }
+
     [Fact]
     public async Task GetServiceAreasAsync_returns_an_empty_list_when_none_are_set()
     {

@@ -78,11 +78,47 @@ public interface IServiceabilityMappingManagementService
     /// create-or-reactivate path so this is idempotent - re-running it for
     /// coverage that is already mapped, or that adds nothing new, creates no
     /// duplicate and does not touch a mapping an admin deliberately mapped or
-    /// suspended for a different reason. Deliberately one-directional: losing
-    /// coverage (a skill/area deactivated, the last provider covering a
-    /// pincode removed) does NOT auto-deactivate the mapping - see the
-    /// implementation's remarks for why. Returns the number of mappings
-    /// created or reactivated, for logging/testing.
+    /// suspended for a different reason. Returns the number of mappings
+    /// created or reactivated, for logging/testing. The reverse direction -
+    /// coverage lost - is <see cref="AutoDisableUnservedMappingsAsync"/>.
     /// </summary>
     Task<int> AutoEnableProviderCoverageAsync(Guid providerId);
+
+    /// <summary>
+    /// Snapshot of (service, pincode) pairs that are currently actively
+    /// mapped and that this provider is currently propping up (their
+    /// existing skill + area rows would still satisfy the pair). Call this
+    /// BEFORE a provider's skill/area rows are replaced
+    /// (<c>ProviderProfileService.UpdateServiceAreasAsync</c>/
+    /// <c>UpdateSkillsAsync</c>) - the replace deletes the very rows this
+    /// depends on - then pass the result to
+    /// <see cref="AutoDisableUnservedMappingsAsync"/> once the replace has
+    /// completed. Not needed before a plain status change (suspend/delete),
+    /// where the provider's skill/area rows are untouched - see that
+    /// method's default-candidates behaviour.
+    /// </summary>
+    Task<IReadOnlyList<ServiceabilityCoverageGapResponse>> ListMappedPairsCoveredByProviderAsync(Guid providerId);
+
+    /// <summary>
+    /// docs/OPEN-FIXES-FEATURES.csv "Service to pincode mapping" - the
+    /// reverse of <see cref="AutoEnableProviderCoverageAsync"/>, added on
+    /// follow-up review ("auto deactivating is required as well"). Call this
+    /// wherever a provider can lose skill/area coverage or go inactive:
+    /// after a skill/area replace (pass <paramref name="candidatePairs"/> -
+    /// a snapshot taken from <see cref="ListMappedPairsCoveredByProviderAsync"/>
+    /// BEFORE the replace, since by the time this runs the provider's own
+    /// rows already reflect the new set and no longer show what was lost),
+    /// or after a provider is suspended/deactivated (omit
+    /// <paramref name="candidatePairs"/> - their skill/area rows are
+    /// untouched by a status change, so the current
+    /// <see cref="ListMappedPairsCoveredByProviderAsync"/> snapshot IS the
+    /// "before" picture). For every candidate pair, deactivates the
+    /// <see cref="Nestly.Domain.ServicePincodeMapping"/> only if NO active
+    /// provider - this one or any other - still covers it, via the same
+    /// deactivate path <see cref="DeactivateServicePincodeMappingAsync"/>
+    /// uses. Idempotent: a pair no longer actively mapped, or still covered
+    /// by someone, is left alone; re-running finds nothing left to disable.
+    /// Returns the number of mappings deactivated, for logging/testing.
+    /// </summary>
+    Task<int> AutoDisableUnservedMappingsAsync(Guid providerId, IReadOnlyList<ServiceabilityCoverageGapResponse>? candidatePairs = null);
 }

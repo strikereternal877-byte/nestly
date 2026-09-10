@@ -105,6 +105,12 @@ public class ProviderProfileService : IProviderProfileService
                 Error.NotFound("ProviderProfile.NotFound", "The specified provider does not exist."));
         }
 
+        // Bug 3 auto-disable: snapshot what this provider is currently
+        // propping up BEFORE the replace below deletes their old area rows -
+        // see AutoDisableUnservedMappingsAsync's doc comment for why the
+        // "before" picture has to be taken here, not after.
+        var previouslyCovered = await _serviceabilityMappingManagementService.ListMappedPairsCoveredByProviderAsync(providerId);
+
         var areas = request.Areas
             .Select(a => new ProviderServiceArea(Guid.NewGuid(), providerId, a.CityId, a.ZoneId, a.PincodeId))
             .ToList();
@@ -118,6 +124,12 @@ public class ProviderProfileService : IProviderProfileService
         // comment for why this is safe to call unconditionally (idempotent,
         // reuses the existing create-or-reactivate path).
         await _serviceabilityMappingManagementService.AutoEnableProviderCoverageAsync(providerId);
+
+        // Bug 3 auto-disable: the reverse - an area dropped here can be the
+        // last thing keeping a mapping bookable; deactivate any mapping that
+        // depended on the coverage snapshotted above and now has no active
+        // provider (this one or any other) left covering it.
+        await _serviceabilityMappingManagementService.AutoDisableUnservedMappingsAsync(providerId, previouslyCovered);
 
         return Result.Success<IReadOnlyList<ProviderServiceAreaResponse>>(areas.Select(ToResponse).ToList());
     }
@@ -137,6 +149,11 @@ public class ProviderProfileService : IProviderProfileService
                 Error.NotFound("ProviderProfile.NotFound", "The specified provider does not exist."));
         }
 
+        // Same Bug 3 auto-disable snapshot as UpdateServiceAreasAsync,
+        // taken before the replace below removes this provider's old skill
+        // rows.
+        var previouslyCovered = await _serviceabilityMappingManagementService.ListMappedPairsCoveredByProviderAsync(providerId);
+
         var skills = request.Skills
             .Select(s => new ProviderSkillMapping(Guid.NewGuid(), providerId, s.CategoryId, s.ServiceId))
             .ToList();
@@ -146,6 +163,11 @@ public class ProviderProfileService : IProviderProfileService
         // skill can be the missing half of coverage for a pincode the
         // provider already serves.
         await _serviceabilityMappingManagementService.AutoEnableProviderCoverageAsync(providerId);
+
+        // Same Bug 3 auto-disable as UpdateServiceAreasAsync - a dropped
+        // skill can be the missing half that used to make a mapping
+        // bookable.
+        await _serviceabilityMappingManagementService.AutoDisableUnservedMappingsAsync(providerId, previouslyCovered);
 
         return Result.Success<IReadOnlyList<ProviderSkillResponse>>(skills.Select(ToResponse).ToList());
     }
@@ -168,6 +190,12 @@ public class ProviderProfileService : IProviderProfileService
         provider.SoftDelete();
         await _providerRepository.UpdateAsync(provider);
         await _sessionRepository.RevokeAllForProviderAsync(providerId);
+
+        // Bug 3 auto-disable: self-service deletion is a provider going
+        // inactive same as ProviderManagementService.SuspendAsync/DeleteAsync
+        // - their skill/area rows are untouched, so no "before" snapshot is
+        // needed (see AutoDisableUnservedMappingsAsync's doc comment).
+        await _serviceabilityMappingManagementService.AutoDisableUnservedMappingsAsync(providerId);
 
         return Result.Success();
     }

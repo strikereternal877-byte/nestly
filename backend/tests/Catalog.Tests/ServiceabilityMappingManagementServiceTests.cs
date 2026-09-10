@@ -348,4 +348,120 @@ public sealed class ServiceabilityMappingManagementServiceTests : IClassFixture<
 
         enabledCount.Should().Be(0);
     }
+
+    /// <summary>
+    /// docs/OPEN-FIXES-FEATURES.csv "Service to pincode mapping" - follow-up
+    /// review ("I think auto deactivating is required as well"). The reverse
+    /// of auto-enable: a provider who was the ONLY active coverage for a
+    /// (service, pincode) pair loses their skill, and the mapping - now
+    /// unserved by anyone - is deactivated automatically.
+    /// </summary>
+    [Fact]
+    public async Task AutoDisableUnservedMappingsAsync_deactivates_a_mapping_that_loses_its_sole_coverage()
+    {
+        var (service, category, city, catalogService, pincode) = SeedAndCreateService();
+        var context = _db.CreateContext();
+        var provider = SeedActiveProviderCoveringPincode(context, category.Id, city.Id, pincode.Id);
+        (await service.CreateServicePincodeMappingAsync(new ServicePincodeMappingCreateRequest(catalogService.Id, pincode.Id)))
+            .IsSuccess.Should().BeTrue();
+
+        // Snapshot BEFORE the coverage change, exactly as
+        // ProviderProfileService.UpdateSkillsAsync does before its replace -
+        // see ListMappedPairsCoveredByProviderAsync's doc comment for why.
+        var previouslyCovered = await service.ListMappedPairsCoveredByProviderAsync(provider.Id);
+        previouslyCovered.Should().Contain(p => p.ServiceId == catalogService.Id && p.PincodeId == pincode.Id);
+
+        // Coverage lost: the provider's only skill row is deactivated.
+        var skill = context.Set<ProviderSkillMapping>().Single(s => s.ProviderId == provider.Id);
+        skill.Deactivate();
+        context.SaveChanges();
+
+        var disabledCount = await service.AutoDisableUnservedMappingsAsync(provider.Id, previouslyCovered);
+
+        disabledCount.Should().Be(1);
+        var mappings = await service.ListServicePincodeMappingsAsync(catalogService.Id, pincode.Id);
+        mappings.Single().IsActive.Should().BeFalse();
+    }
+
+    /// <summary>Another active provider still covering the pair means the mapping must stay active.</summary>
+    [Fact]
+    public async Task AutoDisableUnservedMappingsAsync_leaves_the_mapping_active_when_another_provider_still_covers_it()
+    {
+        var (service, category, city, catalogService, pincode) = SeedAndCreateService();
+        var context = _db.CreateContext();
+        var provider = SeedActiveProviderCoveringPincode(context, category.Id, city.Id, pincode.Id);
+        SeedActiveProviderCoveringPincode(context, category.Id, city.Id, pincode.Id);
+        (await service.CreateServicePincodeMappingAsync(new ServicePincodeMappingCreateRequest(catalogService.Id, pincode.Id)))
+            .IsSuccess.Should().BeTrue();
+
+        var previouslyCovered = await service.ListMappedPairsCoveredByProviderAsync(provider.Id);
+
+        var skill = context.Set<ProviderSkillMapping>().Single(s => s.ProviderId == provider.Id);
+        skill.Deactivate();
+        context.SaveChanges();
+
+        var disabledCount = await service.AutoDisableUnservedMappingsAsync(provider.Id, previouslyCovered);
+
+        disabledCount.Should().Be(0);
+        var mappings = await service.ListServicePincodeMappingsAsync(catalogService.Id, pincode.Id);
+        mappings.Single().IsActive.Should().BeTrue();
+    }
+
+    /// <summary>
+    /// A provider being suspended entirely (their skill/area rows untouched,
+    /// only their status flips) is the no-explicit-snapshot call shape used
+    /// by ProviderManagementService.SuspendAsync/DeleteAsync - it must
+    /// compute the "before" picture itself from current coverage.
+    /// </summary>
+    [Fact]
+    public async Task AutoDisableUnservedMappingsAsync_deactivates_a_mapping_when_the_sole_covering_provider_is_suspended()
+    {
+        var (service, category, city, catalogService, pincode) = SeedAndCreateService();
+        var context = _db.CreateContext();
+        var provider = SeedActiveProviderCoveringPincode(context, category.Id, city.Id, pincode.Id);
+        (await service.CreateServicePincodeMappingAsync(new ServicePincodeMappingCreateRequest(catalogService.Id, pincode.Id)))
+            .IsSuccess.Should().BeTrue();
+
+        var suspended = context.Set<Provider>().Single(p => p.Id == provider.Id);
+        suspended.ChangeStatus(ProviderStatus.Suspended);
+        context.SaveChanges();
+
+        var disabledCount = await service.AutoDisableUnservedMappingsAsync(provider.Id);
+
+        disabledCount.Should().Be(1);
+        var mappings = await service.ListServicePincodeMappingsAsync(catalogService.Id, pincode.Id);
+        mappings.Single().IsActive.Should().BeFalse();
+    }
+
+    /// <summary>Idempotent: a second call after the mapping is already deactivated finds nothing left to disable, and does not error.</summary>
+    [Fact]
+    public async Task AutoDisableUnservedMappingsAsync_is_idempotent_across_repeated_calls()
+    {
+        var (service, category, city, catalogService, pincode) = SeedAndCreateService();
+        var context = _db.CreateContext();
+        var provider = SeedActiveProviderCoveringPincode(context, category.Id, city.Id, pincode.Id);
+        (await service.CreateServicePincodeMappingAsync(new ServicePincodeMappingCreateRequest(catalogService.Id, pincode.Id)))
+            .IsSuccess.Should().BeTrue();
+
+        var suspended = context.Set<Provider>().Single(p => p.Id == provider.Id);
+        suspended.ChangeStatus(ProviderStatus.Suspended);
+        context.SaveChanges();
+
+        (await service.AutoDisableUnservedMappingsAsync(provider.Id)).Should().Be(1);
+        (await service.AutoDisableUnservedMappingsAsync(provider.Id)).Should().Be(0);
+
+        var mappings = await service.ListServicePincodeMappingsAsync(catalogService.Id, pincode.Id);
+        mappings.Single().IsActive.Should().BeFalse();
+    }
+
+    /// <summary>A provider with no propped-up mappings (e.g. never had coverage) disables nothing.</summary>
+    [Fact]
+    public async Task AutoDisableUnservedMappingsAsync_does_nothing_for_a_provider_with_no_mapped_coverage()
+    {
+        var (service, _, _, _, _) = SeedAndCreateService();
+
+        var disabledCount = await service.AutoDisableUnservedMappingsAsync(Guid.NewGuid());
+
+        disabledCount.Should().Be(0);
+    }
 }

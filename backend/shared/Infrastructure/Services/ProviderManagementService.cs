@@ -135,6 +135,13 @@ public class ProviderManagementService : IProviderManagementService
         provider.ChangeStatus(ProviderStatus.Suspended);
         await _providerRepository.UpdateAsync(provider);
 
+        // Bug 3 auto-disable: mirror of ReactivateAsync's auto-enable below -
+        // a suspended provider's coverage no longer counts. Their skill/area
+        // rows are untouched by this status change, so no "before" snapshot
+        // is needed - AutoDisableUnservedMappingsAsync reads current
+        // coverage itself.
+        await _serviceabilityMappingManagementService.AutoDisableUnservedMappingsAsync(providerId);
+
         return await BuildDetailAsync(provider);
     }
 
@@ -178,6 +185,10 @@ public class ProviderManagementService : IProviderManagementService
         provider.SoftDelete();
         await _providerRepository.UpdateAsync(provider);
         await _sessionRepository.RevokeAllForProviderAsync(providerId);
+
+        // Bug 3 auto-disable: same as SuspendAsync - a deleted provider's
+        // coverage no longer counts.
+        await _serviceabilityMappingManagementService.AutoDisableUnservedMappingsAsync(providerId);
 
         return await BuildDetailAsync(provider);
     }

@@ -42,4 +42,25 @@ public interface IServicePincodeMappingRepository : IRepository<ServicePincodeMa
     /// <c>IServiceabilityMappingManagementService.AutoEnableProviderCoverageAsync</c>).
     /// </summary>
     Task<IReadOnlyList<ServiceabilityCoverageGapResponse>> ListCoverablePairsForProviderAsync(Guid providerId);
+
+    /// <summary>
+    /// (Service, pincode) pairs that ARE currently actively mapped and that
+    /// this provider's current <c>ProviderSkillMapping</c>/<c>ProviderServiceArea</c>
+    /// rows would satisfy - deliberately ignores the provider's own
+    /// <see cref="Provider.Status"/> (unlike <see cref="ListCoverablePairsForProviderAsync"/>),
+    /// since this is the "before" query auto-disable takes right before a
+    /// skill/area replace or a status change removes exactly those rows -
+    /// see <c>IServiceabilityMappingManagementService.AutoDisableUnservedMappingsAsync</c>.
+    /// </summary>
+    Task<IReadOnlyList<ServiceabilityCoverageGapResponse>> ListMappedPairsCoveredByProviderAsync(Guid providerId);
+
+    /// <summary>
+    /// Whether any active provider still has matching skill + area coverage
+    /// for this exact (service, pincode) pair - same eligibility as
+    /// <see cref="ListPincodesWithProviderCoverageButNoServiceMappingAsync"/>,
+    /// scoped to one known pair instead of scanning every service/pincode
+    /// combination, for auto-disable's per-candidate recheck after a
+    /// provider's coverage changes.
+    /// </summary>
+    Task<bool> HasActiveProviderCoverageAsync(Guid serviceId, Guid pincodeId);
 }
