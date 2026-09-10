@@ -23,4 +23,18 @@ public interface IServiceManagementService
 
     Task<Result<ServiceMediaResponse>> AddMediaAsync(Guid serviceId, ServiceMediaCreateRequest request);
     Task<Result> RemoveMediaAsync(Guid serviceId, Guid mediaId);
+
+    /// <summary>
+    /// docs/OPEN-FIXES-FEATURES.csv "Admin Web, Proposed new page, Catalog
+    /// health": flags every active service missing a currently-effective
+    /// city price, a cover image, an active serviceability mapping, or that
+    /// has never been booked. Reuses
+    /// <see cref="Nestly.Application.Serviceability.IServiceabilityMappingManagementService.ListUnmappedActiveServicesAsync"/>
+    /// for the mapping check rather than recomputing it. Non-destructive by
+    /// design, same as that method's own doc comment: a warning/audit list
+    /// for admins to work through, never a block on creating or activating a
+    /// service - an incomplete service is a normal, valid state while its
+    /// catalog entry is still being filled in.
+    /// </summary>
+    Task<IReadOnlyList<CatalogHealthIssueResponse>> ListHealthIssuesAsync();
 }

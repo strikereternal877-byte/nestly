@@ -2,7 +2,9 @@ using System.Text.Json;
 using Nestly.Application;
 using Nestly.Application.Abstractions.Auditing;
 using Nestly.Application.Abstractions.Caching;
+using Nestly.Application.Bookings;
 using Nestly.Application.Catalog;
+using Nestly.Application.Serviceability;
 using Nestly.BuildingBlocks.Results;
 using Nestly.Domain;
 
@@ -19,6 +21,9 @@ public class ServiceManagementService : IServiceManagementService
     private readonly IServiceMediaRepository _serviceMediaRepository;
     private readonly IAuditLogWriter _auditLogWriter;
     private readonly ICacheService _cache;
+    private readonly IServiceCityPriceRepository _serviceCityPriceRepository;
+    private readonly IBookingRepository _bookingRepository;
+    private readonly IServiceabilityMappingManagementService _mappingManagementService;
 
     public ServiceManagementService(
         IServiceRepository serviceRepository,
@@ -26,7 +31,10 @@ public class ServiceManagementService : IServiceManagementService
         IServiceGroupRepository serviceGroupRepository,
         IServiceMediaRepository serviceMediaRepository,
         IAuditLogWriter auditLogWriter,
-        ICacheService cache)
+        ICacheService cache,
+        IServiceCityPriceRepository serviceCityPriceRepository,
+        IBookingRepository bookingRepository,
+        IServiceabilityMappingManagementService mappingManagementService)
     {
         _serviceRepository = serviceRepository;
         _categoryRepository = categoryRepository;
@@ -34,6 +42,9 @@ public class ServiceManagementService : IServiceManagementService
         _serviceMediaRepository = serviceMediaRepository;
         _auditLogWriter = auditLogWriter;
         _cache = cache;
+        _serviceCityPriceRepository = serviceCityPriceRepository;
+        _bookingRepository = bookingRepository;
+        _mappingManagementService = mappingManagementService;
     }
 
     public async Task<IReadOnlyList<ServiceAdminResponse>> ListAsync(Guid? categoryId)
@@ -291,6 +302,72 @@ public class ServiceManagementService : IServiceManagementService
         service.SetPricingType(Enum.Parse<ServicePricingType>(pricingType));
         service.SetOptions(isTaxApplicable, isAddOnAllowed, isQuantityAllowed, isInspectionBased,
             isSlotRequired, isAddressRequired, isCustomerNoteAllowed, isDurationBased);
+    }
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<CatalogHealthIssueResponse>> ListHealthIssuesAsync()
+    {
+        // SearchActiveAsync(string.Empty) is the same "every active service"
+        // idiom ServiceabilityMappingManagementService.ListServicesAsync
+        // already uses - see that repository method's own doc comment.
+        var activeServices = await _serviceRepository.SearchActiveAsync(string.Empty);
+        if (activeServices.Count == 0)
+        {
+            return [];
+        }
+
+        // Four independent lookups, each one query, rather than a per-service
+        // round trip for any of them (avoids N+1 over the active catalog).
+        var categoryNamesTask = BuildCategoryNameLookupAsync(activeServices.Select(s => s.CategoryId));
+        var pricedServiceIdsTask = _serviceCityPriceRepository.ListServiceIdsWithActivePriceAsync();
+        var everBookedServiceIdsTask = _bookingRepository.ListServiceIdsEverBookedAsync();
+        var unmappedServiceIdsTask = _mappingManagementService.ListUnmappedActiveServicesAsync();
+        await Task.WhenAll(categoryNamesTask, pricedServiceIdsTask, everBookedServiceIdsTask, unmappedServiceIdsTask);
+
+        var categoryNames = categoryNamesTask.Result;
+        var pricedServiceIds = pricedServiceIdsTask.Result.ToHashSet();
+        var everBookedServiceIds = everBookedServiceIdsTask.Result.ToHashSet();
+        var unmappedServiceIds = unmappedServiceIdsTask.Result.Select(u => u.ServiceId).ToHashSet();
+
+        var issues = new List<CatalogHealthIssueResponse>();
+        foreach (var service in activeServices)
+        {
+            var reasons = new List<string>();
+            if (!pricedServiceIds.Contains(service.Id))
+            {
+                reasons.Add(CatalogHealthReason.NoPrice);
+            }
+
+            if (string.IsNullOrWhiteSpace(service.CoverImageUrl))
+            {
+                reasons.Add(CatalogHealthReason.NoImage);
+            }
+
+            if (unmappedServiceIds.Contains(service.Id))
+            {
+                reasons.Add(CatalogHealthReason.NoMapping);
+            }
+
+            if (!everBookedServiceIds.Contains(service.Id))
+            {
+                reasons.Add(CatalogHealthReason.NeverBooked);
+            }
+
+            if (reasons.Count == 0)
+            {
+                continue;
+            }
+
+            issues.Add(new CatalogHealthIssueResponse(
+                service.Id,
+                service.Name,
+                service.Slug,
+                service.CategoryId,
+                categoryNames.GetValueOrDefault(service.CategoryId, string.Empty),
+                reasons));
+        }
+
+        return issues.OrderBy(i => i.ServiceName).ToList();
     }
 
     // Task NESTLY-011: one batched lookup instead of a GetByIdAsync per

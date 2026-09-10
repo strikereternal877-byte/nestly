@@ -49,6 +49,19 @@ public class ServicesController : ControllerBase
     public async Task<IActionResult> List([FromQuery] Guid? categoryId) =>
         Ok(await _serviceManagementService.ListAsync(categoryId));
 
+    /// <summary>
+    /// docs/OPEN-FIXES-FEATURES.csv "Admin Web, Proposed new page, Catalog
+    /// health": active services missing a city price, a cover image, an
+    /// active serviceability mapping, or that have never been booked.
+    /// Warning/audit only, same non-destructive approach as
+    /// ServiceabilityMappingsController's unmapped-active-services and
+    /// coverage-gap endpoints - see <see cref="IServiceManagementService.ListHealthIssuesAsync"/>.
+    /// </summary>
+    [HttpGet("health")]
+    [Authorize(Policy = ReadPolicy)]
+    [ProducesResponseType(typeof(IReadOnlyList<CatalogHealthIssueResponse>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> ListHealth() => Ok(await _serviceManagementService.ListHealthIssuesAsync());
+
     [HttpGet("{id:guid}")]
     [Authorize(Policy = ReadPolicy)]
     [ProducesResponseType(typeof(ServiceAdminResponse), StatusCodes.Status200OK)]
