@@ -1,4 +1,5 @@
 using Nestly.Application;
+using Nestly.Application.Abstractions.Caching;
 using Nestly.Application.Pricing;
 using Nestly.Application.Serviceability;
 using Nestly.BuildingBlocks.Results;
@@ -13,11 +14,31 @@ namespace Nestly.Infrastructure.Services;
 /// deduction, and cancellation/reschedule fees (SRS 11.9.1) are out of
 /// scope here - they belong to Payments/Post-Booking (Phase 4/5), which
 /// don't exist yet.
+///
+/// Read-cached (catalog/pricing response-time fix): a successful result is
+/// cached for <see cref="PriceCalculationTtl"/>, keyed on every input the
+/// calculation reads (<see cref="CacheKeys.PriceCalculation"/>). Deliberately
+/// TTL-only, like <c>CacheKeys.CategoriesInCity</c> - the inputs span too
+/// many entities (service, variant, every selected add-on, city pricing
+/// policy, city price override) to invalidate precisely without a fan-out
+/// this hot a path shouldn't pay for, and a wrong price briefly surviving a
+/// same-service price edit is bounded by a short TTL rather than open-ended.
+/// A failed calculation (validation/not-found/business error) is never
+/// cached - only ever the priced-out success case.
 /// </summary>
 public class PriceCalculationService : IPriceCalculationService
 {
     /// <summary>Upper bound on a unit-measured service's quantity - a guardrail against a runaway value inflating a total, not a per-service limit (that would live on Service if the business needed one).</summary>
     private const int MaxQuantity = 99;
+
+    /// <summary>
+    /// Short enough that a price/policy edit is reflected well within a
+    /// customer's checkout session, long enough to absorb the repeated
+    /// recalculation a booking-summary screen triggers as the customer
+    /// tweaks quantity/add-ons/slot (the "pricing/calculate took 2.8s-2.9s"
+    /// complaint this fix targets).
+    /// </summary>
+    private static readonly TimeSpan PriceCalculationTtl = TimeSpan.FromSeconds(45);
 
     private readonly IServiceRepository _serviceRepository;
     private readonly IServiceAddOnRepository _addOnRepository;
@@ -26,6 +47,7 @@ public class PriceCalculationService : IPriceCalculationService
     private readonly ICityPricingPolicyRepository _pricingPolicyRepository;
     private readonly IServiceVariantRepository _variantRepository;
     private readonly IServiceAddOnGroupRepository _groupRepository;
+    private readonly ICacheService _cache;
 
     public PriceCalculationService(
         IServiceRepository serviceRepository,
@@ -34,7 +56,8 @@ public class PriceCalculationService : IPriceCalculationService
         IServiceCityPriceRepository cityPriceRepository,
         ICityPricingPolicyRepository pricingPolicyRepository,
         IServiceVariantRepository variantRepository,
-        IServiceAddOnGroupRepository groupRepository)
+        IServiceAddOnGroupRepository groupRepository,
+        ICacheService cache)
     {
         _serviceRepository = serviceRepository;
         _addOnRepository = addOnRepository;
@@ -43,6 +66,7 @@ public class PriceCalculationService : IPriceCalculationService
         _pricingPolicyRepository = pricingPolicyRepository;
         _variantRepository = variantRepository;
         _groupRepository = groupRepository;
+        _cache = cache;
     }
 
     public async Task<Result<PriceBreakdownResponse>> CalculateAsync(PriceCalculationRequest request)
@@ -52,6 +76,30 @@ public class PriceCalculationService : IPriceCalculationService
             return Error.Validation("Pricing.InvalidQuantity", "Quantity must be positive.");
         }
 
+        string cacheKey = CacheKeys.PriceCalculation(
+            request.ServiceId,
+            request.CityId,
+            request.ServiceVariantId,
+            request.Quantity,
+            request.AddOns.Select(a => (a.AddOnId, a.Quantity)));
+
+        var cached = await _cache.GetAsync<PriceBreakdownResponse>(cacheKey);
+        if (cached is not null)
+        {
+            return Result.Success(cached);
+        }
+
+        var result = await ComputeAsync(request);
+        if (result.IsSuccess)
+        {
+            await _cache.SetAsync(cacheKey, result.Value, PriceCalculationTtl);
+        }
+
+        return result;
+    }
+
+    private async Task<Result<PriceBreakdownResponse>> ComputeAsync(PriceCalculationRequest request)
+    {
         var service = await _serviceRepository.GetByIdAsync(request.ServiceId);
         if (service is null || !service.IsActive)
         {

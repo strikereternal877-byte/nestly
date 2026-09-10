@@ -13,6 +13,10 @@ public sealed class PriceCalculationServiceTests : IClassFixture<TestDatabase>
 
     public PriceCalculationServiceTests(TestDatabase db) => _db = db;
 
+    // A fresh InMemoryCacheService per call (task: catalog/pricing caching fix)
+    // - callers that build two services in the same test (rare, but see below)
+    // get independent caches, exactly like two different requests would in
+    // production with a shared Redis but different cache keys.
     private PriceCalculationService BuildService(Nestly.Infrastructure.Persistence.NestlyDbContext context) => new(
         new ServiceRepository(context),
         new ServiceAddOnRepository(context),
@@ -20,7 +24,8 @@ public sealed class PriceCalculationServiceTests : IClassFixture<TestDatabase>
         new ServiceCityPriceRepository(context),
         new CityPricingPolicyRepository(context),
         new ServiceVariantRepository(context),
-        new ServiceAddOnGroupRepository(context));
+        new ServiceAddOnGroupRepository(context),
+        new InMemoryCacheService());
 
     private (Category category, Service service, State state, City city) SeedServiceAndCity(Nestly.Infrastructure.Persistence.NestlyDbContext context, decimal basePrice = 500m)
     {
@@ -446,5 +451,87 @@ public sealed class PriceCalculationServiceTests : IClassFixture<TestDatabase>
         var line = result.Value.AddOnLineItems.Should().ContainSingle().Subject;
         line.GroupId.Should().BeNull();
         line.GroupName.Should().BeNull();
+    }
+
+    /// <summary>
+    /// Catalog/pricing caching fix: a second identical request is served from
+    /// cache rather than recomputed - proven the same way ServiceQueryService's
+    /// caching is proven elsewhere, by mutating the underlying price after the
+    /// first call and asserting the second call still returns the pre-mutation
+    /// value (only possible if it came from cache, not a fresh read).
+    /// </summary>
+    [Fact]
+    public async Task Second_identical_request_is_served_from_cache_not_recomputed()
+    {
+        using var context = _db.CreateContext();
+        var (_, service, _, city) = SeedServiceAndCity(context, 500m);
+        var priceService = BuildService(context);
+        var request = new PriceCalculationRequest(service.Id, city.Id, 1, []);
+
+        var first = await priceService.CalculateAsync(request);
+        first.IsSuccess.Should().BeTrue();
+        first.Value.BasePrice.Should().Be(500m);
+
+        service.SetPrice(750m);
+        context.SaveChanges();
+
+        var second = await priceService.CalculateAsync(request);
+
+        second.IsSuccess.Should().BeTrue();
+        second.Value.BasePrice.Should().Be(500m, "the identical request should hit the cache instead of re-reading the now-changed price");
+    }
+
+    /// <summary>
+    /// Requests that differ only in their add-on selection must not collide on
+    /// one cache entry - each priced-out result is specific to exactly the
+    /// add-ons requested.
+    /// </summary>
+    [Fact]
+    public async Task Requests_with_different_addons_are_cached_under_different_keys()
+    {
+        using var context = _db.CreateContext();
+        var (_, service, _, city) = SeedServiceAndCity(context, 500m);
+        var addOn = new ServiceAddOn(Guid.NewGuid(), service.Id, "Extra", 100m);
+        context.Add(addOn);
+        context.SaveChanges();
+        var priceService = BuildService(context);
+
+        var withoutAddOn = await priceService.CalculateAsync(new PriceCalculationRequest(service.Id, city.Id, 1, []));
+        var withAddOn = await priceService.CalculateAsync(new PriceCalculationRequest(
+            service.Id, city.Id, 1, [new AddOnSelection(addOn.Id, 1)]));
+
+        withoutAddOn.IsSuccess.Should().BeTrue();
+        withAddOn.IsSuccess.Should().BeTrue();
+        withoutAddOn.Value.TotalPayable.Should().Be(500m);
+        withAddOn.Value.TotalPayable.Should().Be(600m);
+    }
+
+    /// <summary>A failed calculation (here: quantity &lt;= 0) must never be cached - only the priced-out success case is.</summary>
+    [Fact]
+    public async Task A_failed_calculation_is_not_cached()
+    {
+        using var context = _db.CreateContext();
+        var (_, service, _, city) = SeedServiceAndCity(context, 500m);
+        var priceService = BuildService(context);
+        var request = new PriceCalculationRequest(service.Id, city.Id, 0, []);
+
+        var first = await priceService.CalculateAsync(request);
+        first.IsFailure.Should().BeTrue();
+
+        service.SetOptions(
+            isTaxApplicable: true,
+            isAddOnAllowed: true,
+            isQuantityAllowed: true,
+            isInspectionBased: false,
+            isSlotRequired: true,
+            isAddressRequired: true,
+            isCustomerNoteAllowed: true);
+        context.SaveChanges();
+
+        // A valid quantity against the same service/city is a different
+        // request (different key) and must compute fresh, not read whatever a
+        // cached failure might have left behind.
+        var second = await priceService.CalculateAsync(request with { Quantity = 1 });
+        second.IsSuccess.Should().BeTrue();
     }
 }

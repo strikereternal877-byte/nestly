@@ -36,7 +36,7 @@ public sealed class BookingSummaryServiceTests : IClassFixture<TestDatabase>
             new ServiceAddOnRepository(context),
             new ServiceabilityRepository(context),
             new ServiceCityPriceRepository(context),
-            new CityPricingPolicyRepository(context), new ServiceVariantRepository(context), new ServiceAddOnGroupRepository(context)),
+            new CityPricingPolicyRepository(context), new ServiceVariantRepository(context), new ServiceAddOnGroupRepository(context), new InMemoryCacheService()),
         new CouponService(
             new CouponRepository(context),
             new CouponRedemptionRepository(context),

@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Linq;
 
 namespace Nestly.Application.Abstractions.Caching;
 
@@ -22,6 +23,9 @@ public static class CacheKeys
     {
         public const string Catalog = "catalog";
         public const string Session = "session";
+
+        /// <summary>Server-side price calculation results (task: catalog/pricing response-time fix).</summary>
+        public const string Pricing = "pricing";
 
         /// <summary>Chat presence (task 190) - shared across consumer-api/admin-api/provider-api, each its own process.</summary>
         public const string ChatPresence = "chat-presence";
@@ -84,6 +88,40 @@ public static class CacheKeys
     /// <summary>Whether a service is serviceable in a pincode (SRS 12.9.2).</summary>
     public static string ServicePincodeServiceability(Guid serviceId, Guid pincodeId) =>
         Compose(Areas.Catalog, "serviceability", "service", serviceId.ToString("D"), "pincode", pincodeId.ToString("D"));
+
+    /// <summary>
+    /// One server-side price calculation result (task: catalog/pricing
+    /// response-time fix). Every input the calculation actually reads -
+    /// service, city, variant, quantity, and the exact add-on selection -
+    /// is folded into the key: two requests that differ in any one of these
+    /// can price out differently (a different city's visit charge/tax, a
+    /// different variant's price, a different add-on mix), so collapsing
+    /// them onto the same cache entry would risk serving one customer
+    /// another's price. Add-on selections are sorted by id first so the same
+    /// selection sent in a different order (a client re-ordering an object,
+    /// not a different selection) still hits the same entry.
+    /// </summary>
+    public static string PriceCalculation(
+        Guid serviceId,
+        Guid cityId,
+        Guid? serviceVariantId,
+        int quantity,
+        IEnumerable<(Guid AddOnId, int Quantity)> addOns)
+    {
+        string addOnsSegment = string.Join(
+            '_',
+            addOns
+                .OrderBy(a => a.AddOnId)
+                .Select(a => $"{a.AddOnId:D}-{a.Quantity.ToString(CultureInfo.InvariantCulture)}"));
+
+        return Compose(
+            Areas.Pricing,
+            "service", serviceId.ToString("D"),
+            "city", cityId.ToString("D"),
+            "variant", serviceVariantId?.ToString("D") ?? "none",
+            "qty", quantity.ToString(CultureInfo.InvariantCulture),
+            "addons", addOnsSegment.Length == 0 ? "none" : addOnsSegment);
+    }
 
     /// <summary>A customer's active session projection.</summary>
     public static string CustomerSession(Guid customerId) =>
