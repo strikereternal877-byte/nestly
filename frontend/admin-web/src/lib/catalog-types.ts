@@ -121,6 +121,25 @@ export interface ServiceMediaCreateRequest {
   url: string;
 }
 
+// ---- Catalog health (docs/OPEN-FIXES-FEATURES.csv "Admin Web, Proposed new page, Catalog health") ----
+
+/** Reason codes CatalogHealthIssueResponse.reasons can contain — stable strings matched against CATALOG_HEALTH_REASON_LABELS to render badges. */
+export type CatalogHealthReason = "NoPrice" | "NoImage" | "NoMapping" | "NeverBooked";
+
+/**
+ * An active service failing at least one pre-publish completeness check.
+ * Warning/audit only — never a block on creating or activating a service.
+ * Only services with at least one failing check are returned by the backend.
+ */
+export interface CatalogHealthIssueResponse {
+  serviceId: string;
+  serviceName: string;
+  serviceSlug: string;
+  categoryId: string;
+  categoryName: string;
+  reasons: CatalogHealthReason[];
+}
+
 // ---- Service variants (SRS 12.6 extension, Phase 3 catalog redesign) ----
 
 export interface ServiceVariantAdminResponse {

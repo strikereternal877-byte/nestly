@@ -7,6 +7,7 @@
  */
 import { API_V1, apiFetch } from "./api";
 import type {
+  CatalogHealthIssueResponse,
   CategoryCreateRequest,
   CategoryGroupAdminResponse,
   CategoryGroupCreateRequest,
@@ -131,6 +132,12 @@ export const removeServiceMedia = (serviceId: string, mediaId: string) =>
     method: "DELETE",
     authenticated: true,
   });
+
+// ---- Catalog health (docs/OPEN-FIXES-FEATURES.csv "Admin Web, Proposed new page, Catalog health") ----
+
+/** Active services missing a price, an image, a serviceability mapping, or that have never been booked — warning/audit only, not a block. */
+export const listCatalogHealthIssues = () =>
+  apiFetch<CatalogHealthIssueResponse[]>(`${SERVICES_BASE}/health`, { authenticated: true });
 
 // ---- Service variants (Phase 3 catalog redesign) ----
 
