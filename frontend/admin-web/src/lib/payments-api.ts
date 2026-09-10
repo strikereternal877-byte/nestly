@@ -1,12 +1,18 @@
 /**
  * Typed client for the Admin API's payment transaction view (SRS 12.13.1,
- * task 311): `PaymentsController`. Read-only - gated server-side behind the
- * "payments" permission module.
+ * task 311) and payment reconciliation queue (docs/OPEN-FIXES-FEATURES.csv
+ * "Payment reconciliation"): `PaymentsController`. Read-only except for
+ * `voidPaymentTransaction` - gated server-side behind the "payments"
+ * permission module ("payments.read" for every GET, "payments.write" for
+ * the void action).
  */
 import { API_V1, apiFetch } from "./api";
 import type {
+  AdminPaymentReconciliationResponse,
   AdminPaymentTransactionDetail,
+  AdminPaymentTransactionListItem,
   AdminPaymentTransactionSearchParams,
+  AdminVoidPaymentTransactionRequest,
   PagedAdminPaymentTransactionResponse,
 } from "./payments-types";
 
@@ -26,3 +32,15 @@ export const searchPaymentTransactions = (params: AdminPaymentTransactionSearchP
 
 export const getPaymentTransactionDetail = (transactionId: string) =>
   apiFetch<AdminPaymentTransactionDetail>(`${PAYMENTS_BASE}/${transactionId}`, { authenticated: true });
+
+export const getPaymentReconciliation = (page: number, pageSize: number) =>
+  apiFetch<AdminPaymentReconciliationResponse>(`${PAYMENTS_BASE}/reconciliation${query({ page, pageSize })}`, {
+    authenticated: true,
+  });
+
+export const voidPaymentTransaction = (transactionId: string, request: AdminVoidPaymentTransactionRequest) =>
+  apiFetch<AdminPaymentTransactionListItem>(`${PAYMENTS_BASE}/${transactionId}/void`, {
+    method: "POST",
+    authenticated: true,
+    body: JSON.stringify(request),
+  });

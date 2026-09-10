@@ -9,6 +9,7 @@
  * than re-declaring (they already mirror the same backend enums this
  * surface reads).
  */
+import type { BookingStatus } from "./types";
 import { PaymentTransactionStatus, RefundMethod, RefundStatus, RefundType } from "./bookings-types";
 
 export { PaymentTransactionStatus, RefundMethod, RefundStatus, RefundType };
@@ -90,4 +91,50 @@ export interface AdminPaymentTransactionDetail {
   commissionAmount: number | null;
   createdAtUtc: string;
   updatedAtUtc: string;
+}
+
+// ---- Reconciliation (docs/OPEN-FIXES-FEATURES.csv "Payment reconciliation") ----
+
+/** Mirrors Nestly.Application.Payments.PaymentReconciliationCategory's declaration order exactly. */
+export enum PaymentReconciliationCategory {
+  StuckPending = 0,
+  Failed = 1,
+  Orphaned = 2,
+}
+
+/**
+ * One row of the `GET /admin/payments/reconciliation` queue: a booking
+ * Awaiting Payment/Payment Failed joined against its transaction, if any -
+ * `PaymentsController.GetReconciliation`. `paymentTransactionId`/
+ * `transactionStatus` are null only for the "no transaction at all" flavour
+ * of `Orphaned` (an abandoned checkout that never reached "create order").
+ */
+export interface AdminPaymentReconciliationItem {
+  category: PaymentReconciliationCategory;
+  bookingId: string;
+  bookingReference: string;
+  customerName: string;
+  bookingStatus: BookingStatus;
+  bookingStatusLabel: string;
+  paymentTransactionId: string | null;
+  transactionStatus: PaymentTransactionStatus | null;
+  amount: number;
+  currency: string;
+  openSinceUtc: string;
+  ageMinutes: number;
+}
+
+export interface AdminPaymentReconciliationResponse {
+  items: AdminPaymentReconciliationItem[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+  stuckPendingCount: number;
+  failedCount: number;
+  orphanedCount: number;
+}
+
+/** Body of the void action - an optional admin-supplied reason. */
+export interface AdminVoidPaymentTransactionRequest {
+  reason?: string;
 }
