@@ -68,3 +68,13 @@ public class AdminRefundRequestValidator : AbstractValidator<AdminRefundRequest>
             .WithMessage("A positive amount is required for a partial refund.");
     }
 }
+
+/// <summary>A reference is always required so a manual payment can be reconciled later (row 25, docs/OPEN-FIXES-FEATURES.csv).</summary>
+public class AdminManualPaymentRequestValidator : AbstractValidator<AdminManualPaymentRequest>
+{
+    public AdminManualPaymentRequestValidator()
+    {
+        RuleFor(x => x.Method).IsInEnum();
+        RuleFor(x => x.Reference).NotEmpty().MaximumLength(200);
+    }
+}

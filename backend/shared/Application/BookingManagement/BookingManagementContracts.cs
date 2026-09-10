@@ -151,3 +151,11 @@ public sealed record AdminRescheduleBookingRequest(Guid LocalityId, Guid SlotWin
 /// doc comment for why this does not split into two permission tiers.
 /// </summary>
 public sealed record AdminRefundRequest(bool IsFullRefund, decimal? Amount, string Reason, RefundMethod Method);
+
+/// <summary>
+/// Admin manual/offline payment request (row 25, docs/OPEN-FIXES-FEATURES.csv) -
+/// the only money-in action alongside the gateway/sandbox flow. Gated behind
+/// "bookings.write", the same tier <see cref="AdminRefundRequest"/> uses, for
+/// the same reason (see <c>BookingsController</c>'s doc comment).
+/// </summary>
+public sealed record AdminManualPaymentRequest(ManualPaymentMethod Method, string Reference);

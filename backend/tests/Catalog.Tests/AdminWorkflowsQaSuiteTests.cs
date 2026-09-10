@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using FluentAssertions;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -252,6 +253,10 @@ public sealed class AdminWorkflowsQaSuiteTests : IClassFixture<TestDatabase>
             new BookingRepository(context), new PaymentTransactionRepository(context), new RefundTransactionRepository(context),
             new WalletService(new WalletLedgerRepository(context), context), new EscrowService(new PlatformEscrowLedgerRepository(context)),
             BuildGateway(), context),
+        new PaymentWebhookService(
+            new PaymentTransactionRepository(context), new BookingRepository(context), new ServiceRepository(context), BuildGateway(),
+            new CommissionService(Options.Create(new CommissionOptions())), new EscrowService(new PlatformEscrowLedgerRepository(context)),
+            context, new NoOpMetricsService(), NullLogger<PaymentWebhookService>.Instance),
         new AuditLogWriter(context, new StubAuditContextProvider(AuditActorType.AdminUser, Guid.NewGuid())),
         context,
         new BookingCompletionProofRepository(context));

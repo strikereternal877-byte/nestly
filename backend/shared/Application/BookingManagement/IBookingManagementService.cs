@@ -31,4 +31,11 @@ public interface IBookingManagementService
 
     /// <summary>Full or partial refund (SRS 12.11.3, 12.13.2-3, task 117c) via <c>IRefundService</c>.</summary>
     Task<Result<AdminBookingDetailResponse>> RefundAsync(Guid bookingId, Guid adminUserId, AdminRefundRequest request);
+
+    /// <summary>
+    /// Records a manual/offline payment (row 25, docs/OPEN-FIXES-FEATURES.csv)
+    /// via <c>IPaymentWebhookService.RecordManualPaymentAsync</c>, which
+    /// applies the same success transition a gateway payment does.
+    /// </summary>
+    Task<Result<AdminBookingDetailResponse>> RecordManualPaymentAsync(Guid bookingId, Guid adminUserId, AdminManualPaymentRequest request);
 }

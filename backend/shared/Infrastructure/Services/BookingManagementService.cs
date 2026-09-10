@@ -84,6 +84,7 @@ public class BookingManagementService : IBookingManagementService
     private readonly ICancellationService _cancellationService;
     private readonly IRescheduleService _rescheduleService;
     private readonly IRefundService _refundService;
+    private readonly IPaymentWebhookService _paymentWebhookService;
     private readonly IAuditLogWriter _auditLogWriter;
     private readonly NestlyDbContext _dbContext;
     private readonly IBookingCompletionProofRepository _completionProofRepository;
@@ -97,6 +98,7 @@ public class BookingManagementService : IBookingManagementService
         ICancellationService cancellationService,
         IRescheduleService rescheduleService,
         IRefundService refundService,
+        IPaymentWebhookService paymentWebhookService,
         IAuditLogWriter auditLogWriter,
         NestlyDbContext dbContext,
         IBookingCompletionProofRepository completionProofRepository)
@@ -109,6 +111,7 @@ public class BookingManagementService : IBookingManagementService
         _cancellationService = cancellationService;
         _rescheduleService = rescheduleService;
         _refundService = refundService;
+        _paymentWebhookService = paymentWebhookService;
         _auditLogWriter = auditLogWriter;
         _dbContext = dbContext;
         _completionProofRepository = completionProofRepository;
@@ -280,6 +283,35 @@ public class BookingManagementService : IBookingManagementService
                     .Select(s => new { s.Id, s.FundingSource, s.Method, s.Amount })
                     .ToList(),
                 Reason = request.Reason
+            })));
+        await _dbContext.SaveChangesAsync();
+
+        var booking = await _bookingRepository.GetByIdAsync(bookingId);
+        return booking is null
+            ? Error.NotFound("Booking.NotFound", "The specified booking does not exist.")
+            : await BuildDetailAsync(booking);
+    }
+
+    public async Task<Result<AdminBookingDetailResponse>> RecordManualPaymentAsync(Guid bookingId, Guid adminUserId, AdminManualPaymentRequest request)
+    {
+        var manualPaymentResult = await _paymentWebhookService.RecordManualPaymentAsync(bookingId, request.Method, request.Reference);
+        if (manualPaymentResult.IsFailure)
+        {
+            return manualPaymentResult.Error;
+        }
+
+        // Same audited-after-the-domain-service-commits pattern every other
+        // action in this class follows (see this class's own doc comment) -
+        // RecordManualPaymentAsync already committed its own DB transaction.
+        await _auditLogWriter.WriteAsync(new AuditEntry(
+            "Booking", bookingId.ToString(), "AdminManualPayment",
+            null,
+            JsonSerializer.Serialize(new
+            {
+                manualPaymentResult.Value.Id,
+                Amount = manualPaymentResult.Value.Amount,
+                request.Method,
+                request.Reference
             })));
         await _dbContext.SaveChangesAsync();
 

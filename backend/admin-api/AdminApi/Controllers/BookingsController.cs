@@ -51,6 +51,7 @@ public class BookingsController : ControllerBase
     private readonly IValidator<AdminCancelBookingRequest> _cancelValidator;
     private readonly IValidator<AdminRescheduleBookingRequest> _rescheduleValidator;
     private readonly IValidator<AdminRefundRequest> _refundValidator;
+    private readonly IValidator<AdminManualPaymentRequest> _manualPaymentValidator;
     private readonly IValidator<AssignProviderRequest> _assignProviderValidator;
     private readonly IValidator<RejectAssignmentRequest> _rejectAssignmentValidator;
 
@@ -65,6 +66,7 @@ public class BookingsController : ControllerBase
         IValidator<AdminCancelBookingRequest> cancelValidator,
         IValidator<AdminRescheduleBookingRequest> rescheduleValidator,
         IValidator<AdminRefundRequest> refundValidator,
+        IValidator<AdminManualPaymentRequest> manualPaymentValidator,
         IValidator<AssignProviderRequest> assignProviderValidator,
         IValidator<RejectAssignmentRequest> rejectAssignmentValidator)
     {
@@ -78,6 +80,7 @@ public class BookingsController : ControllerBase
         _cancelValidator = cancelValidator;
         _rescheduleValidator = rescheduleValidator;
         _refundValidator = refundValidator;
+        _manualPaymentValidator = manualPaymentValidator;
         _assignProviderValidator = assignProviderValidator;
         _rejectAssignmentValidator = rejectAssignmentValidator;
     }
@@ -202,6 +205,26 @@ public class BookingsController : ControllerBase
         }
 
         var result = await _bookingManagementService.RefundAsync(bookingId, CurrentAdminUserId(), request);
+        return result.IsSuccess ? Ok(result.Value) : result.ToProblemResult();
+    }
+
+    /// <summary>Records a manual/offline payment (cash, UPI, bank transfer) against a booking Awaiting Payment (row 25, docs/OPEN-FIXES-FEATURES.csv) - transitions the booking exactly like a successful gateway payment via <see cref="Nestly.Application.Payments.IPaymentWebhookService.RecordManualPaymentAsync"/>.</summary>
+    [HttpPost("{bookingId:guid}/manual-payment")]
+    [Authorize(Policy = WritePolicy)]
+    [ProducesResponseType(typeof(AdminBookingDetailResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status422UnprocessableEntity)]
+    public async Task<IActionResult> RecordManualPayment(Guid bookingId, [FromBody] AdminManualPaymentRequest request)
+    {
+        var validation = await _manualPaymentValidator.ValidateAsync(request);
+        if (!validation.IsValid)
+        {
+            return ValidationProblem(ToModelState(validation));
+        }
+
+        var result = await _bookingManagementService.RecordManualPaymentAsync(bookingId, CurrentAdminUserId(), request);
         return result.IsSuccess ? Ok(result.Value) : result.ToProblemResult();
     }
 

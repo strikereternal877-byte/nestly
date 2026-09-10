@@ -1,4 +1,5 @@
 using Nestly.BuildingBlocks.Results;
+using Nestly.Domain;
 
 namespace Nestly.Application.Payments;
 
@@ -12,4 +13,11 @@ namespace Nestly.Application.Payments;
 public interface IPaymentWebhookService
 {
     Task<Result> HandleCallbackAsync(PaymentWebhookRequest request);
+
+    /// <summary>
+    /// Admin-recorded manual/offline payment (row 25, docs/OPEN-FIXES-FEATURES.csv) -
+    /// transitions the booking exactly like a successful gateway payment
+    /// (see the implementation's doc comment).
+    /// </summary>
+    Task<Result<PaymentTransaction>> RecordManualPaymentAsync(Guid bookingId, ManualPaymentMethod method, string reference);
 }

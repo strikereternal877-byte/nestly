@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Nestly.Application;
 using Nestly.Application.Abstractions.Auditing;
@@ -234,6 +235,11 @@ public sealed class AdminAuditTrailQaSuiteTests : IClassFixture<TestDatabase>
             new BookingRepository(context), new PaymentTransactionRepository(context), new RefundTransactionRepository(context),
             new WalletService(new WalletLedgerRepository(context), context), new EscrowService(new PlatformEscrowLedgerRepository(context)),
             new SandboxPaymentGateway(Options.Create(new SandboxGatewayOptions { WebhookSigningSecret = "unit-test-signing-secret-value" })), context),
+        new PaymentWebhookService(
+            new PaymentTransactionRepository(context), new BookingRepository(context), new ServiceRepository(context),
+            new SandboxPaymentGateway(Options.Create(new SandboxGatewayOptions { WebhookSigningSecret = "unit-test-signing-secret-value" })),
+            new CommissionService(Options.Create(new CommissionOptions())), new EscrowService(new PlatformEscrowLedgerRepository(context)),
+            context, new NoOpMetricsService(), NullLogger<PaymentWebhookService>.Instance),
         new AuditLogWriter(context, new StubAuditContextProvider(actorId)),
         context,
         new BookingCompletionProofRepository(context));

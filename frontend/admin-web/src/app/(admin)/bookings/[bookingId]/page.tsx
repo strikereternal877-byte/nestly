@@ -36,12 +36,14 @@ import {
   getBookingCompletionProof,
   getBookingDetail,
   getBookingTracking,
+  recordManualPayment,
   refundBooking,
   rescheduleBooking,
   updateBookingStatus,
 } from "@/lib/bookings-api";
 import {
   CancellationActor,
+  ManualPaymentMethod,
   RefundMethod,
   RefundStatus,
   RescheduleActor,
@@ -191,6 +193,10 @@ export default function BookingDetailPage() {
   const [refundMethod, setRefundMethod] = useState(String(RefundMethod.Gateway));
   const [confirmRefund, setConfirmRefund] = useState(false);
 
+  const [manualPaymentMethod, setManualPaymentMethod] = useState(String(ManualPaymentMethod.Cash));
+  const [manualPaymentReference, setManualPaymentReference] = useState("");
+  const [confirmManualPayment, setConfirmManualPayment] = useState(false);
+
   const [assignProviderId, setAssignProviderId] = useState("");
   const [rejectReason, setRejectReason] = useState("");
   const [confirmReject, setConfirmReject] = useState(false);
@@ -261,6 +267,24 @@ export default function BookingDetailPage() {
       setRefundAmount("");
       setRefundReason("");
       setConfirmRefund(false);
+      invalidateDetail();
+    },
+    onError: (err) => setActionError(describeError(err)),
+  });
+
+  // Row 25, docs/OPEN-FIXES-FEATURES.csv - transitions the booking to
+  // Confirmed exactly like a successful gateway payment (server-side).
+  const manualPaymentMutation = useMutation({
+    mutationFn: () =>
+      recordManualPayment(bookingId, {
+        method: Number(manualPaymentMethod) as ManualPaymentMethod,
+        reference: manualPaymentReference,
+      }),
+    onSuccess: () => {
+      setActionError(null);
+      setActionNotice("Manual payment recorded; booking confirmed.");
+      setManualPaymentReference("");
+      setConfirmManualPayment(false);
       invalidateDetail();
     },
     onError: (err) => setActionError(describeError(err)),
@@ -337,6 +361,12 @@ export default function BookingDetailPage() {
     BookingStatus.InProgress,
     BookingStatus.Rescheduled,
   ].includes(booking.status);
+
+  // Row 25, docs/OPEN-FIXES-FEATURES.csv - mirrors the server-side gate in
+  // PaymentWebhookService.RecordManualPaymentAsync (the same one the
+  // gateway order-creation path already uses).
+  const isManuallyPayable =
+    booking.status === BookingStatus.PaymentPending || booking.status === BookingStatus.PaymentFailed;
 
   // The one assignment row still "live" for this booking, if any (every
   // other row is a settled Rejected/Reassigned/Withdrawn/Completed). Backend
@@ -773,6 +803,44 @@ export default function BookingDetailPage() {
             </div>
           </Card>
 
+          {isManuallyPayable ? (
+            <Card
+              title="Record manual payment"
+              description="Record a cash, UPI or bank-transfer payment taken outside the gateway (row 25, docs/OPEN-FIXES-FEATURES.csv). Confirms the booking exactly like a successful online payment."
+            >
+              <div className="flex flex-col gap-4">
+                <FormGrid>
+                  <Select
+                    label="Method"
+                    options={[
+                      { value: String(ManualPaymentMethod.Cash), label: "Cash" },
+                      { value: String(ManualPaymentMethod.Upi), label: "UPI" },
+                      { value: String(ManualPaymentMethod.BankTransfer), label: "Bank transfer" },
+                      { value: String(ManualPaymentMethod.Other), label: "Other" },
+                    ]}
+                    value={manualPaymentMethod}
+                    onChange={(e) => setManualPaymentMethod(e.target.value)}
+                  />
+                  <Field
+                    label="Reference"
+                    required
+                    placeholder="Receipt number, UTR, transaction ID..."
+                    value={manualPaymentReference}
+                    onChange={(e) => setManualPaymentReference(e.target.value)}
+                  />
+                </FormGrid>
+                <FormActions align="start">
+                  <Button
+                    disabled={!manualPaymentReference.trim()}
+                    onClick={() => setConfirmManualPayment(true)}
+                  >
+                    Record payment
+                  </Button>
+                </FormActions>
+              </div>
+            </Card>
+          ) : null}
+
           <Card title="Refund" description="Full or partial refund with audit (SRS 12.11.3, 12.13.2-3, task 117c)">
             <div className="flex flex-col gap-4">
               <fieldset className="flex flex-wrap gap-4 text-sm text-fg">
@@ -848,6 +916,21 @@ export default function BookingDetailPage() {
       >
         <p className="text-sm text-fg-muted">
           Reason: <span className="font-medium text-fg">{cancelReason}</span>
+        </p>
+      </ConfirmDialog>
+
+      <ConfirmDialog
+        open={confirmManualPayment}
+        title="Record this manual payment?"
+        description="This confirms the booking immediately, the same way a successful online payment does."
+        confirmLabel="Record payment"
+        loading={manualPaymentMutation.isPending}
+        error={manualPaymentMutation.isError ? describeError(manualPaymentMutation.error) : null}
+        onCancel={() => setConfirmManualPayment(false)}
+        onConfirm={() => manualPaymentMutation.mutate()}
+      >
+        <p className="text-sm text-fg-muted">
+          Reference: <span className="font-medium text-fg">{manualPaymentReference}</span>
         </p>
       </ConfirmDialog>
 

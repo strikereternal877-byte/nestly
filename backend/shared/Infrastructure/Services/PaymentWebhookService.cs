@@ -146,28 +146,7 @@ public class PaymentWebhookService : IPaymentWebhookService
             if (succeeded)
             {
                 transaction.MarkAttemptSucceeded(attempt.Id, request.GatewayPaymentRef);
-                booking.TransitionTo(BookingStatus.Confirmed, "Payment succeeded.");
-
-                // Task 157: compute and record the platform's commission for
-                // this settlement, resolving a per-category override when
-                // the booking's (single, today) service has one configured.
-                Guid? categoryId = null;
-                var firstItem = booking.Items.FirstOrDefault();
-                if (firstItem is not null)
-                {
-                    var service = await _serviceRepository.GetByIdAsync(firstItem.ServiceId);
-                    categoryId = service?.CategoryId;
-                }
-
-                var commission = _commissionService.Calculate(transaction.Amount, categoryId);
-                transaction.RecordCommission(commission.RatePercentage, commission.CommissionAmount);
-
-                await _paymentRepository.UpdateAsync(transaction);
-                await _bookingRepository.UpdateAsync(booking);
-
-                // Task 158: hold the paid amount in the platform escrow
-                // ledger until the booking is completed or refunded.
-                await _escrowService.HoldAsync(booking.Id, transaction.Id, transaction.Amount);
+                await ApplySuccessfulPaymentAsync(transaction, booking, "Payment succeeded.");
             }
             else
             {
@@ -190,5 +169,113 @@ public class PaymentWebhookService : IPaymentWebhookService
         _metricsService.RecordPaymentOutcome(succeeded, stopwatch.Elapsed, succeeded ? null : request.Status);
 
         return Result.Success();
+    }
+
+    /// <summary>
+    /// Row 25 (docs/OPEN-FIXES-FEATURES.csv): lets an admin record a
+    /// manual/offline payment (cash, UPI, bank transfer) against a booking
+    /// still Awaiting Payment, and moves it forward exactly the same way a
+    /// successful gateway callback does - <see cref="ApplySuccessfulPaymentAsync"/>
+    /// is the same commission/escrow/Confirmed-transition code
+    /// <see cref="HandleCallbackAsync"/> runs on a real gateway success, so
+    /// this never re-derives that policy. There is no gateway order for a
+    /// manual payment, so a synthetic one is minted for the attempt row, and
+    /// the admin-supplied method/reference is folded into
+    /// <see cref="PaymentAttempt.GatewayPaymentRef"/> - the same field a real
+    /// gateway populates - rather than adding gateway-shaped columns for a
+    /// channel that has none.
+    /// </summary>
+    public async Task<Result<PaymentTransaction>> RecordManualPaymentAsync(Guid bookingId, ManualPaymentMethod method, string reference)
+    {
+        var booking = await _bookingRepository.GetByIdAsync(bookingId);
+        if (booking is null)
+        {
+            return Error.NotFound("Booking.NotFound", "The specified booking does not exist.");
+        }
+
+        // Same "payable right now" gate PaymentService.CreateOrderAsync uses
+        // for a gateway order - Awaiting Payment (PaymentPending) or a
+        // previously failed attempt (PaymentFailed) are the only states a
+        // payment, manual or gateway, can still be recorded against.
+        if (booking.Status is not (BookingStatus.PaymentPending or BookingStatus.PaymentFailed))
+        {
+            return Error.Business(
+                "Payment.BookingNotPayable",
+                $"Booking is in status '{booking.Status}' and cannot accept a payment right now.");
+        }
+
+        var transaction = await _paymentRepository.GetByBookingIdAsync(bookingId);
+        if (transaction?.Status == PaymentTransactionStatus.Success)
+        {
+            return Error.Conflict("Payment.AlreadyPaid", "This booking has already been paid for.");
+        }
+
+        string manualGatewayOrderId = $"manual-{Guid.NewGuid():N}";
+        string gatewayPaymentRef = $"manual:{method}:{reference}";
+
+        await using var dbTransaction = await _context.Database.BeginTransactionAsync();
+        try
+        {
+            PaymentAttempt attempt;
+            if (transaction is null)
+            {
+                transaction = new PaymentTransaction(
+                    Guid.NewGuid(), booking.Id, booking.CustomerId, booking.TotalPayableSnapshot, "INR", Guid.NewGuid().ToString("N"));
+                attempt = transaction.StartAttempt(Guid.NewGuid(), manualGatewayOrderId);
+                if (!await _paymentRepository.TryAddAsync(transaction))
+                {
+                    await dbTransaction.RollbackAsync();
+                    return Error.Infrastructure(
+                        "Payment.OrderCreationRaceUnresolved", "Could not create a payment record for this booking. Please retry.");
+                }
+            }
+            else
+            {
+                attempt = transaction.StartAttempt(Guid.NewGuid(), manualGatewayOrderId);
+            }
+
+            transaction.MarkAttemptSucceeded(attempt.Id, gatewayPaymentRef);
+            await ApplySuccessfulPaymentAsync(transaction, booking, "Manual payment recorded by admin.");
+
+            await dbTransaction.CommitAsync();
+        }
+        catch
+        {
+            await dbTransaction.RollbackAsync();
+            throw;
+        }
+
+        return Result.Success(transaction);
+    }
+
+    /// <summary>
+    /// The part of a successful payment that is identical whether the money
+    /// arrived via a gateway callback (<see cref="HandleCallbackAsync"/>) or
+    /// a manual admin entry (<see cref="RecordManualPaymentAsync"/>): commit
+    /// commission (task 157), move the booking to Confirmed via the one
+    /// state-machine entry point (<see cref="Booking.TransitionTo"/>), and
+    /// hold the amount in escrow (task 158). Caller is responsible for
+    /// having already called <see cref="PaymentTransaction.MarkAttemptSucceeded"/>
+    /// and for the surrounding DB transaction.
+    /// </summary>
+    private async Task ApplySuccessfulPaymentAsync(PaymentTransaction transaction, Booking booking, string transitionReason)
+    {
+        booking.TransitionTo(BookingStatus.Confirmed, transitionReason);
+
+        Guid? categoryId = null;
+        var firstItem = booking.Items.FirstOrDefault();
+        if (firstItem is not null)
+        {
+            var service = await _serviceRepository.GetByIdAsync(firstItem.ServiceId);
+            categoryId = service?.CategoryId;
+        }
+
+        var commission = _commissionService.Calculate(transaction.Amount, categoryId);
+        transaction.RecordCommission(commission.RatePercentage, commission.CommissionAmount);
+
+        await _paymentRepository.UpdateAsync(transaction);
+        await _bookingRepository.UpdateAsync(booking);
+
+        await _escrowService.HoldAsync(booking.Id, transaction.Id, transaction.Amount);
     }
 }
