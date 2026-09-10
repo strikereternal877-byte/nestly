@@ -42,6 +42,14 @@ export enum RefundType {
   Partial = 1,
 }
 
+/** Mirrors Nestly.Domain.ManualPaymentMethod's declaration order exactly. */
+export enum ManualPaymentMethod {
+  Cash = 0,
+  Upi = 1,
+  BankTransfer = 2,
+  Other = 3,
+}
+
 /** Mirrors Nestly.Domain.PaymentTransactionStatus's declaration order exactly. */
 export enum PaymentTransactionStatus {
   Pending = 0,
@@ -257,6 +265,58 @@ export interface AdminRefundRequest {
   amount?: number;
   reason: string;
   method: RefundMethod;
+}
+
+/** Row 25, docs/OPEN-FIXES-FEATURES.csv - mirrors Nestly.Application.BookingManagement.AdminManualPaymentRequest. */
+export interface AdminManualPaymentRequest {
+  method: ManualPaymentMethod;
+  reference: string;
+}
+
+// ---- Reschedule pickers (row 26, docs/OPEN-FIXES-FEATURES.csv) ----
+// Mirrors the shapes customer-web's LocalitySelector/SlotPicker already
+// consume (Nestly.Application.Geography/Slots), served here via
+// BookingsController's reschedule-cities/reschedule-localities/reschedule-slots
+// actions so the admin reschedule panel needs no hand-typed UUIDs.
+
+export interface RescheduleCity {
+  id: string;
+  name: string;
+  stateName: string;
+}
+
+export interface RescheduleLocality {
+  id: string;
+  name: string;
+  zoneName: string;
+  pincodeCode: string;
+  pincodeId: string;
+}
+
+/** Mirrors Nestly.Application.Slots.SlotUnavailabilityReason's declaration order exactly. */
+export enum SlotUnavailabilityReason {
+  None = 0,
+  NotServiceable = 1,
+  DateOutOfBookableRange = 2,
+  Blackout = 3,
+  NoWindowsConfigured = 4,
+  CutoffPassed = 5,
+  FullyBooked = 6,
+}
+
+export interface RescheduleSlotOption {
+  slotWindowId: string;
+  name: string;
+  /** .NET TimeSpan serialises as "hh:mm:ss". */
+  startTime: string;
+  endTime: string;
+  maxBookingsPerSlot: number | null;
+}
+
+export interface RescheduleSlotAvailability {
+  isServiceable: boolean;
+  slots: RescheduleSlotOption[];
+  reason: SlotUnavailabilityReason;
 }
 
 /**

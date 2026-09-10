@@ -6,10 +6,14 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Nestly.Application.BookingManagement;
 using Nestly.Application.Bookings;
+using Nestly.Application.Geography;
 using Nestly.Application.ProviderManagement;
+using Nestly.Application.Slots;
 using Nestly.Application.Tracking;
 using Nestly.BuildingBlocks.Extensions;
 using Nestly.Domain;
+using ResultOutcome = Nestly.BuildingBlocks.Results.Result;
+using ErrorOutcome = Nestly.BuildingBlocks.Results.Error;
 using Nestly.Infrastructure;
 
 namespace Nestly.AdminApi.Controllers;
@@ -46,6 +50,8 @@ public class BookingsController : ControllerBase
     private readonly IBookingCompletionProofRepository _completionProofRepository;
     private readonly IBookingRepository _bookingRepository;
     private readonly IBookingTrackingQueryService _trackingQueryService;
+    private readonly IGeographyQueryService _geographyQueryService;
+    private readonly ISlotAvailabilityService _slotAvailabilityService;
     private readonly IValidator<AdminBookingSearchRequest> _searchValidator;
     private readonly IValidator<AdminBookingStatusUpdateRequest> _statusUpdateValidator;
     private readonly IValidator<AdminCancelBookingRequest> _cancelValidator;
@@ -61,6 +67,8 @@ public class BookingsController : ControllerBase
         IBookingCompletionProofRepository completionProofRepository,
         IBookingRepository bookingRepository,
         IBookingTrackingQueryService trackingQueryService,
+        IGeographyQueryService geographyQueryService,
+        ISlotAvailabilityService slotAvailabilityService,
         IValidator<AdminBookingSearchRequest> searchValidator,
         IValidator<AdminBookingStatusUpdateRequest> statusUpdateValidator,
         IValidator<AdminCancelBookingRequest> cancelValidator,
@@ -75,6 +83,8 @@ public class BookingsController : ControllerBase
         _completionProofRepository = completionProofRepository;
         _bookingRepository = bookingRepository;
         _trackingQueryService = trackingQueryService;
+        _geographyQueryService = geographyQueryService;
+        _slotAvailabilityService = slotAvailabilityService;
         _searchValidator = searchValidator;
         _statusUpdateValidator = statusUpdateValidator;
         _cancelValidator = cancelValidator;
@@ -167,6 +177,64 @@ public class BookingsController : ControllerBase
         }
 
         var result = await _bookingManagementService.CancelAsync(bookingId, CurrentAdminUserId(), request);
+        return result.IsSuccess ? Ok(result.Value) : result.ToProblemResult();
+    }
+
+    /// <summary>
+    /// Active cities for the reschedule panel's locality picker (row 26,
+    /// docs/OPEN-FIXES-FEATURES.csv) - the same <see cref="IGeographyQueryService"/>
+    /// the customer booking flow's city selector uses, so this never
+    /// re-derives its own city list.
+    /// </summary>
+    [HttpGet("reschedule-cities")]
+    [Authorize(Policy = ReadPolicy)]
+    [ProducesResponseType(typeof(IReadOnlyList<CityResponse>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetRescheduleCities() => Ok(await _geographyQueryService.ListActiveCitiesAsync());
+
+    /// <summary>
+    /// Localities matching a name/pincode search within a city (row 26,
+    /// docs/OPEN-FIXES-FEATURES.csv) - resolves the <see cref="AdminRescheduleBookingRequest.LocalityId"/>
+    /// the reschedule action needs, via the same <see cref="IGeographyQueryService"/>
+    /// the customer booking flow's <c>LocalitySelector</c> calls, instead of
+    /// asking the admin to paste a raw UUID.
+    /// </summary>
+    [HttpGet("reschedule-localities")]
+    [Authorize(Policy = ReadPolicy)]
+    [ProducesResponseType(typeof(IReadOnlyList<LocalityResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetRescheduleLocalities([FromQuery] Guid cityId, [FromQuery] string? search)
+    {
+        var result = await _geographyQueryService.SearchLocalitiesAsync(cityId, search);
+        return result.IsSuccess ? Ok(result.Value) : result.ToProblemResult();
+    }
+
+    /// <summary>
+    /// Available slot windows for this booking's service, at a candidate
+    /// locality, on a candidate date (row 26, docs/OPEN-FIXES-FEATURES.csv) -
+    /// resolves the <see cref="AdminRescheduleBookingRequest.SlotWindowId"/>
+    /// the reschedule action needs, via the same <see cref="ISlotAvailabilityService"/>
+    /// the customer booking flow's <c>SlotPicker</c> calls, instead of asking
+    /// the admin to paste a raw UUID.
+    /// </summary>
+    [HttpGet("{bookingId:guid}/reschedule-slots")]
+    [Authorize(Policy = ReadPolicy)]
+    [ProducesResponseType(typeof(SlotAvailabilityResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetRescheduleSlots(Guid bookingId, [FromQuery] Guid localityId, [FromQuery] DateOnly date)
+    {
+        var booking = await _bookingRepository.GetByIdAsync(bookingId);
+        if (booking is null)
+        {
+            return ResultOutcome.Failure(ErrorOutcome.NotFound("Booking.NotFound", "The specified booking does not exist.")).ToProblemResult();
+        }
+
+        var serviceId = booking.Items.FirstOrDefault()?.ServiceId;
+        if (serviceId is null)
+        {
+            return ResultOutcome.Failure(ErrorOutcome.NotFound("Booking.NoServiceItem", "This booking has no service line item to check availability for.")).ToProblemResult();
+        }
+
+        var result = await _slotAvailabilityService.GetAvailableSlotsAsync(serviceId.Value, localityId, date);
         return result.IsSuccess ? Ok(result.Value) : result.ToProblemResult();
     }
 

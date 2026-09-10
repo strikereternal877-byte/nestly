@@ -13,9 +13,13 @@ import type {
   AdminBookingStatusUpdateRequest,
   AdminBookingTrackingResponse,
   AdminCancelBookingRequest,
+  AdminManualPaymentRequest,
   AdminRefundRequest,
   AdminRescheduleBookingRequest,
   BookingCompletionProofResponse,
+  RescheduleCity,
+  RescheduleLocality,
+  RescheduleSlotAvailability,
 } from "./bookings-types";
 
 const BOOKINGS_BASE = `${API_V1}/bookings`;
@@ -64,6 +68,34 @@ export const refundBooking = (bookingId: string, request: AdminRefundRequest) =>
     authenticated: true,
     body: JSON.stringify(request),
   });
+
+/** Row 25, docs/OPEN-FIXES-FEATURES.csv - records a manual/offline payment and confirms the booking. */
+export const recordManualPayment = (bookingId: string, request: AdminManualPaymentRequest) =>
+  apiFetch<AdminBookingDetail>(`${BOOKINGS_BASE}/${bookingId}/manual-payment`, {
+    method: "POST",
+    authenticated: true,
+    body: JSON.stringify(request),
+  });
+
+// ---- Reschedule pickers (row 26, docs/OPEN-FIXES-FEATURES.csv) ----
+
+/** Active cities for the reschedule panel's locality picker. */
+export const getRescheduleCities = () =>
+  apiFetch<RescheduleCity[]>(`${BOOKINGS_BASE}/reschedule-cities`, { authenticated: true });
+
+/** Localities matching a name/pincode search within a city. */
+export const searchRescheduleLocalities = (cityId: string, search: string) =>
+  apiFetch<RescheduleLocality[]>(
+    `${BOOKINGS_BASE}/reschedule-localities${query({ cityId, search: search || undefined })}`,
+    { authenticated: true },
+  );
+
+/** Available slot windows for this booking's service, at a locality, on a date. */
+export const getRescheduleSlots = (bookingId: string, localityId: string, date: string) =>
+  apiFetch<RescheduleSlotAvailability>(
+    `${BOOKINGS_BASE}/${bookingId}/reschedule-slots${query({ localityId, date })}`,
+    { authenticated: true },
+  );
 
 /**
  * Completion proof (photos + checklist) for a booking, if any (tasks 195-198

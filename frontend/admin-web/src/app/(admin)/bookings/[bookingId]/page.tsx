@@ -27,6 +27,7 @@ import {
   formatDateTime,
 } from "@/components/data-table";
 import { BookingStatusBadge } from "@/components/status-badges";
+import { ReschedulePicker } from "@/components/ReschedulePicker";
 import { TrackingMap } from "@/components/TrackingMap";
 import { isBookingTrackable, useAdminBookingTrackingLive } from "@/hooks/useAdminBookingTrackingLive";
 import { ApiError, describeError } from "@/lib/api";
@@ -785,12 +786,16 @@ export default function BookingDetailPage() {
 
           <Card title="Reschedule booking" description="Admin-initiated reschedule (SRS 12.11.3, task 117b)">
             <div className="flex flex-col gap-4">
-              <FormGrid>
-                <Field label="Locality ID" required value={rescheduleLocalityId} onChange={(e) => setRescheduleLocalityId(e.target.value)} />
-                <Field label="Slot window ID" required value={rescheduleSlotWindowId} onChange={(e) => setRescheduleSlotWindowId(e.target.value)} />
-                <Field label="New slot date" type="date" required value={rescheduleSlotDate} onChange={(e) => setRescheduleSlotDate(e.target.value)} />
-                <Field label="Reason (optional)" value={rescheduleReason} onChange={(e) => setRescheduleReason(e.target.value)} />
-              </FormGrid>
+              <ReschedulePicker
+                bookingId={bookingId}
+                localityId={rescheduleLocalityId}
+                onLocalityChange={(id) => setRescheduleLocalityId(id)}
+                slotWindowId={rescheduleSlotWindowId}
+                onSlotChange={(id) => setRescheduleSlotWindowId(id)}
+                slotDate={rescheduleSlotDate}
+                onDateChange={(date) => setRescheduleSlotDate(date)}
+              />
+              <Field label="Reason (optional)" value={rescheduleReason} onChange={(e) => setRescheduleReason(e.target.value)} />
               <FormActions align="start">
                 <Button
                   disabled={!rescheduleLocalityId || !rescheduleSlotWindowId || !rescheduleSlotDate}
