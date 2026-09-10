@@ -161,6 +161,16 @@ public class PaymentTransactionRepository : IPaymentTransactionRepository
             .ToListAsync();
     }
 
+    public async Task<IReadOnlyList<PaymentTransaction>> ListByBookingIdsAsync(IReadOnlyCollection<Guid> bookingIds)
+    {
+        if (bookingIds.Count == 0)
+        {
+            return [];
+        }
+
+        return await FullyLoaded().Where(t => bookingIds.Contains(t.BookingId)).ToListAsync();
+    }
+
     private IQueryable<PaymentTransaction> FullyLoaded() =>
         _context.PaymentTransactions.Include(t => t.Attempts);
 }

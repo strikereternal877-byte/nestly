@@ -112,6 +112,37 @@ public class PaymentTransaction : AggregateRoot<Guid>
     }
 
     /// <summary>
+    /// Admin void of a stuck pending order (docs/OPEN-FIXES-FEATURES.csv
+    /// "Payment reconciliation"): marks OUR record only, no gateway call -
+    /// reuses <see cref="PaymentAttempt.MarkFailed"/>, the same
+    /// attempt-resolution machinery <see cref="MarkAttemptFailed"/> above
+    /// already uses for a gateway-reported failure, just with a
+    /// reconciliation-specific reason instead of a gateway one. The
+    /// transaction itself moves to <see cref="PaymentTransactionStatus.Cancelled"/>
+    /// rather than back to <see cref="PaymentTransactionStatus.Failed"/>, so
+    /// <c>PaymentService.CreateOrderAsync</c>'s existing
+    /// "Payment.TransactionCancelled" guard blocks any further retry against
+    /// it - a voided order is terminal, unlike an ordinary failed one. The
+    /// booking itself is untouched; reconciling it from here is a separate,
+    /// deliberate follow-up action (a manual payment record or an admin
+    /// cancellation), not something voiding should cascade into on its own.
+    /// </summary>
+    public void Void(string reason)
+    {
+        if (Status != PaymentTransactionStatus.Pending)
+        {
+            throw new InvalidOperationException("Only a pending payment transaction can be voided.");
+        }
+
+        var attempt = LatestAttempt
+            ?? throw new InvalidOperationException("A pending payment transaction always has a latest attempt.");
+
+        attempt.MarkFailed(reason);
+        Status = PaymentTransactionStatus.Cancelled;
+        UpdatedAtUtc = DateTime.UtcNow;
+    }
+
+    /// <summary>
     /// Records the platform's computed commission for this transaction's
     /// settlement (task 157). Only valid once, on a successfully paid
     /// transaction - there is exactly one settlement per booking-payment

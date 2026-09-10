@@ -66,7 +66,8 @@ public sealed class AdminPaymentQueryService : IAdminPaymentQueryService
             transaction.UpdatedAtUtc);
     }
 
-    private static AdminPaymentTransactionListItemResponse ToListItem(PaymentTransaction transaction)
+    /// <summary>Internal, not private: reused by <see cref="AdminPaymentReconciliationService.VoidAsync"/> so a voided transaction's response mirrors exactly what this list already returns for the same row, without a second copy of the mapping.</summary>
+    internal static AdminPaymentTransactionListItemResponse ToListItem(PaymentTransaction transaction)
     {
         var latestAttempt = transaction.LatestAttempt;
         return new AdminPaymentTransactionListItemResponse(

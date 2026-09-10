@@ -71,4 +71,18 @@ public interface IPaymentTransactionRepository
 
     /// <summary>Batched, attempts-free read of the commission snapshot for each of the given bookings (task 255 pattern) - see <see cref="PaymentCommissionSnapshot"/>. Bookings with no transaction are simply absent from the result.</summary>
     Task<IReadOnlyList<PaymentCommissionSnapshot>> ListCommissionSnapshotsByBookingIdsAsync(IReadOnlyCollection<Guid> bookingIds);
+
+    /// <summary>
+    /// Batched, fully-loaded read of the transaction (if any) for each of the
+    /// given bookings - the payment reconciliation view's other half
+    /// (docs/OPEN-FIXES-FEATURES.csv "Payment reconciliation"), paired with
+    /// <see cref="Nestly.Application.Bookings.IBookingRepository.ListAwaitingPaymentAsync"/>.
+    /// Unlike <see cref="ListCommissionSnapshotsByBookingIdsAsync"/> this
+    /// loads <see cref="PaymentTransaction.Attempts"/> - the caller needs
+    /// <see cref="PaymentTransaction.LatestAttempt"/> to tell how long a
+    /// pending order has been open. A booking id absent from the result has
+    /// no transaction row at all - an abandoned checkout that never even
+    /// reached "create order", the reconciliation view's "Orphaned" case.
+    /// </summary>
+    Task<IReadOnlyList<PaymentTransaction>> ListByBookingIdsAsync(IReadOnlyCollection<Guid> bookingIds);
 }

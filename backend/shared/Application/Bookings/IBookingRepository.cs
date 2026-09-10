@@ -153,4 +153,17 @@ public interface IBookingRepository
     /// order across pages) so the most at-risk booking surfaces first.
     /// </summary>
     Task<(IReadOnlyList<Booking> Rows, int TotalCount)> ListUnassignedAtRiskAsync(int page, int pageSize);
+
+    /// <summary>
+    /// Every booking currently <see cref="BookingStatus.PaymentPending"/> or
+    /// <see cref="BookingStatus.PaymentFailed"/> - "Awaiting Payment"/
+    /// "Payment Failed" in <see cref="BookingStatusMapper"/>'s customer-facing
+    /// labels, and the payment reconciliation view's candidate set
+    /// (docs/OPEN-FIXES-FEATURES.csv "Payment reconciliation"). Cross-
+    /// referenced there against <see cref="Nestly.Application.Payments.IPaymentTransactionRepository.ListByBookingIdsAsync"/>
+    /// to classify each one as stuck-pending, failed or orphaned - a small,
+    /// bounded operational list, same "not a candidate set that could ever
+    /// need database-level paging" reasoning as <see cref="ListUnassignedAtRiskAsync"/>.
+    /// </summary>
+    Task<IReadOnlyList<Booking>> ListAwaitingPaymentAsync();
 }

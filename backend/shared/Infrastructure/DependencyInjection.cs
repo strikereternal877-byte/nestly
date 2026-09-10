@@ -674,6 +674,11 @@ public static class DependencyInjection
         // below) because it depends on IPaymentTransactionRepository above and
         // that dependency is what it primarily reads.
         services.AddScoped<IAdminPaymentQueryService, AdminPaymentQueryService>();
+
+        // Payment reconciliation (docs/OPEN-FIXES-FEATURES.csv "Payment
+        // reconciliation") - a separate service from the read-only query one
+        // right above, since it owns the module's one write action (void).
+        services.AddScoped<IAdminPaymentReconciliationService, AdminPaymentReconciliationService>();
         services.AddScoped<ICouponRepository, CouponRepository>();
         services.AddScoped<ICouponRedemptionRepository, CouponRedemptionRepository>();
         services.AddScoped<ICouponService, CouponService>();

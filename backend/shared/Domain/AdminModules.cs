@@ -89,14 +89,17 @@ public static class AdminModules
 
     /// <summary>
     /// Customer payment transaction view - list + detail with attempt/refund
-    /// history (SRS 12.13.1, task 311). Deliberately read-only today: SRS
-    /// 12.13.1 itself only asks for a view, and the refund-initiation
-    /// actions SRS 12.13.2-3 describe are a separate, larger task no
-    /// controller implements yet (see <c>PaymentsController</c> in
-    /// admin-api). No existing module already covered this - <see cref="Payout"/>
-    /// is provider payout batches (money going out to providers), a
-    /// different concept from customer payment transactions (money coming in
-    /// from customers) - so this is a new module rather than a reuse.
+    /// history (SRS 12.13.1, task 311), plus the payment reconciliation
+    /// queue and its void action (docs/OPEN-FIXES-FEATURES.csv "Payment
+    /// reconciliation"). Read covers the list/detail/reconciliation views;
+    /// Write covers only voiding a stuck pending order - the refund-
+    /// initiation actions SRS 12.13.2-3 describe remain a separate, larger
+    /// task no controller implements yet, and stay off this module's Write
+    /// tier for that reason (see <c>PaymentsController</c> in admin-api). No
+    /// existing module already covered this - <see cref="Payout"/> is
+    /// provider payout batches (money going out to providers), a different
+    /// concept from customer payment transactions (money coming in from
+    /// customers) - so this is a new module rather than a reuse.
     /// </summary>
     public const string Payments = "payments";
 

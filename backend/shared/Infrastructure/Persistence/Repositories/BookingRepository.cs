@@ -354,6 +354,19 @@ public class BookingRepository : IBookingRepository
         return (rows, ordered.Count);
     }
 
+    private static readonly BookingStatus[] AwaitingPaymentStatuses =
+    [
+        BookingStatus.PaymentPending,
+        BookingStatus.PaymentFailed,
+    ];
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<Booking>> ListAwaitingPaymentAsync() =>
+        await _context.Bookings
+            .AsNoTracking()
+            .Where(b => AwaitingPaymentStatuses.Contains(b.Status))
+            .ToListAsync();
+
     /// <inheritdoc/>
     public async Task<IReadOnlyList<Guid>> ListServiceIdsEverBookedAsync() =>
         await _context.BookingItems
