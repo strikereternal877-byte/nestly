@@ -172,4 +172,7 @@ public class ServiceabilityMappingManagementService : IServiceabilityMappingMana
 
     public Task<IReadOnlyList<UnmappedActiveServiceResponse>> ListUnmappedActiveServicesAsync() =>
         _servicePincodeMappingRepository.ListUnmappedActiveServicesAsync();
+
+    public Task<IReadOnlyList<ServiceabilityCoverageGapResponse>> ListPincodesWithProviderCoverageButNoServiceMappingAsync() =>
+        _servicePincodeMappingRepository.ListPincodesWithProviderCoverageButNoServiceMappingAsync();
 }

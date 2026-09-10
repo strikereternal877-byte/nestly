@@ -24,4 +24,14 @@ public interface IServicePincodeMappingRepository : IRepository<ServicePincodeMa
     /// condition this warns about.
     /// </summary>
     Task<IReadOnlyList<UnmappedActiveServiceResponse>> ListUnmappedActiveServicesAsync();
+
+    /// <summary>
+    /// Every (service, pincode) pair where an active provider already has
+    /// matching skill + area coverage (see
+    /// <see cref="ServiceabilityCoverageGapResponse"/>'s doc comment) but no
+    /// active <see cref="ServicePincodeMapping"/> exists for that pair - so
+    /// the pincode looks unserviceable to a customer despite a qualified
+    /// provider already being onboarded there.
+    /// </summary>
+    Task<IReadOnlyList<ServiceabilityCoverageGapResponse>> ListPincodesWithProviderCoverageButNoServiceMappingAsync();
 }

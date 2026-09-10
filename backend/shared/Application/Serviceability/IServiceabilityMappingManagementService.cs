@@ -52,4 +52,15 @@ public interface IServiceabilityMappingManagementService
     /// catalog-then-serviceability setup flow.
     /// </summary>
     Task<IReadOnlyList<UnmappedActiveServiceResponse>> ListUnmappedActiveServicesAsync();
+
+    /// <summary>
+    /// docs/OPEN-FIXES-FEATURES.csv "Service to pincode mapping": service/
+    /// pincode pairs where an active provider already has matching skill +
+    /// area coverage but no active mapping exists to make it bookable there.
+    /// Same non-destructive warning approach as
+    /// <see cref="ListUnmappedActiveServicesAsync"/> - deriving/auto-enabling
+    /// serviceability from provider coverage is a bigger behaviour change
+    /// than surfacing the gap for an admin to review and map.
+    /// </summary>
+    Task<IReadOnlyList<ServiceabilityCoverageGapResponse>> ListPincodesWithProviderCoverageButNoServiceMappingAsync();
 }

@@ -152,6 +152,20 @@ public class ServiceabilityMappingsController : ControllerBase
     public async Task<IActionResult> ListUnmappedActiveServices() =>
         Ok(await _mappingManagementService.ListUnmappedActiveServicesAsync());
 
+    /// <summary>
+    /// docs/OPEN-FIXES-FEATURES.csv "Serviceability and provider skills ...
+    /// Service to pincode mapping": a warning list of service/pincode pairs
+    /// where an active provider already has matching skill + area coverage
+    /// but no active serviceability mapping exists, so the pincode still
+    /// shows the service as unbookable despite a qualified provider already
+    /// being onboarded there.
+    /// </summary>
+    [HttpGet("coverage-gaps")]
+    [Authorize(Policy = ReadPolicy)]
+    [ProducesResponseType(typeof(IReadOnlyList<ServiceabilityCoverageGapResponse>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> ListCoverageGaps() =>
+        Ok(await _mappingManagementService.ListPincodesWithProviderCoverageButNoServiceMappingAsync());
+
     private static ModelStateDictionary ToModelState(ValidationResult validation)
     {
         var modelState = new ModelStateDictionary();

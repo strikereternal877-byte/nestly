@@ -47,3 +47,23 @@ public sealed record UnmappedActiveServiceResponse(
     string ServiceSlug,
     Guid CategoryId,
     string CategoryName);
+
+/// <summary>
+/// docs/OPEN-FIXES-FEATURES.csv "Serviceability and provider skills ...
+/// Service to pincode mapping": a service/pincode pair where an active
+/// provider already covers this pincode with a matching skill (the same
+/// skill + area eligibility <c>ProviderMatchingService.FindCandidatesAsync</c>
+/// uses to find booking candidates) but the admin serviceability mapping for
+/// that pair is missing or suspended, so the pincode still shows the service
+/// as unbookable. Provider onboarding and the service/pincode mapping table
+/// are entirely separate and manually maintained today - surfaced to admins
+/// as a warning to investigate and map, not derived/auto-enabled
+/// automatically, matching <see cref="UnmappedActiveServiceResponse"/>'s
+/// same non-destructive approach (see
+/// <see cref="IServiceabilityMappingManagementService.ListPincodesWithProviderCoverageButNoServiceMappingAsync"/>).
+/// </summary>
+public sealed record ServiceabilityCoverageGapResponse(
+    Guid ServiceId,
+    string ServiceName,
+    Guid PincodeId,
+    string PincodeCode);

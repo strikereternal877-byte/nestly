@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Nestly.Application.Serviceability;
 using Nestly.Domain;
+using Nestly.Infrastructure.Persistence;
 using Nestly.Infrastructure.Persistence.Repositories;
 using Nestly.Infrastructure.Services;
 
@@ -185,5 +186,91 @@ public sealed class ServiceabilityMappingManagementServiceTests : IClassFixture<
         var unmapped = await service.ListUnmappedActiveServicesAsync();
 
         unmapped.Should().Contain(u => u.ServiceId == catalogService.Id);
+    }
+
+    /// <summary>
+    /// docs/OPEN-FIXES-FEATURES.csv "Serviceability and provider skills ...
+    /// Service to pincode mapping": an active provider with a matching skill
+    /// and area covering the pincode, but no serviceability mapping at all,
+    /// must show up as a coverage gap.
+    /// </summary>
+    [Fact]
+    public async Task ListPincodesWithProviderCoverageButNoServiceMappingAsync_includes_a_pincode_with_provider_coverage_and_no_mapping()
+    {
+        var (service, category, city, catalogService, pincode) = SeedAndCreateService();
+        var context = _db.CreateContext();
+        SeedActiveProviderCoveringPincode(context, category.Id, city.Id, pincode.Id);
+
+        var gaps = await service.ListPincodesWithProviderCoverageButNoServiceMappingAsync();
+
+        gaps.Should().Contain(g => g.ServiceId == catalogService.Id && g.PincodeId == pincode.Id);
+    }
+
+    /// <summary>A pincode that already has an active serviceability mapping is not a gap, even with provider coverage.</summary>
+    [Fact]
+    public async Task ListPincodesWithProviderCoverageButNoServiceMappingAsync_excludes_a_pincode_with_an_active_mapping()
+    {
+        var (service, category, city, catalogService, pincode) = SeedAndCreateService();
+        var context = _db.CreateContext();
+        SeedActiveProviderCoveringPincode(context, category.Id, city.Id, pincode.Id);
+        (await service.CreateServicePincodeMappingAsync(new ServicePincodeMappingCreateRequest(catalogService.Id, pincode.Id)))
+            .IsSuccess.Should().BeTrue();
+
+        var gaps = await service.ListPincodesWithProviderCoverageButNoServiceMappingAsync();
+
+        gaps.Should().NotContain(g => g.ServiceId == catalogService.Id && g.PincodeId == pincode.Id);
+    }
+
+    /// <summary>An inactive (suspended) provider or a deactivated skill mapping does not count as coverage.</summary>
+    [Fact]
+    public async Task ListPincodesWithProviderCoverageButNoServiceMappingAsync_excludes_an_inactive_provider_or_skill()
+    {
+        var (service, category, city, catalogService, pincode) = SeedAndCreateService();
+        var context = _db.CreateContext();
+
+        var suspendedProvider = new Provider(Guid.NewGuid(), "Legal", "Suspended Provider", ProviderType.Individual, "9" + Guid.NewGuid().ToString("N")[..9]);
+        suspendedProvider.ChangeStatus(ProviderStatus.Active);
+        suspendedProvider.ChangeStatus(ProviderStatus.Suspended);
+        context.Providers.Add(suspendedProvider);
+        context.ProviderSkillMappings.Add(new ProviderSkillMapping(Guid.NewGuid(), suspendedProvider.Id, category.Id));
+        context.ProviderServiceAreas.Add(new ProviderServiceArea(Guid.NewGuid(), suspendedProvider.Id, city.Id, pincodeId: pincode.Id));
+
+        var inactiveSkillProvider = new Provider(Guid.NewGuid(), "Legal", "Inactive Skill Provider", ProviderType.Individual, "9" + Guid.NewGuid().ToString("N")[..9]);
+        inactiveSkillProvider.ChangeStatus(ProviderStatus.Active);
+        context.Providers.Add(inactiveSkillProvider);
+        var deactivatedSkill = new ProviderSkillMapping(Guid.NewGuid(), inactiveSkillProvider.Id, category.Id);
+        deactivatedSkill.Deactivate();
+        context.ProviderSkillMappings.Add(deactivatedSkill);
+        context.ProviderServiceAreas.Add(new ProviderServiceArea(Guid.NewGuid(), inactiveSkillProvider.Id, city.Id, pincodeId: pincode.Id));
+        context.SaveChanges();
+
+        var gaps = await service.ListPincodesWithProviderCoverageButNoServiceMappingAsync();
+
+        gaps.Should().NotContain(g => g.ServiceId == catalogService.Id && g.PincodeId == pincode.Id);
+    }
+
+    /// <summary>A mapping whose only row was deactivated still counts as a gap, mirroring <see cref="ListUnmappedActiveServicesAsync_includes_a_service_whose_only_mapping_was_deactivated"/>.</summary>
+    [Fact]
+    public async Task ListPincodesWithProviderCoverageButNoServiceMappingAsync_includes_a_pincode_whose_only_mapping_was_deactivated()
+    {
+        var (service, category, city, catalogService, pincode) = SeedAndCreateService();
+        var context = _db.CreateContext();
+        SeedActiveProviderCoveringPincode(context, category.Id, city.Id, pincode.Id);
+        var mapping = (await service.CreateServicePincodeMappingAsync(new ServicePincodeMappingCreateRequest(catalogService.Id, pincode.Id))).Value;
+        (await service.DeactivateServicePincodeMappingAsync(mapping.Id)).IsSuccess.Should().BeTrue();
+
+        var gaps = await service.ListPincodesWithProviderCoverageButNoServiceMappingAsync();
+
+        gaps.Should().Contain(g => g.ServiceId == catalogService.Id && g.PincodeId == pincode.Id);
+    }
+
+    private static void SeedActiveProviderCoveringPincode(NestlyDbContext context, Guid categoryId, Guid cityId, Guid pincodeId)
+    {
+        var provider = new Provider(Guid.NewGuid(), "Legal", "Covering Provider", ProviderType.Individual, "9" + Guid.NewGuid().ToString("N")[..9]);
+        provider.ChangeStatus(ProviderStatus.Active);
+        context.Providers.Add(provider);
+        context.ProviderSkillMappings.Add(new ProviderSkillMapping(Guid.NewGuid(), provider.Id, categoryId));
+        context.ProviderServiceAreas.Add(new ProviderServiceArea(Guid.NewGuid(), provider.Id, cityId, pincodeId: pincodeId));
+        context.SaveChanges();
     }
 }
