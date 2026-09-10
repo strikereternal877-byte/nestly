@@ -136,4 +136,21 @@ public interface IBookingRepository
     /// booking history at all, launched or not.
     /// </summary>
     Task<IReadOnlyList<Guid>> ListServiceIdsEverBookedAsync();
+
+    /// <summary>
+    /// Row "Unassigned and at-risk queue", docs/OPEN-FIXES-FEATURES.csv: paid
+    /// bookings a live assignment could still be pushed onto -
+    /// <see cref="BookingStatus.Confirmed"/>, <see cref="BookingStatus.AwaitingFulfilment"/>
+    /// or <see cref="BookingStatus.Assigned"/>, the same admin allow-list
+    /// <c>BookingProviderAssignmentService.IsAssignableStatus</c> uses - that
+    /// currently have no live provider (<see cref="Booking.AssignedProviderId"/>
+    /// is null). Assigned is included only for symmetry with that gate: in
+    /// practice a booking is never Assigned with a null AssignedProviderId,
+    /// since <see cref="Booking.AssignProvider"/> is what puts it in that
+    /// status and always sets both together. Paged and sorted soonest slot
+    /// first (<see cref="Booking.SlotDate"/>/<see cref="Booking.SlotStartTimeSnapshot"/>
+    /// ascending, tie-broken on <see cref="Booking.Id"/> for a stable total
+    /// order across pages) so the most at-risk booking surfaces first.
+    /// </summary>
+    Task<(IReadOnlyList<Booking> Rows, int TotalCount)> ListUnassignedAtRiskAsync(int page, int pageSize);
 }

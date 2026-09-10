@@ -364,6 +364,28 @@ public class BookingManagementService : IBookingManagementService
             booking.BookingReference);
     }
 
+    /// <inheritdoc/>
+    public async Task<Result<AdminUnassignedAtRiskBookingSearchResponse>> ListUnassignedAtRiskAsync(AdminUnassignedAtRiskBookingRequest request)
+    {
+        var (rows, totalCount) = await _bookingRepository.ListUnassignedAtRiskAsync(request.Page, request.PageSize);
+
+        var items = rows.Select(ToUnassignedAtRiskItem).ToList();
+        return new AdminUnassignedAtRiskBookingSearchResponse(items, totalCount, request.Page, request.PageSize);
+    }
+
+    private static AdminUnassignedAtRiskBookingResponse ToUnassignedAtRiskItem(Booking booking) => new(
+        booking.Id,
+        booking.BookingReference,
+        booking.CustomerNameSnapshot,
+        booking.Items.Count > 0 ? booking.Items[0].NameSnapshot : "(no service)",
+        booking.SlotDate,
+        booking.SlotStartTimeSnapshot,
+        booking.AddressCitySnapshot,
+        booking.AddressPincodeSnapshot,
+        booking.Status,
+        BookingStatusMapper.LabelFor(booking.Status),
+        booking.CreatedAtUtc);
+
     private static AdminBookingListItemResponse ToListItem(Booking booking) => new(
         booking.Id,
         booking.CustomerNameSnapshot,

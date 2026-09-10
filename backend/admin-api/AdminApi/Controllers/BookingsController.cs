@@ -60,6 +60,7 @@ public class BookingsController : ControllerBase
     private readonly IValidator<AdminManualPaymentRequest> _manualPaymentValidator;
     private readonly IValidator<AssignProviderRequest> _assignProviderValidator;
     private readonly IValidator<RejectAssignmentRequest> _rejectAssignmentValidator;
+    private readonly IValidator<AdminUnassignedAtRiskBookingRequest> _unassignedAtRiskValidator;
 
     public BookingsController(
         IBookingManagementService bookingManagementService,
@@ -76,7 +77,8 @@ public class BookingsController : ControllerBase
         IValidator<AdminRefundRequest> refundValidator,
         IValidator<AdminManualPaymentRequest> manualPaymentValidator,
         IValidator<AssignProviderRequest> assignProviderValidator,
-        IValidator<RejectAssignmentRequest> rejectAssignmentValidator)
+        IValidator<RejectAssignmentRequest> rejectAssignmentValidator,
+        IValidator<AdminUnassignedAtRiskBookingRequest> unassignedAtRiskValidator)
     {
         _bookingManagementService = bookingManagementService;
         _assignmentService = assignmentService;
@@ -93,6 +95,7 @@ public class BookingsController : ControllerBase
         _manualPaymentValidator = manualPaymentValidator;
         _assignProviderValidator = assignProviderValidator;
         _rejectAssignmentValidator = rejectAssignmentValidator;
+        _unassignedAtRiskValidator = unassignedAtRiskValidator;
     }
 
     /// <summary>Filterable, paginated booking search (SRS 12.11.1, task 115a).</summary>
@@ -128,6 +131,33 @@ public class BookingsController : ControllerBase
         }
 
         var result = await _bookingManagementService.SearchAsync(request);
+        return result.IsSuccess ? Ok(result.Value) : result.ToProblemResult();
+    }
+
+    /// <summary>
+    /// Row "Unassigned and at-risk queue", docs/OPEN-FIXES-FEATURES.csv: paid
+    /// bookings that are assignable but have no live provider on them yet,
+    /// soonest slot first so the most at-risk booking surfaces at the top -
+    /// see <see cref="IBookingManagementService.ListUnassignedAtRiskAsync"/>.
+    /// A static route ahead of <see cref="GetDetail"/>'s <c>{bookingId:guid}</c>
+    /// route would ordinarily risk a clash, but the guid constraint means
+    /// "unassigned-at-risk" never matches it regardless of declaration order.
+    /// </summary>
+    [HttpGet("unassigned-at-risk")]
+    [Authorize(Policy = ReadPolicy)]
+    [ProducesResponseType(typeof(AdminUnassignedAtRiskBookingSearchResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> ListUnassignedAtRisk([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
+    {
+        var request = new AdminUnassignedAtRiskBookingRequest(page, pageSize);
+
+        var validation = await _unassignedAtRiskValidator.ValidateAsync(request);
+        if (!validation.IsValid)
+        {
+            return ValidationProblem(ToModelState(validation));
+        }
+
+        var result = await _bookingManagementService.ListUnassignedAtRiskAsync(request);
         return result.IsSuccess ? Ok(result.Value) : result.ToProblemResult();
     }
 

@@ -159,3 +159,34 @@ public sealed record AdminRefundRequest(bool IsFullRefund, decimal? Amount, stri
 /// the same reason (see <c>BookingsController</c>'s doc comment).
 /// </summary>
 public sealed record AdminManualPaymentRequest(ManualPaymentMethod Method, string Reference);
+
+// ---- Unassigned & at-risk queue (docs/OPEN-FIXES-FEATURES.csv "Admin Web,
+// Proposed new page, Unassigned and at-risk queue"): paid bookings that are
+// in a status <c>BookingProviderAssignmentService.IsAssignableStatus</c>
+// would accept an admin assignment for, but with no live provider on them
+// yet - see <see cref="Bookings.IBookingRepository.ListUnassignedAtRiskAsync"/>. ----
+
+/// <summary>Paging only - no filters, this is a small, fixed operational queue rather than a general search.</summary>
+public sealed record AdminUnassignedAtRiskBookingRequest(int Page = 1, int PageSize = 20);
+
+/// <summary>
+/// One queue row. <paramref name="SlotDate"/>/<paramref name="SlotStartTime"/>
+/// are returned raw rather than a precomputed "time until slot" - admin-web
+/// renders and keeps that countdown fresh on its own (the response may sit in
+/// the browser for a while on a page an ops user leaves open), the same
+/// split the booking-tracking endpoints already use for ETAs.
+/// </summary>
+public sealed record AdminUnassignedAtRiskBookingResponse(
+    Guid Id,
+    string Reference,
+    string CustomerName,
+    string ServiceName,
+    DateOnly SlotDate,
+    TimeSpan SlotStartTime,
+    string City,
+    string Pincode,
+    BookingStatus Status,
+    string StatusLabel,
+    DateTime CreatedAtUtc);
+
+public sealed record AdminUnassignedAtRiskBookingSearchResponse(IReadOnlyList<AdminUnassignedAtRiskBookingResponse> Items, int TotalCount, int Page, int PageSize);

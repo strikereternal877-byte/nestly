@@ -38,4 +38,11 @@ public interface IBookingManagementService
     /// applies the same success transition a gateway payment does.
     /// </summary>
     Task<Result<AdminBookingDetailResponse>> RecordManualPaymentAsync(Guid bookingId, Guid adminUserId, AdminManualPaymentRequest request);
+
+    /// <summary>
+    /// Row "Unassigned and at-risk queue", docs/OPEN-FIXES-FEATURES.csv: paid,
+    /// assignable bookings with no live provider, soonest slot first. See
+    /// <see cref="Bookings.IBookingRepository.ListUnassignedAtRiskAsync"/>.
+    /// </summary>
+    Task<Result<AdminUnassignedAtRiskBookingSearchResponse>> ListUnassignedAtRiskAsync(AdminUnassignedAtRiskBookingRequest request);
 }
