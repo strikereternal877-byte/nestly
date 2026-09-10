@@ -92,7 +92,11 @@ export const NAV_MODULES: readonly NavModule[] = [
   { key: "admin-users", label: "Admin Users", href: "/admin-users", srsRef: "SRS 12.2", requiredPermission: "settings.read" },
   { key: "provider", label: "Providers", href: "/providers", srsRef: "PROVIDER.md", requiredPermission: "provider.read" },
   { key: "referral", label: "Referral Program", href: "/referral", srsRef: "REFERRAL.md", requiredPermission: "referral.read" },
-  { key: "nestly-coins", label: "Glavyx Coins", href: "/nestly-coins", srsRef: "NESTLY-COINS.md", requiredPermission: "nestly-coins.read" },
+  // href is the Glavyx name; `key` and `requiredPermission` deliberately are
+  // not. Those two are the AdminModules.NestlyCoins constant that admin_permission
+  // rows are keyed on, so renaming them means a data migration and, if it goes
+  // wrong, admins locked out of the module. The URL is the part anyone sees.
+  { key: "nestly-coins", label: "Glavyx Coins", href: "/glavyx-coins", srsRef: "NESTLY-COINS.md", requiredPermission: "nestly-coins.read" },
   { key: "subscription", label: "Subscription Plans", href: "/subscription-plans", srsRef: "PRODUCT-ENHANCEMENTS.md #1", requiredPermission: "subscription.read" },
   { key: "payments", label: "Payments", href: "/payments", srsRef: "SRS 12.13.1", requiredPermission: "payments.read" },
   { key: "provider-referral", label: "Provider Referral Program", href: "/provider-referral", srsRef: "PROVIDER-REFERRAL.md", requiredPermission: "provider-referral.read" },

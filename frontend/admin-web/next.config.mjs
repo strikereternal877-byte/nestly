@@ -19,6 +19,13 @@ const nextConfig = {
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },
+  async redirects() {
+    return [
+      // The Glavyx Coins page lived at /nestly-coins until the rebrand reached
+      // the route. Kept so bookmarks and anything linking the old path still land.
+      { source: "/nestly-coins", destination: "/glavyx-coins", permanent: true },
+    ];
+  },
 };
 
 export default nextConfig;
