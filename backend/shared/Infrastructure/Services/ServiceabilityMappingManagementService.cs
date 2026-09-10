@@ -175,4 +175,32 @@ public class ServiceabilityMappingManagementService : IServiceabilityMappingMana
 
     public Task<IReadOnlyList<ServiceabilityCoverageGapResponse>> ListPincodesWithProviderCoverageButNoServiceMappingAsync() =>
         _servicePincodeMappingRepository.ListPincodesWithProviderCoverageButNoServiceMappingAsync();
+
+    /// <inheritdoc/>
+    public async Task<int> AutoEnableProviderCoverageAsync(Guid providerId)
+    {
+        var coverable = await _servicePincodeMappingRepository.ListCoverablePairsForProviderAsync(providerId);
+        if (coverable.Count == 0)
+        {
+            return 0;
+        }
+
+        var enabled = 0;
+        foreach (var pair in coverable)
+        {
+            // Reuses the same create-or-reactivate path the admin mapping
+            // screen uses (see the interface doc comment) - never hand-rolls
+            // persistence here, and inherits its idempotency: a pair already
+            // actively mapped never reaches this loop (ListCoverablePairsForProviderAsync
+            // excludes it), and a concurrent duplicate call just reactivates
+            // the same row again rather than erroring or duplicating it.
+            var result = await CreateServicePincodeMappingAsync(new ServicePincodeMappingCreateRequest(pair.ServiceId, pair.PincodeId));
+            if (result.IsSuccess)
+            {
+                enabled++;
+            }
+        }
+
+        return enabled;
+    }
 }

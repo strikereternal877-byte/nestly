@@ -47,7 +47,11 @@ public class ProviderProfileServiceTests : IDisposable
 
     private ProviderProfileService CreateService(NestlyDbContext context) =>
         new(new ProviderRepository(context), new ProviderServiceAreaRepository(context), new ProviderSkillMappingRepository(context),
-            new ReviewRepository(context), new ProviderSessionRepository(context));
+            new ReviewRepository(context), new ProviderSessionRepository(context), CreateServiceabilityMappingManagementService(context));
+
+    private static ServiceabilityMappingManagementService CreateServiceabilityMappingManagementService(NestlyDbContext context) =>
+        new(new CategoryCityMappingRepository(context), new ServicePincodeMappingRepository(context), new CategoryRepository(context),
+            new CityRepository(context), new ServiceRepository(context), new PincodeRepository(context));
 
     [Fact]
     public async Task GetAsync_returns_the_provider_profile()
@@ -181,6 +185,68 @@ public class ProviderProfileServiceTests : IDisposable
 
         var stored = await context.Set<ProviderSkillMapping>().Where(s => s.ProviderId == _providerId).ToListAsync();
         stored.Should().BeEmpty();
+    }
+
+    /// <summary>
+    /// docs/OPEN-FIXES-FEATURES.csv "Service to pincode mapping" - auto-enable
+    /// upgrade from the warning-only fix (7f8ec29): once an Active provider
+    /// has both a matching skill and an area covering a pincode, the
+    /// ServicePincodeMapping for that service/pincode must be created
+    /// automatically rather than left for an admin to notice and map by hand.
+    /// Order doesn't matter for coverage, but the trigger only fires on the
+    /// second call here (skill alone isn't fulfillable without an area too) -
+    /// exercising that the area-save path is the one that completes coverage.
+    /// </summary>
+    [Fact]
+    public async Task UpdateServiceAreasAsync_auto_enables_the_service_pincode_mapping_once_skill_and_area_coverage_meet()
+    {
+        await using var context = _database.CreateContext();
+        var provider = await context.Set<Provider>().SingleAsync(p => p.Id == _providerId);
+        provider.ChangeStatus(ProviderStatus.Active);
+        var pincode = new Pincode(Guid.NewGuid(), _cityId, "560" + Guid.NewGuid().ToString("N")[..3]);
+        var catalogService = new Service(Guid.NewGuid(), _categoryId, "Deep Clean", "deep-clean-" + Guid.NewGuid(), "desc", 500m);
+        context.Add(pincode);
+        context.Add(catalogService);
+        await context.SaveChangesAsync();
+
+        var service = CreateService(context);
+        await service.UpdateSkillsAsync(_providerId, new UpdateProviderSkillsRequest([new ProviderSkillInput(_categoryId, catalogService.Id)]));
+
+        var result = await service.UpdateServiceAreasAsync(_providerId,
+            new UpdateProviderServiceAreasRequest([new ProviderServiceAreaInput(_cityId, null, pincode.Id)]));
+
+        result.IsSuccess.Should().BeTrue();
+        var mapping = await context.Set<ServicePincodeMapping>()
+            .SingleOrDefaultAsync(m => m.ServiceId == catalogService.Id && m.PincodeId == pincode.Id);
+        mapping.Should().NotBeNull();
+        mapping!.IsActive.Should().BeTrue();
+    }
+
+    /// <summary>Re-saving the same skills/areas a second time must not create a duplicate mapping.</summary>
+    [Fact]
+    public async Task UpdateSkillsAsync_auto_enable_is_idempotent_across_repeated_saves()
+    {
+        await using var context = _database.CreateContext();
+        var provider = await context.Set<Provider>().SingleAsync(p => p.Id == _providerId);
+        provider.ChangeStatus(ProviderStatus.Active);
+        var pincode = new Pincode(Guid.NewGuid(), _cityId, "560" + Guid.NewGuid().ToString("N")[..3]);
+        var catalogService = new Service(Guid.NewGuid(), _categoryId, "Deep Clean", "deep-clean-" + Guid.NewGuid(), "desc", 500m);
+        context.Add(pincode);
+        context.Add(catalogService);
+        await context.SaveChangesAsync();
+
+        var service = CreateService(context);
+        await service.UpdateServiceAreasAsync(_providerId,
+            new UpdateProviderServiceAreasRequest([new ProviderServiceAreaInput(_cityId, null, pincode.Id)]));
+        await service.UpdateSkillsAsync(_providerId, new UpdateProviderSkillsRequest([new ProviderSkillInput(_categoryId, catalogService.Id)]));
+
+        // Saving the identical skill set again should not create a second mapping row.
+        await service.UpdateSkillsAsync(_providerId, new UpdateProviderSkillsRequest([new ProviderSkillInput(_categoryId, catalogService.Id)]));
+
+        var mappings = await context.Set<ServicePincodeMapping>()
+            .Where(m => m.ServiceId == catalogService.Id && m.PincodeId == pincode.Id).ToListAsync();
+        mappings.Should().ContainSingle();
+        mappings.Single().IsActive.Should().BeTrue();
     }
 
     [Fact]

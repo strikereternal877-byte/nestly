@@ -1,5 +1,6 @@
 using Nestly.Application;
 using Nestly.Application.ProviderManagement;
+using Nestly.Application.Serviceability;
 using Nestly.BuildingBlocks.Results;
 using Nestly.Domain;
 
@@ -11,15 +12,18 @@ public class ProviderKycApprovalService : IProviderKycApprovalService
     private readonly IProviderRepository _providerRepository;
     private readonly IProviderKycDocumentRepository _kycDocumentRepository;
     private readonly IProviderBackgroundCheckRepository _backgroundCheckRepository;
+    private readonly IServiceabilityMappingManagementService _serviceabilityMappingManagementService;
 
     public ProviderKycApprovalService(
         IProviderRepository providerRepository,
         IProviderKycDocumentRepository kycDocumentRepository,
-        IProviderBackgroundCheckRepository backgroundCheckRepository)
+        IProviderBackgroundCheckRepository backgroundCheckRepository,
+        IServiceabilityMappingManagementService serviceabilityMappingManagementService)
     {
         _providerRepository = providerRepository;
         _kycDocumentRepository = kycDocumentRepository;
         _backgroundCheckRepository = backgroundCheckRepository;
+        _serviceabilityMappingManagementService = serviceabilityMappingManagementService;
     }
 
     public async Task<Result<ProviderKycDocumentResponse>> ApproveDocumentAsync(Guid documentId, Guid adminUserId)
@@ -121,6 +125,14 @@ public class ProviderKycApprovalService : IProviderKycApprovalService
         provider.ChangeStatus(ProviderStatus.Active);
         provider.MarkOnboardingCompleted();
         await _providerRepository.UpdateAsync(provider);
+
+        // Bug 3 auto-enable: skills/areas set earlier during onboarding
+        // (while the provider was still PendingVerification, so they did not
+        // count as coverage yet) become live coverage the moment the
+        // provider goes Active here - catch up the pincode mappings now
+        // rather than waiting for the provider to next touch their skills or
+        // areas.
+        await _serviceabilityMappingManagementService.AutoEnableProviderCoverageAsync(providerId);
 
         var documents = await _kycDocumentRepository.GetByProviderAsync(providerId);
         var backgroundChecks = await _backgroundCheckRepository.ListByProviderAsync(providerId);

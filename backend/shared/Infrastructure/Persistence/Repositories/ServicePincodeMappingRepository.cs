@@ -63,22 +63,35 @@ public class ServicePincodeMappingRepository : IServicePincodeMappingRepository
         ).ToListAsync();
     }
 
-    public async Task<IReadOnlyList<ServiceabilityCoverageGapResponse>> ListPincodesWithProviderCoverageButNoServiceMappingAsync()
+    public async Task<IReadOnlyList<ServiceabilityCoverageGapResponse>> ListPincodesWithProviderCoverageButNoServiceMappingAsync() =>
+        await CoverageGapQuery(providerId: null).ToListAsync();
+
+    public async Task<IReadOnlyList<ServiceabilityCoverageGapResponse>> ListCoverablePairsForProviderAsync(Guid providerId) =>
+        await CoverageGapQuery(providerId).ToListAsync();
+
+    /// <summary>
+    /// Shared by <see cref="ListPincodesWithProviderCoverageButNoServiceMappingAsync"/>
+    /// (the admin-facing audit list, every gap) and
+    /// <see cref="ListCoverablePairsForProviderAsync"/> (auto-enable's trigger
+    /// query, scoped to the one provider that just gained a skill or area) -
+    /// same skill + area eligibility <c>ProviderMatchingService.FindCandidatesAsync</c>
+    /// uses to find booking candidates for a real booking - a category-level
+    /// skill (ServiceId null) or city-wide area (PincodeId null) both count as
+    /// covering, matching that service's own null-means-broader semantics.
+    /// </summary>
+    private IQueryable<ServiceabilityCoverageGapResponse> CoverageGapQuery(Guid? providerId)
     {
         var activelyMappedPairs = _context.Set<ServicePincodeMapping>()
             .Where(m => m.IsActive)
             .Select(m => new { m.ServiceId, m.PincodeId });
 
-        // Same skill + area eligibility ProviderMatchingService.FindCandidatesAsync
-        // uses to find booking candidates for a real booking - a category-level
-        // skill (ServiceId null) or city-wide area (PincodeId null) both count as
-        // covering, matching that service's own null-means-broader semantics.
-        return await (
+        return
             from service in _context.Set<Service>()
             where service.IsActive
             from pincode in _context.Set<Pincode>()
             where pincode.IsActive
             where _context.Set<Provider>().Any(p =>
+                (providerId == null || p.Id == providerId) &&
                 p.Status == ProviderStatus.Active &&
                 _context.Set<ProviderSkillMapping>().Any(s =>
                     s.ProviderId == p.Id && s.IsActive && s.CategoryId == service.CategoryId &&
@@ -88,7 +101,6 @@ public class ServicePincodeMappingRepository : IServicePincodeMappingRepository
                     (a.PincodeId == null || a.PincodeId == pincode.Id)))
             where !activelyMappedPairs.Any(m => m.ServiceId == service.Id && m.PincodeId == pincode.Id)
             orderby pincode.Code, service.Name
-            select new ServiceabilityCoverageGapResponse(service.Id, service.Name, pincode.Id, pincode.Code)
-        ).ToListAsync();
+            select new ServiceabilityCoverageGapResponse(service.Id, service.Name, pincode.Id, pincode.Code);
     }
 }

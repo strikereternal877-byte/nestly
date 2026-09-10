@@ -34,4 +34,12 @@ public interface IServicePincodeMappingRepository : IRepository<ServicePincodeMa
     /// provider already being onboarded there.
     /// </summary>
     Task<IReadOnlyList<ServiceabilityCoverageGapResponse>> ListPincodesWithProviderCoverageButNoServiceMappingAsync();
+
+    /// <summary>
+    /// Same eligibility as <see cref="ListPincodesWithProviderCoverageButNoServiceMappingAsync"/>,
+    /// scoped to the one provider whose skill or service-area coverage just
+    /// changed - the trigger query behind auto-enabling serviceability (see
+    /// <c>IServiceabilityMappingManagementService.AutoEnableProviderCoverageAsync</c>).
+    /// </summary>
+    Task<IReadOnlyList<ServiceabilityCoverageGapResponse>> ListCoverablePairsForProviderAsync(Guid providerId);
 }

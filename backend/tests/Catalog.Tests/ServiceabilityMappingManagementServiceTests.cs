@@ -264,7 +264,7 @@ public sealed class ServiceabilityMappingManagementServiceTests : IClassFixture<
         gaps.Should().Contain(g => g.ServiceId == catalogService.Id && g.PincodeId == pincode.Id);
     }
 
-    private static void SeedActiveProviderCoveringPincode(NestlyDbContext context, Guid categoryId, Guid cityId, Guid pincodeId)
+    private static Provider SeedActiveProviderCoveringPincode(NestlyDbContext context, Guid categoryId, Guid cityId, Guid pincodeId)
     {
         var provider = new Provider(Guid.NewGuid(), "Legal", "Covering Provider", ProviderType.Individual, "9" + Guid.NewGuid().ToString("N")[..9]);
         provider.ChangeStatus(ProviderStatus.Active);
@@ -272,5 +272,80 @@ public sealed class ServiceabilityMappingManagementServiceTests : IClassFixture<
         context.ProviderSkillMappings.Add(new ProviderSkillMapping(Guid.NewGuid(), provider.Id, categoryId));
         context.ProviderServiceAreas.Add(new ProviderServiceArea(Guid.NewGuid(), provider.Id, cityId, pincodeId: pincodeId));
         context.SaveChanges();
+        return provider;
+    }
+
+    /// <summary>
+    /// docs/OPEN-FIXES-FEATURES.csv "Service to pincode mapping" - upgraded
+    /// from warning-only (7f8ec29) to auto-enable: a provider newly gaining
+    /// skill + area coverage for a (service, pincode) pair must get the
+    /// ServicePincodeMapping created automatically, not just flagged.
+    /// </summary>
+    [Fact]
+    public async Task AutoEnableProviderCoverageAsync_creates_the_mapping_for_newly_covered_service_and_pincode()
+    {
+        var (service, category, city, catalogService, pincode) = SeedAndCreateService();
+        var context = _db.CreateContext();
+        var provider = SeedActiveProviderCoveringPincode(context, category.Id, city.Id, pincode.Id);
+
+        var enabledCount = await service.AutoEnableProviderCoverageAsync(provider.Id);
+
+        enabledCount.Should().Be(1);
+        var mappings = await service.ListServicePincodeMappingsAsync(catalogService.Id, pincode.Id);
+        mappings.Should().ContainSingle(m => m.IsActive);
+    }
+
+    /// <summary>Idempotent: coverage that is already actively mapped must not be duplicated.</summary>
+    [Fact]
+    public async Task AutoEnableProviderCoverageAsync_is_a_no_op_when_the_mapping_already_exists()
+    {
+        var (service, category, city, catalogService, pincode) = SeedAndCreateService();
+        var context = _db.CreateContext();
+        var provider = SeedActiveProviderCoveringPincode(context, category.Id, city.Id, pincode.Id);
+        (await service.CreateServicePincodeMappingAsync(new ServicePincodeMappingCreateRequest(catalogService.Id, pincode.Id)))
+            .IsSuccess.Should().BeTrue();
+
+        var enabledCount = await service.AutoEnableProviderCoverageAsync(provider.Id);
+
+        enabledCount.Should().Be(0);
+        var mappings = await service.ListServicePincodeMappingsAsync(catalogService.Id, pincode.Id);
+        mappings.Should().ContainSingle();
+
+        // Running it again for the same provider (e.g. a second skill/area
+        // save that adds nothing new) must stay a no-op too.
+        (await service.AutoEnableProviderCoverageAsync(provider.Id)).Should().Be(0);
+        (await service.ListServicePincodeMappingsAsync(catalogService.Id, pincode.Id)).Should().ContainSingle();
+    }
+
+    /// <summary>
+    /// A mapping an admin had suspended reactivates once coverage returns -
+    /// same reactivate-if-suspended path <see cref="CreateServicePincodeMappingAsync"/>
+    /// already uses, reused here rather than hand-rolled.
+    /// </summary>
+    [Fact]
+    public async Task AutoEnableProviderCoverageAsync_reactivates_a_previously_deactivated_mapping()
+    {
+        var (service, category, city, catalogService, pincode) = SeedAndCreateService();
+        var context = _db.CreateContext();
+        var provider = SeedActiveProviderCoveringPincode(context, category.Id, city.Id, pincode.Id);
+        var mapping = (await service.CreateServicePincodeMappingAsync(new ServicePincodeMappingCreateRequest(catalogService.Id, pincode.Id))).Value;
+        (await service.DeactivateServicePincodeMappingAsync(mapping.Id)).IsSuccess.Should().BeTrue();
+
+        var enabledCount = await service.AutoEnableProviderCoverageAsync(provider.Id);
+
+        enabledCount.Should().Be(1);
+        var mappings = await service.ListServicePincodeMappingsAsync(catalogService.Id, pincode.Id);
+        mappings.Should().ContainSingle(m => m.Id == mapping.Id && m.IsActive);
+    }
+
+    /// <summary>A provider with no coverage yet (e.g. inactive, or no skill/area rows) enables nothing.</summary>
+    [Fact]
+    public async Task AutoEnableProviderCoverageAsync_does_nothing_for_a_provider_with_no_coverage()
+    {
+        var (service, _, _, _, _) = SeedAndCreateService();
+
+        var enabledCount = await service.AutoEnableProviderCoverageAsync(Guid.NewGuid());
+
+        enabledCount.Should().Be(0);
     }
 }

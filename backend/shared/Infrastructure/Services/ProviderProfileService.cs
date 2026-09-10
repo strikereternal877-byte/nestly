@@ -1,6 +1,7 @@
 using Nestly.Application;
 using Nestly.Application.ProviderProfile;
 using Nestly.Application.Reviews;
+using Nestly.Application.Serviceability;
 using Nestly.BuildingBlocks.Results;
 using Nestly.Domain;
 
@@ -20,19 +21,22 @@ public class ProviderProfileService : IProviderProfileService
     private readonly IProviderSkillMappingRepository _skillMappingRepository;
     private readonly IReviewRepository _reviewRepository;
     private readonly IProviderSessionRepository _sessionRepository;
+    private readonly IServiceabilityMappingManagementService _serviceabilityMappingManagementService;
 
     public ProviderProfileService(
         IProviderRepository providerRepository,
         IProviderServiceAreaRepository serviceAreaRepository,
         IProviderSkillMappingRepository skillMappingRepository,
         IReviewRepository reviewRepository,
-        IProviderSessionRepository sessionRepository)
+        IProviderSessionRepository sessionRepository,
+        IServiceabilityMappingManagementService serviceabilityMappingManagementService)
     {
         _providerRepository = providerRepository;
         _serviceAreaRepository = serviceAreaRepository;
         _skillMappingRepository = skillMappingRepository;
         _reviewRepository = reviewRepository;
         _sessionRepository = sessionRepository;
+        _serviceabilityMappingManagementService = serviceabilityMappingManagementService;
     }
 
     public async Task<Result<ProviderProfileResponse>> GetAsync(Guid providerId)
@@ -106,6 +110,15 @@ public class ProviderProfileService : IProviderProfileService
             .ToList();
         await _serviceAreaRepository.ReplaceForProviderAsync(providerId, areas);
 
+        // Bug 3 auto-enable (docs/OPEN-FIXES-FEATURES.csv "Service to
+        // pincode mapping"): new/re-added coverage here can newly make a
+        // service fulfillable in a pincode - auto-create or reactivate the
+        // matching ServicePincodeMapping(s) rather than leaving it to a
+        // warning an admin has to notice. See the management service's doc
+        // comment for why this is safe to call unconditionally (idempotent,
+        // reuses the existing create-or-reactivate path).
+        await _serviceabilityMappingManagementService.AutoEnableProviderCoverageAsync(providerId);
+
         return Result.Success<IReadOnlyList<ProviderServiceAreaResponse>>(areas.Select(ToResponse).ToList());
     }
 
@@ -128,6 +141,11 @@ public class ProviderProfileService : IProviderProfileService
             .Select(s => new ProviderSkillMapping(Guid.NewGuid(), providerId, s.CategoryId, s.ServiceId))
             .ToList();
         await _skillMappingRepository.ReplaceForProviderAsync(providerId, skills);
+
+        // Same Bug 3 auto-enable as UpdateServiceAreasAsync - a newly added
+        // skill can be the missing half of coverage for a pincode the
+        // provider already serves.
+        await _serviceabilityMappingManagementService.AutoEnableProviderCoverageAsync(providerId);
 
         return Result.Success<IReadOnlyList<ProviderSkillResponse>>(skills.Select(ToResponse).ToList());
     }

@@ -1,6 +1,7 @@
 using Nestly.Application;
 using Nestly.Application.Bookings;
 using Nestly.Application.ProviderManagement;
+using Nestly.Application.Serviceability;
 using Nestly.BuildingBlocks.Results;
 using Nestly.Domain;
 
@@ -18,6 +19,7 @@ public class ProviderManagementService : IProviderManagementService
     private readonly IProviderCapacityRepository _capacityRepository;
     private readonly IProviderServiceAreaRepository _serviceAreaRepository;
     private readonly IProviderSessionRepository _sessionRepository;
+    private readonly IServiceabilityMappingManagementService _serviceabilityMappingManagementService;
 
     public ProviderManagementService(
         IProviderRepository providerRepository,
@@ -28,7 +30,8 @@ public class ProviderManagementService : IProviderManagementService
         IProviderEarningLedgerRepository earningLedgerRepository,
         IProviderCapacityRepository capacityRepository,
         IProviderServiceAreaRepository serviceAreaRepository,
-        IProviderSessionRepository sessionRepository)
+        IProviderSessionRepository sessionRepository,
+        IServiceabilityMappingManagementService serviceabilityMappingManagementService)
     {
         _providerRepository = providerRepository;
         _kycDocumentRepository = kycDocumentRepository;
@@ -39,6 +42,7 @@ public class ProviderManagementService : IProviderManagementService
         _capacityRepository = capacityRepository;
         _serviceAreaRepository = serviceAreaRepository;
         _sessionRepository = sessionRepository;
+        _serviceabilityMappingManagementService = serviceabilityMappingManagementService;
     }
 
     public async Task<Result<ProviderSearchResponse>> SearchAsync(ProviderSearchRequest request)
@@ -149,6 +153,11 @@ public class ProviderManagementService : IProviderManagementService
 
         provider.ChangeStatus(ProviderStatus.Active);
         await _providerRepository.UpdateAsync(provider);
+
+        // Bug 3 auto-enable: a reactivated provider's existing skills/areas
+        // become live coverage again - see ProviderKycApprovalService.ActivateAsync
+        // for the same reasoning on first activation.
+        await _serviceabilityMappingManagementService.AutoEnableProviderCoverageAsync(providerId);
 
         return await BuildDetailAsync(provider);
     }
