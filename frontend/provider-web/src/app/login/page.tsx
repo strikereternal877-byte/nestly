@@ -91,11 +91,19 @@ export default function ProviderLoginPage() {
   // useSearchParams) so this page can stay statically prerendered - a
   // useSearchParams call forces the whole page out of static rendering
   // unless wrapped in its own Suspense boundary, which is unnecessary
-  // machinery for a single one-off banner.
+  // machinery for a couple of one-off banners.
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (new URLSearchParams(window.location.search).get("registered") === "1") {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("registered") === "1") {
       setInfoMessage("Registration submitted. Sign in below to continue.");
+    } else if (params.get("reason") === "expired") {
+      // Set by RequireProviderAuth when it redirects here after a live
+      // session lapsed (as opposed to nobody having been signed in) - see
+      // that component. Without this, the redirect landed on a bare sign-in
+      // form and any credentials error from a *subsequent* failed attempt
+      // could read as if the still-valid password had just stopped working.
+      setInfoMessage("Your session expired. Please sign in again.");
     }
   }, []);
 

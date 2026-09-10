@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { ScreenSkeleton } from "@/components/states";
 import { isAuthenticated, subscribeToAuthChanges } from "@/lib/auth";
@@ -31,6 +31,14 @@ export function RequireProviderAuth({ children }: { children: ReactNode }) {
   const [authed, setAuthed] = useState<boolean | undefined>(() =>
     hasClientRendered ? isAuthenticated() : undefined,
   );
+  // Whether this tab actually held a live session before `authed` most
+  // recently flipped to false - distinguishes "the session just expired /
+  // was revoked mid-visit" from "nobody was ever signed in on this tab"
+  // (e.g. a bookmarked authenticated URL opened cold). Only the former is a
+  // session-expiry event worth surfacing on /login (see docs/OPEN-FIXES-
+  // FEATURES.csv "Session expiry messaging") - the login page must not tell
+  // a first-time visitor their session "expired" when none existed.
+  const wasAuthedRef = useRef(false);
 
   useEffect(() => {
     hasClientRendered = true;
@@ -40,8 +48,12 @@ export function RequireProviderAuth({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    if (authed === true) {
+      wasAuthedRef.current = true;
+      return;
+    }
     if (authed === false) {
-      router.replace("/login");
+      router.replace(wasAuthedRef.current ? "/login?reason=expired" : "/login");
     }
   }, [authed, router]);
 
