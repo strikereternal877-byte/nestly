@@ -78,10 +78,10 @@ export default function ProviderLoginPage() {
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
 
   // Already signed in (e.g. back-button to /login with a live session) -
-  // send straight to the jobs list instead of showing the form again.
+  // send straight to Today instead of showing the form again.
   useEffect(() => {
     const sync = () => {
-      if (isAuthenticated()) router.replace("/jobs");
+      if (isAuthenticated()) router.replace("/today");
     };
     sync();
     return subscribeToAuthChanges(sync);
@@ -119,7 +119,7 @@ export default function ProviderLoginPage() {
       }
       const session = (await response.json()) as ProviderLoginResponse;
       storeSession(session);
-      router.push("/jobs");
+      router.push("/today");
     } catch (err) {
       setDevError(describeError(err));
     } finally {
@@ -208,7 +208,7 @@ function OtpLogin() {
     try {
       const session = await verifyLoginOtp({ mobile, otpCode: values.otpCode });
       storeSession(session);
-      router.push("/jobs");
+      router.push("/today");
     } catch (err) {
       setError(describeLoginError(err));
     }
@@ -309,9 +309,9 @@ function PasswordLogin() {
       const session = await loginWithPassword(values);
       storeSession(session);
       // /install-app shows the "add to home screen" steps on a mobile
-      // browser that hasn't seen them before, then forwards on to /jobs
+      // browser that hasn't seen them before, then forwards on to /today
       // itself - see that page for the skip conditions.
-      router.push("/install-app?next=%2Fjobs");
+      router.push("/install-app?next=%2Ftoday");
     } catch (err) {
       setError(describeLoginError(err, "password"));
     }

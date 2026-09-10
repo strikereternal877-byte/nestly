@@ -17,6 +17,7 @@ import { cx } from "@/components/ui";
  * of; from `md` up it is a conventional side rail.
  */
 const NAV_ITEMS = [
+  { key: "today", href: "/today", label: "Today", icon: <TodayIcon /> },
   { key: "jobs", href: "/jobs", label: "Jobs", icon: <BriefcaseIcon /> },
   { key: "availability", href: "/availability", label: "Availability", icon: <CalendarIcon /> },
   { key: "earnings", href: "/earnings", label: "Earnings", icon: <WalletIcon /> },
@@ -126,7 +127,7 @@ export function ProviderTabBar() {
   return (
     <nav
       aria-label="Provider sections"
-      className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 border-t border-line bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md md:hidden"
+      className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-line bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md md:hidden"
     >
       {NAV_ITEMS.map((item) => {
         const active = isActive(item.href);
@@ -159,6 +160,15 @@ const ICON_PROPS = {
   className: "h-5 w-5 shrink-0",
   "aria-hidden": true,
 } as const;
+
+function TodayIcon(): ReactNode {
+  return (
+    <svg {...ICON_PROPS}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3.5 2" />
+    </svg>
+  );
+}
 
 function BriefcaseIcon(): ReactNode {
   return (

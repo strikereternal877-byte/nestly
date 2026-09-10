@@ -6,7 +6,7 @@ import { Alert, PageHeading } from "@/components/ui";
 import { storeSession } from "@/lib/auth";
 import type { ProviderLoginResponse } from "@/lib/types";
 
-const DEFAULT_DESTINATION = "/jobs";
+const DEFAULT_DESTINATION = "/today";
 
 /**
  * Receives a session handed off from the unified login entry point

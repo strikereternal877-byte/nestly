@@ -12,7 +12,7 @@ const SEEN_KEY = "nestly.provider.install-prompt.seen";
 /** Same open-redirect guard as customer-web's return-to.ts: only a same-site path is ever followed. */
 function resolveNext(value: string | null): string | null {
   if (value === null) return null;
-  if (!value.startsWith("/") || value.startsWith("//") || value.startsWith("/\\")) return "/jobs";
+  if (!value.startsWith("/") || value.startsWith("//") || value.startsWith("/\\")) return "/today";
   return value;
 }
 
