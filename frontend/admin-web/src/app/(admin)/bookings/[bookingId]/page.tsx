@@ -342,8 +342,14 @@ export default function BookingDetailPage() {
   }
 
   const booking = detailQuery.data;
+  // Row 33, docs/OPEN-FIXES-FEATURES.csv: mirrors BookingProviderAssignmentService.IsAssignableStatus's
+  // admin-only allow-list server-side - Confirmed is included so ops can
+  // push a paid booking to a provider immediately rather than waiting for
+  // auto-assignment (which only runs as the slot approaches).
   const isAssignableStatus =
-    booking.status === BookingStatus.AwaitingFulfilment || booking.status === BookingStatus.Assigned;
+    booking.status === BookingStatus.Confirmed ||
+    booking.status === BookingStatus.AwaitingFulfilment ||
+    booking.status === BookingStatus.Assigned;
 
   // Mirrors BookingLifecycle's transition table server-side (only these
   // source statuses have a CancelledByAdmin edge) - the "Cancel booking" card
@@ -581,9 +587,8 @@ export default function BookingDetailPage() {
           <div className="mt-5 flex flex-col gap-4 border-t border-line pt-5">
             {!isAssignableStatus ? (
               <Alert tone="info">
-                A provider can only be assigned once this booking reaches{" "}
-                {BOOKING_STATUS_LABELS[BookingStatus.AwaitingFulfilment]} (current status:{" "}
-                {booking.statusLabel}).
+                A provider can only be assigned once this booking is {BOOKING_STATUS_LABELS[BookingStatus.Confirmed]}{" "}
+                or later (current status: {booking.statusLabel}).
               </Alert>
             ) : wouldOverrideAcceptedProvider ? (
               <Alert tone="warning">

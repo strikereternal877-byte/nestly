@@ -94,6 +94,19 @@ public class BookingProviderAssignmentService : IBookingProviderAssignmentServic
             responseDeadline: DateTime.UtcNow.AddMinutes(_autoAssignmentOptions.Value.ResponseWindowMinutes),
             "Provider auto-assigned by the matching engine.");
 
+    /// <summary>
+    /// Row 33, docs/OPEN-FIXES-FEATURES.csv: an admin can manually push a
+    /// paid Confirmed booking straight to a provider instead of waiting for
+    /// auto-assignment (which only runs as the slot approaches) - the panel
+    /// used to flatly refuse until AwaitingFulfilment. Confirmed is
+    /// deliberately allowed only for <see cref="BookingAssignedByType.Admin"/>:
+    /// the automatic engine's own gate is unchanged, so this does not alter
+    /// when/what auto-assignment picks up.
+    /// </summary>
+    private static bool IsAssignableStatus(BookingStatus status, BookingAssignedByType assignedByType) =>
+        status is BookingStatus.AwaitingFulfilment or BookingStatus.Assigned
+        || (assignedByType == BookingAssignedByType.Admin && status == BookingStatus.Confirmed);
+
     private async Task<Result<BookingProviderAssignmentResponse>> AssignInternalAsync(
         Guid bookingId, Guid providerId, BookingAssignedByType assignedByType, Guid? adminUserId, DateTime? responseDeadline, string reason)
     {
@@ -114,11 +127,13 @@ public class BookingProviderAssignmentService : IBookingProviderAssignmentServic
             return Error.Business("BookingProviderAssignment.ProviderNotActive", "Only an active provider can be assigned to a booking.");
         }
 
-        if (booking.Status != BookingStatus.AwaitingFulfilment && booking.Status != BookingStatus.Assigned)
+        if (!IsAssignableStatus(booking.Status, assignedByType))
         {
             return Error.Business(
                 "BookingProviderAssignment.InvalidBookingStatus",
-                $"A provider can only be assigned while the booking is AwaitingFulfilment or Assigned (current status: {booking.Status}).");
+                assignedByType == BookingAssignedByType.Admin
+                    ? $"A provider can only be assigned while the booking is Confirmed, AwaitingFulfilment or Assigned (current status: {booking.Status})."
+                    : $"A provider can only be assigned while the booking is AwaitingFulfilment or Assigned (current status: {booking.Status}).");
         }
 
         // Task 288: the read this decision depends on and the writes that act
@@ -159,7 +174,18 @@ public class BookingProviderAssignmentService : IBookingProviderAssignmentServic
             // The signal now comes from MarkReassigned's
             // BookingProviderChangedEvent above, which fires on both branches
             // of this if and does not depend on a status change.
-            if (booking.Status == BookingStatus.AwaitingFulfilment)
+            //
+            // Row 33, docs/OPEN-FIXES-FEATURES.csv: a paid Confirmed booking
+            // manually assigned by admin has no direct Confirmed->Assigned
+            // edge in BookingLifecycle (only Confirmed->AwaitingFulfilment
+            // does), so it is walked through AwaitingFulfilment first rather
+            // than adding a lifecycle shortcut just for this caller.
+            if (booking.Status == BookingStatus.Confirmed)
+            {
+                booking.TransitionTo(BookingStatus.AwaitingFulfilment, "Released to fulfilment by admin assignment.");
+                booking.TransitionTo(BookingStatus.Assigned, reason);
+            }
+            else if (booking.Status == BookingStatus.AwaitingFulfilment)
             {
                 booking.TransitionTo(BookingStatus.Assigned, reason);
             }
