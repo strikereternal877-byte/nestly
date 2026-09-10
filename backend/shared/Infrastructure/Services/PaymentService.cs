@@ -48,6 +48,22 @@ public class PaymentService : IPaymentService
             return Error.NotFound("Payment.BookingNotFound", "The specified booking does not exist.");
         }
 
+        var existing = await _paymentRepository.GetByBookingIdAsync(booking.Id);
+
+        // Checked before the booking-status gate below (task 70/duplicate-order
+        // fix): a booking only ever reaches Confirmed via a successful payment
+        // (PaymentWebhookService flips both in the same transaction), so
+        // existing.Status == Success and booking.Status == Confirmed are
+        // always true together. Gating on booking status first would catch
+        // this case with the generic "not payable right now" message and make
+        // this specific, friendlier AlreadyPaid branch unreachable - exactly
+        // the confusing response a customer hits retrying "Pay" on a tab that
+        // already succeeded (e.g. after a webhook confirmed it out of band).
+        if (existing?.Status == PaymentTransactionStatus.Success)
+        {
+            return Error.Conflict("Payment.AlreadyPaid", "This booking has already been paid for.");
+        }
+
         if (booking.Status is not (BookingStatus.PaymentPending or BookingStatus.PaymentFailed))
         {
             return Error.Business(
@@ -55,13 +71,8 @@ public class PaymentService : IPaymentService
                 $"Booking is in status '{booking.Status}' and cannot accept a payment right now.");
         }
 
-        var existing = await _paymentRepository.GetByBookingIdAsync(booking.Id);
-
         switch (existing?.Status)
         {
-            case PaymentTransactionStatus.Success:
-                return Error.Conflict("Payment.AlreadyPaid", "This booking has already been paid for.");
-
             case PaymentTransactionStatus.Pending:
                 // Idempotency/dedup (task 68d): an attempt is already in
                 // flight for this booking - hand back that same order rather

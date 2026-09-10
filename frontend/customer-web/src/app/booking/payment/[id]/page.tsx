@@ -19,7 +19,7 @@ import {
 } from "@/components/patterns";
 import { PageBanner } from "@/components/PageBanner";
 import { RequireAuth } from "@/components/RequireAuth";
-import { Alert, Button, Card, Skeleton, Spinner, cx } from "@/components/ui";
+import { Alert, Button, Card, Skeleton, Spinner, cx, useToast } from "@/components/ui";
 import { API_V1, apiFetch, describeError, errorCode } from "@/lib/api";
 import { clearDraft } from "@/lib/booking-draft";
 import { BookingStatus } from "@/lib/types";
@@ -55,6 +55,7 @@ export default function BookingPaymentPage() {
 function BookingPaymentScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const toast = useToast();
   const { id } = useParams<{ id: string }>();
   const serviceSlug = useSearchParams().get("serviceSlug");
   const successHref = `/booking/success/${id}${serviceSlug ? `?serviceSlug=${serviceSlug}` : ""}`;
@@ -169,7 +170,15 @@ function BookingPaymentScreen() {
         );
       }
     } catch (err) {
-      setPayError(describeError(err));
+      // Inline (payError, rendered in the Payment card below) is the
+      // detailed explanation; the toast is what makes the failure
+      // noticeable at all if the customer isn't looking at the card right
+      // when a click on "Pay" comes back with nothing to show for it -
+      // matching the toast convention the rest of the app uses for a
+      // surfaced action error (see profile/subscription/amc pages).
+      const message = describeError(err);
+      setPayError(message);
+      toast("error", message);
     } finally {
       // Once the payment has gone through and the confirmation screen is
       // loading, the button stays busy for good - see `navigated` above.

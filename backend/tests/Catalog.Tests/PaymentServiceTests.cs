@@ -49,7 +49,7 @@ public sealed class PaymentServiceTests : IClassFixture<TestDatabase>
                 new ServiceAddOnRepository(context),
                 new ServiceabilityRepository(context),
                 new ServiceCityPriceRepository(context),
-                new CityPricingPolicyRepository(context), new ServiceVariantRepository(context), new ServiceAddOnGroupRepository(context)),
+                new CityPricingPolicyRepository(context), new ServiceVariantRepository(context), new ServiceAddOnGroupRepository(context), new InMemoryCacheService()),
             couponService,
             new SubscriptionBenefitService(new CustomerSubscriptionRepository(context)),
             new WalletService(new WalletLedgerRepository(context), context),
@@ -411,6 +411,50 @@ public sealed class PaymentServiceTests : IClassFixture<TestDatabase>
 
         result.IsFailure.Should().BeTrue();
         result.Error.Code.Should().Be("Payment.BookingNotPayable");
+    }
+
+    /// <summary>
+    /// Duplicate-order-attempt fix: a customer retrying "Pay" on a booking
+    /// that is already Confirmed (paid - e.g. a stale tab, or the webhook
+    /// landed while they were still looking at the payment screen) must get
+    /// the clear, specific "already paid" response, not the generic
+    /// "not payable right now" one both states would otherwise share.
+    /// </summary>
+    [Fact]
+    public async Task CreateOrderAsync_reports_AlreadyPaid_not_the_generic_not_payable_error_for_a_paid_booking()
+    {
+        var gateway = BuildGateway();
+        Fixture fixture;
+        using (var seedContext = _db.CreateContext())
+        {
+            fixture = await SeedBookingAsync(seedContext);
+        }
+
+        string gatewayOrderId;
+        using (var firstContext = _db.CreateContext())
+        {
+            var first = await BuildPaymentService(firstContext, gateway).CreateOrderAsync(
+                fixture.Customer.Id, new CreatePaymentOrderRequest(fixture.BookingId, IdempotencyKey: null));
+            first.IsSuccess.Should().BeTrue();
+            gatewayOrderId = first.Value.GatewayOrderId;
+        }
+
+        using (var callbackContext = _db.CreateContext())
+        {
+            var (_, webhookService) = BuildServicesWithWebhook(callbackContext, gateway);
+            string payload = PaymentWebhookPayload.Build(gatewayOrderId, "sandbox_pay_ref", PaymentWebhookPayload.SuccessStatus);
+            string signature = gateway.SignPayload(payload);
+            var result = await webhookService.HandleCallbackAsync(
+                new PaymentWebhookRequest(gatewayOrderId, "sandbox_pay_ref", PaymentWebhookPayload.SuccessStatus, signature));
+            result.IsSuccess.Should().BeTrue();
+        }
+
+        using var context = _db.CreateContext();
+        var retry = await BuildPaymentService(context, gateway).CreateOrderAsync(
+            fixture.Customer.Id, new CreatePaymentOrderRequest(fixture.BookingId, IdempotencyKey: null));
+
+        retry.IsFailure.Should().BeTrue();
+        retry.Error.Code.Should().Be("Payment.AlreadyPaid");
     }
 
     /// <summary>
