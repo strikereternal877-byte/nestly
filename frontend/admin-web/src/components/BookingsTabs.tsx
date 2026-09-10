@@ -24,6 +24,7 @@ export function BookingsTabs() {
       label="Booking sections"
       tabs={[
         { href: "/bookings", label: "All bookings" },
+        { href: "/bookings/unassigned-at-risk", label: "Unassigned & at-risk" },
         { href: "/bookings/recurring-plans", label: "Recurring plans" },
         { href: "/bookings/conflicts", label: "Conflicts" },
         { href: "/amc/contracts", label: "AMC contracts" },

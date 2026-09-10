@@ -377,3 +377,35 @@ export interface AdminBookingTrackingResponse {
   eta: AdminTrackedEta | null;
   destination: AdminTrackedDestination;
 }
+
+// ---- Unassigned & at-risk queue (docs/OPEN-FIXES-FEATURES.csv "Admin Web,
+// Proposed new page, Unassigned and at-risk queue") - mirrors
+// Nestly.Application.BookingManagement.AdminUnassignedAtRiskBookingResponse. ----
+
+/**
+ * One row of the queue: a paid booking with no live provider yet. `slotDate`/
+ * `slotStartTime` come back raw (not a precomputed countdown) so this page
+ * can format and refresh "time until slot" itself, same as every other
+ * slot display in admin-web.
+ */
+export interface AdminUnassignedAtRiskBooking {
+  id: string;
+  reference: string;
+  customerName: string;
+  serviceName: string;
+  slotDate: string;
+  /** .NET TimeSpan serialises as "hh:mm:ss". */
+  slotStartTime: string;
+  city: string;
+  pincode: string;
+  status: BookingStatus;
+  statusLabel: string;
+  createdAtUtc: string;
+}
+
+export interface AdminUnassignedAtRiskBookingSearchResponse {
+  items: AdminUnassignedAtRiskBooking[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+}

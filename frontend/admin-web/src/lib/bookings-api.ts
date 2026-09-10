@@ -16,6 +16,7 @@ import type {
   AdminManualPaymentRequest,
   AdminRefundRequest,
   AdminRescheduleBookingRequest,
+  AdminUnassignedAtRiskBookingSearchResponse,
   BookingCompletionProofResponse,
   RescheduleCity,
   RescheduleLocality,
@@ -118,3 +119,13 @@ export const getBookingCompletionProof = async (
 /** Live tracking snapshot for the ops view (task 284). Rejects with a 404 ApiError - see AdminBookingTrackingResponse's doc comment - when there is no live data to show; the caller renders that as a plain state, not an error. */
 export const getBookingTracking = (bookingId: string) =>
   apiFetch<AdminBookingTrackingResponse>(`${BOOKINGS_BASE}/${bookingId}/tracking`, { authenticated: true });
+
+/**
+ * Row "Unassigned and at-risk queue", docs/OPEN-FIXES-FEATURES.csv: paid
+ * bookings with no live provider, soonest slot first.
+ */
+export const getUnassignedAtRiskBookings = (page: number, pageSize: number) =>
+  apiFetch<AdminUnassignedAtRiskBookingSearchResponse>(
+    `${BOOKINGS_BASE}/unassigned-at-risk${query({ page, pageSize })}`,
+    { authenticated: true },
+  );
