@@ -92,6 +92,19 @@ export default function AdminLoginPage() {
         <Button type="submit" size="lg" fullWidth loading={form.formState.isSubmitting}>
           Sign in
         </Button>
+        {/* Row 71 in docs/OPEN-FIXES-FEATURES.csv: there was no entry point
+            on this form toward a password reset at all. admin-api has no
+            self-service "forgot password" endpoint (only /admin/auth/login
+            and an admin-initiated reset under /admin-users that requires
+            already being signed in as a Super Admin - AdminUsersController's
+            ResetPassword) - unlike customer-web/provider-web's OTP-based
+            reset, standing that up here would be new backend work, out of
+            scope for this pass. This points at the reset path that does
+            exist today instead of linking to a self-service page that
+            isn't there. */}
+        <p className="text-center text-sm text-fg-muted">
+          Forgot your password? Ask a Super Admin to reset it from Admin Users.
+        </p>
       </form>
     </AuthShell>
   );
