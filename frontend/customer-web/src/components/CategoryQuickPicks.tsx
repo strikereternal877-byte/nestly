@@ -139,15 +139,16 @@ function QuickPickIcon({ category, isOverlay }: { category: CategorySummary; isO
             className={cx("h-full w-full object-contain", isOverlay && "drop-shadow-sm")}
           />
         ) : (
-          <span
-            aria-hidden
-            className={cx(
-              "text-base font-bold drop-shadow-sm",
-              isOverlay ? "text-white" : "text-brand-600 drop-shadow-none",
-            )}
-          >
-            {category.name.charAt(0).toUpperCase()}
-          </span>
+          // A category with no admin-uploaded icon (or one whose URL 404s)
+          // previously fell back to a bare capital letter - indistinguishable
+          // from a broken-image glyph and easy to mistake for a rendering bug
+          // (docs/OPEN-FIXES-FEATURES.csv "Category grid, Second category
+          // tile renders a bare letter instead of an icon"). A generic
+          // category glyph reads as "icon not yet uploaded" instead, and
+          // never depends on the category name existing/being non-empty.
+          <FallbackCategoryIcon
+            className={cx("h-[18px] w-[18px] drop-shadow-sm", isOverlay ? "text-white" : "text-brand-600")}
+          />
         )}
       </motion.span>
       <span
@@ -159,5 +160,26 @@ function QuickPickIcon({ category, isOverlay }: { category: CategorySummary; isO
         {category.name}
       </span>
     </Link>
+  );
+}
+
+/** Generic "category" glyph used when a category has no icon art yet, or its `iconUrl` fails to load. */
+function FallbackCategoryIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden
+    >
+      <rect x="3.5" y="3.5" width="7" height="7" rx="1.5" />
+      <rect x="13.5" y="3.5" width="7" height="7" rx="1.5" />
+      <rect x="3.5" y="13.5" width="7" height="7" rx="1.5" />
+      <rect x="13.5" y="13.5" width="7" height="7" rx="1.5" />
+    </svg>
   );
 }
