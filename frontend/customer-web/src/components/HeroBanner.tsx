@@ -33,7 +33,14 @@ import { CmsMediaType, type HomeBanner } from "@/lib/types";
  */
 
 const SLIDE_DURATION_MS = 6000;
-const TEXT_SHADOW = { textShadow: "0 1px 3px rgb(0 0 0 / 0.5), 0 4px 20px rgb(0 0 0 / 0.5)" };
+// Three layers: a tight near-opaque ring that reads as a thin outline around
+// each glyph (the part that actually keeps text legible against a bright
+// photo region, where the scrim underneath is thin or absent), plus the
+// original soft/wide layers for depth against darker backgrounds.
+const TEXT_SHADOW = {
+  textShadow:
+    "0 1px 2px rgb(0 0 0 / 0.85), 0 1px 4px rgb(0 0 0 / 0.65), 0 4px 20px rgb(0 0 0 / 0.5)",
+};
 
 // Cancels `#main`'s top padding (reserved for the fixed `SiteHeader`) so the
 // banner still starts at true y=0, flush under the header. Shared by every
@@ -113,7 +120,12 @@ export function HeroBanner() {
           aria-hidden
           className="absolute inset-0 bg-[radial-gradient(62%_58%_at_50%_45%,rgb(0_0_0/0.58),transparent_75%)]"
         />
-        <div aria-hidden className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-black/25 to-transparent" />
+        {/* Taller and darker than the radial tint alone reaches: the trust
+            badge sits right at this band (`pt-24`), where the radial tint
+            (centered lower, at 45% of the hero's height) is at its weakest -
+            without this, that strip of text sat almost directly on the raw
+            photo. */}
+        <div aria-hidden className="absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-black/55 via-black/20 to-transparent" />
         <div aria-hidden className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-black/40 to-transparent" />
 
         <div className="relative z-10 mx-auto flex h-full w-full max-w-3xl flex-col items-center justify-start gap-6 px-5 pb-10 pt-24 text-center sm:px-8">
@@ -261,9 +273,14 @@ function Headline({ text, linkUrl }: { text: string; linkUrl: string | null }) {
 
 function TrustBadge() {
   return (
+    // White, not the brand accent gold: `accent-300` reads fine on the
+    // radial-tinted center of the photo but fell below a reliable contrast
+    // ratio in the lighter/busier regions a real photo can have near the
+    // top, where this badge sits - white plus the text-shadow above is the
+    // same treatment the headline already relies on for the same reason.
     <p
       style={TEXT_SHADOW}
-      className="flex items-start justify-center gap-2 text-xs font-semibold uppercase tracking-[0.22em] text-accent-300"
+      className="flex items-start justify-center gap-2 text-xs font-semibold uppercase tracking-[0.22em] text-white"
     >
       <ShieldIcon className="mt-0.5 h-4 w-4 shrink-0" />
       <span>Vetted professionals &middot; Upfront pricing</span>
