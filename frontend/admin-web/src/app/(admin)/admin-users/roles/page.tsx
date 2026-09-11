@@ -50,6 +50,7 @@ export default function AdminRolesPage() {
     {
       key: "name",
       header: "Name",
+      sortValue: (role) => role.name,
       cell: (role) => (
         <Link
           href={`/admin-users/roles/${role.id}`}
@@ -62,16 +63,19 @@ export default function AdminRolesPage() {
     {
       key: "description",
       header: "Description",
+      sortValue: (role) => role.description,
       cell: (role) => role.description || <span className="text-fg-subtle">No description</span>,
     },
     {
       key: "permissions",
       header: "Permissions",
+      sortValue: (role) => role.permissionCodes.length,
       cell: (role) => <span className="nums">{role.permissionCodes.length}</span>,
     },
     {
       key: "created",
       header: "Created",
+      sortValue: (role) => role.createdAtUtc,
       cell: (role) => <span className="nums whitespace-nowrap">{formatDate(role.createdAtUtc)}</span>,
     },
   ];
