@@ -9,16 +9,18 @@ import {
   FilterBar,
   Pagination,
   countActiveFilters,
+  exportRowsToCsv,
   formatCurrency,
   formatDate,
 } from "@/components/data-table";
-import type { DataTableColumn } from "@/components/data-table";
+import type { CsvColumn, DataTableColumn } from "@/components/data-table";
 import { BookingStatusBadge } from "@/components/status-badges";
 import { searchBookings } from "@/lib/bookings-api";
 import type { AdminBookingListItem } from "@/lib/bookings-types";
 import { listCategories } from "@/lib/catalog-api";
 import { BookingStatus } from "@/lib/types";
 import { BookingsTabs } from "@/components/BookingsTabs";
+import { todayIsoDate } from "@/lib/date";
 
 const PAGE_SIZE = 20;
 
@@ -80,10 +82,41 @@ const EMPTY_FILTERS: FilterFormState = {
  * list is paged server-side and the endpoint takes no sort parameter, so a
  * header sort would silently reorder only the 20 rows on screen.
  */
+/**
+ * Bulk action scope (task: premium UX audit, "No bulk-action affordance on
+ * any large tabular list page"): row-select plus "Export selected" on this
+ * one list, not a generic bulk-selection framework across every admin list.
+ * Bookings is the highest-traffic list an ops admin works from and export is
+ * unambiguously safe — read-only, nothing to undo — unlike a bulk status
+ * change here, which would touch live bookings and belongs behind the same
+ * per-booking review (cancellation reason, refund amount) the detail page
+ * already requires one at a time. Full bulk-action support (status changes,
+ * other list pages) remains a larger follow-up; `DataTable`'s new
+ * `selection` prop is written generically so extending it is additive.
+ */
+const BOOKING_CSV_COLUMNS: readonly CsvColumn<AdminBookingListItem>[] = [
+  { header: "Booking #", value: (booking) => booking.reference },
+  { header: "Customer", value: (booking) => booking.customerName },
+  { header: "Mobile", value: (booking) => booking.customerMobile },
+  { header: "Service", value: (booking) => booking.serviceName },
+  { header: "City", value: (booking) => booking.city },
+  { header: "Slot date", value: (booking) => booking.slotDate },
+  { header: "Status", value: (booking) => booking.statusLabel },
+  { header: "Total", value: (booking) => booking.totalPayable },
+  { header: "Created", value: (booking) => booking.createdAtUtc },
+];
+
 export default function BookingsPage() {
   const [filters, setFilters] = useState<FilterFormState>(EMPTY_FILTERS);
   const [appliedFilters, setAppliedFilters] = useState<FilterFormState>(EMPTY_FILTERS);
   const [page, setPage] = useState(1);
+  // Keyed by booking id, valued with the row itself (not just the id) so a
+  // selection survives paging — `DataTable` only ever holds the current
+  // page's rows, but the export button needs the actual row data for every
+  // booking selected across however many pages the admin visited. Cleared on
+  // a new search (`onSubmit`/`onClear` below), since filters changing
+  // underneath a stale selection would be confusing.
+  const [selectedBookings, setSelectedBookings] = useState<Map<string, AdminBookingListItem>>(new Map());
 
   // Real category list for the Category filter's dropdown, not free text -
   // the search endpoint takes a CategoryId GUID (BookingRepository.SearchAsync),
@@ -167,6 +200,7 @@ export default function BookingsPage() {
 
   const onSubmit = () => {
     setPage(1);
+    setSelectedBookings(new Map());
     setAppliedFilters(filters);
   };
 
@@ -174,6 +208,35 @@ export default function BookingsPage() {
     setFilters(EMPTY_FILTERS);
     setAppliedFilters(EMPTY_FILTERS);
     setPage(1);
+    setSelectedBookings(new Map());
+  };
+
+  const toggleSelection = (keys: Set<string>) => {
+    const rows = query.data?.items ?? [];
+    setSelectedBookings((current) => {
+      const next = new Map(current);
+      // A key present in `keys` but missing from `next` is a fresh
+      // selection on the currently loaded page — look up its row there. A
+      // key that was already in `next` and stays in `keys` is untouched. A
+      // key removed from `keys` is deselected.
+      keys.forEach((key) => {
+        if (next.has(key)) return;
+        const row = rows.find((booking) => booking.id === key);
+        if (row) next.set(key, row);
+      });
+      Array.from(next.keys()).forEach((key) => {
+        if (!keys.has(key)) next.delete(key);
+      });
+      return next;
+    });
+  };
+
+  const onExportSelected = () => {
+    exportRowsToCsv(
+      Array.from(selectedBookings.values()),
+      BOOKING_CSV_COLUMNS,
+      `bookings-export-${todayIsoDate()}.csv`,
+    );
   };
 
   const columns: DataTableColumn<AdminBookingListItem>[] = [
@@ -322,6 +385,19 @@ export default function BookingsPage() {
       <div className="mt-6">
         <DataTable
           title="Results"
+          actions={
+            selectedBookings.size > 0 ? (
+              <>
+                <span className="text-xs text-fg-subtle">{selectedBookings.size} selected</span>
+                <Button size="sm" variant="secondary" onClick={onExportSelected}>
+                  Export selected
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setSelectedBookings(new Map())}>
+                  Clear selection
+                </Button>
+              </>
+            ) : undefined
+          }
           columns={columns}
           rows={query.data?.items}
           rowKey={(booking) => booking.id}
@@ -339,6 +415,10 @@ export default function BookingsPage() {
               Clear filters
             </Button>
           }
+          selection={{
+            selectedKeys: new Set(selectedBookings.keys()),
+            onSelectionChange: toggleSelection,
+          }}
           footer={
             query.data ? (
               <Pagination

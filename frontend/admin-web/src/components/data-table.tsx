@@ -163,6 +163,21 @@ interface DataTableProps<T> {
   /** Pagination or a summary line, rendered in the card footer. */
   footer?: ReactNode;
   className?: string;
+
+  /**
+   * Opt-in row selection (task: premium UX audit, "No bulk-action affordance
+   * on any large tabular list page"). Adds a checkbox column — a header
+   * "select all [visible rows]" checkbox and one per row — and leaves what
+   * a selection *does* entirely to the caller (a bulk-export button, a bulk
+   * status change). Selection is keyed by `rowKey` and only ever holds keys
+   * for rows currently in `rows`, so it never grows stale across a refetch
+   * or a page change; the caller decides whether changing page/filters
+   * should clear it.
+   */
+  selection?: {
+    selectedKeys: ReadonlySet<string>;
+    onSelectionChange: (keys: Set<string>) => void;
+  };
 }
 
 export function DataTable<T>({
@@ -193,6 +208,7 @@ export function DataTable<T>({
   hideDensityToggle = false,
   footer,
   className = "",
+  selection,
 }: DataTableProps<T>) {
   const [density, setDensity] = useDensityPreference();
   const [sort, setSort] = useState<{ key: string; direction: SortDirection } | null>(
@@ -221,7 +237,33 @@ export function DataTable<T>({
     );
   };
 
-  const totalColumns = columns.length + (rowActions ? 1 : 0);
+  const totalColumns = columns.length + (rowActions ? 1 : 0) + (selection ? 1 : 0);
+
+  const toggleRowSelected = (key: string) => {
+    if (!selection) return;
+    const next = new Set(selection.selectedKeys);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    selection.onSelectionChange(next);
+  };
+
+  const visibleKeys = sortedRows?.map((row) => rowKey(row)) ?? [];
+  const allVisibleSelected =
+    selection !== undefined && visibleKeys.length > 0 && visibleKeys.every((key) => selection.selectedKeys.has(key));
+  const someVisibleSelected =
+    selection !== undefined && !allVisibleSelected && visibleKeys.some((key) => selection.selectedKeys.has(key));
+  const toggleSelectAllVisible = () => {
+    if (!selection) return;
+    if (allVisibleSelected) {
+      const next = new Set(selection.selectedKeys);
+      visibleKeys.forEach((key) => next.delete(key));
+      selection.onSelectionChange(next);
+    } else {
+      const next = new Set(selection.selectedKeys);
+      visibleKeys.forEach((key) => next.add(key));
+      selection.onSelectionChange(next);
+    }
+  };
 
   // Shared between the `<table>` body and the card/list layout below the
   // tablet breakpoint (task 348) so loading/error/empty states can never
@@ -344,6 +386,15 @@ export function DataTable<T>({
                 onRowClick ? "cursor-pointer hover:bg-surface-2" : undefined,
               )}
             >
+              {selection ? (
+                <div className="flex items-center justify-end">
+                  <SelectionCheckbox
+                    label="Select row"
+                    checked={selection.selectedKeys.has(rowKey(row))}
+                    onChange={() => toggleRowSelected(rowKey(row))}
+                  />
+                </div>
+              ) : null}
               {columns.map((column) => (
                 <div key={column.key} className="flex items-baseline justify-between gap-3">
                   <dt className="shrink-0 text-xs font-medium uppercase tracking-wide text-fg-subtle">
@@ -383,6 +434,19 @@ export function DataTable<T>({
             )}
           >
             <tr>
+              {selection ? (
+                <th
+                  scope="col"
+                  className={cx("w-10 whitespace-nowrap border-b border-line text-sm font-bold text-fg", cellPadding)}
+                >
+                  <SelectionCheckbox
+                    label={allVisibleSelected ? "Deselect all visible rows" : "Select all visible rows"}
+                    checked={allVisibleSelected}
+                    indeterminate={someVisibleSelected}
+                    onChange={toggleSelectAllVisible}
+                  />
+                </th>
+              ) : null}
               {columns.map((column) => {
                 const isSorted = sort?.key === column.key;
                 return (
@@ -477,6 +541,15 @@ export function DataTable<T>({
                     onRowClick ? "cursor-pointer hover:bg-surface-2" : "hover:bg-surface-2/60",
                   )}
                 >
+                  {selection ? (
+                    <td className={cx("align-middle", cellPadding)}>
+                      <SelectionCheckbox
+                        label="Select row"
+                        checked={selection.selectedKeys.has(rowKey(row))}
+                        onChange={() => toggleRowSelected(rowKey(row))}
+                      />
+                    </td>
+                  ) : null}
                   {columns.map((column) => (
                     <td
                       key={column.key}
@@ -525,6 +598,43 @@ function TableBodyMessage({
         {children}
       </td>
     </tr>
+  );
+}
+
+/**
+ * Unlabeled checkbox for a selection column. Not `Checkbox` from
+ * `components/ui.tsx` — that always renders a visible text label next to the
+ * input, which reads fine once per row of a list but not as a bare "Select"
+ * repeated down an entire column; `aria-label` keeps it accessible without
+ * the visible noise. `ui.tsx` is also frozen/shared across the three admin
+ * apps (see its file header), so a table-only concern like this belongs here.
+ */
+function SelectionCheckbox({
+  checked,
+  indeterminate = false,
+  onChange,
+  label,
+}: {
+  checked: boolean;
+  indeterminate?: boolean;
+  onChange: () => void;
+  label: string;
+}) {
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (ref.current) ref.current.indeterminate = indeterminate;
+  }, [indeterminate]);
+
+  return (
+    <input
+      ref={ref}
+      type="checkbox"
+      aria-label={label}
+      checked={checked}
+      onChange={onChange}
+      onClick={(event) => event.stopPropagation()}
+      className="h-4 w-4 shrink-0 cursor-pointer rounded border-line-strong text-brand-600 accent-brand-600"
+    />
   );
 }
 
@@ -740,6 +850,55 @@ export function Pagination({
       </div>
     </div>
   );
+}
+
+/* -------------------------------------------------------------------------- */
+/* CSV export                                                                 */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * One field of a CSV export — a plain string/number accessor distinct from a
+ * `DataTableColumn.cell` (which returns JSX, no good for a cell value).
+ * Deliberately not derived from `DataTableColumn` automatically: a column's
+ * `cell` is presentational (a `Link`, a `Badge`) and often not what belongs
+ * in a spreadsheet cell (an id instead of a styled link, a plain status
+ * string instead of a colored pill) — callers pass exactly the fields they
+ * want exported, reusing the same row objects the table already renders.
+ */
+export interface CsvColumn<T> {
+  header: string;
+  value: (row: T) => string | number | null | undefined;
+}
+
+/** Escapes one CSV field per RFC 4180: quote it whenever it holds the separator, a quote, or a newline. */
+function csvField(value: string | number | null | undefined): string {
+  const text = value === null || value === undefined ? "" : String(value);
+  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+/**
+ * Builds a CSV `Blob` from rows already held in the browser and downloads it.
+ * The one export mechanism shared by every "Export" button that acts on
+ * rows the page already fetched (as opposed to the Reports/Reviews screens'
+ * server-generated exports, which stream the *entire* filtered result set
+ * for a report window that can span far more rows than any one page holds
+ * client-side) — see each caller's comment for which shape applies.
+ *
+ * A leading `﻿` BOM keeps Excel from mis-detecting the encoding.
+ */
+export function exportRowsToCsv<T>(rows: readonly T[], columns: readonly CsvColumn<T>[], fileName: string): void {
+  const header = columns.map((column) => csvField(column.header)).join(",");
+  const lines = rows.map((row) => columns.map((column) => csvField(column.value(row))).join(","));
+  const csv = "﻿" + [header, ...lines].join("\r\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 /* -------------------------------------------------------------------------- */
