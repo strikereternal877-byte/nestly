@@ -179,6 +179,10 @@ export default function ProviderRegisterPage() {
             <Button type="submit" size="lg" fullWidth loading={emailForm.formState.isSubmitting}>
               Send verification code
             </Button>
+            <p className="text-center text-xs text-fg-muted">
+              We&apos;ll email a 6-digit code to confirm this address, then ask for a few
+              details to finish setting up your account.
+            </p>
           </form>
         ) : (
           <form method="post" onSubmit={submitRegistration} className="flex flex-col gap-5" noValidate>
