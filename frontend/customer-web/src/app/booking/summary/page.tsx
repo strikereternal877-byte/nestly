@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import { BookingHelpLink } from "@/components/BookingHelpLink";
 import { CitySelector } from "@/components/CitySelector";
 import { LocalitySelector } from "@/components/LocalitySelector";
 import { PageBanner } from "@/components/PageBanner";
@@ -1129,6 +1130,8 @@ function BookingSummaryScreen() {
         <LinkButton href={`/recurring-bookings/new?serviceSlug=${service.slug}`} variant="secondary" fullWidth>
           Schedule for later without booking now
         </LinkButton>
+
+        <BookingHelpLink />
       </aside>
       </div>
     </main>

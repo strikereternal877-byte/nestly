@@ -17,6 +17,7 @@ import {
   formatTimeRange,
   inr,
 } from "@/components/patterns";
+import { BookingHelpLink } from "@/components/BookingHelpLink";
 import { PageBanner } from "@/components/PageBanner";
 import { RequireAuth } from "@/components/RequireAuth";
 import { Alert, Button, Card, Skeleton, Spinner, cx, useToast } from "@/components/ui";
@@ -408,6 +409,8 @@ function BookingPaymentScreen() {
             </p>
           </StickyActionBar>
         ) : null}
+
+        <BookingHelpLink />
       </aside>
       </div>
     </main>
