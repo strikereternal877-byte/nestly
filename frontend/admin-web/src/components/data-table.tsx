@@ -901,6 +901,36 @@ export function exportRowsToCsv<T>(rows: readonly T[], columns: readonly CsvColu
   URL.revokeObjectURL(url);
 }
 
+/**
+ * "Export CSV" toolbar button — the one shape every list page's export
+ * action uses, so a page adopting export is a single `actions={<ExportCsvButton .../>}`
+ * rather than its own button/handler pair. Exports whatever `rows` currently
+ * holds: for a server-paged list that is the current page (labelled
+ * accordingly by the caller's `fileName`/description), matching what
+ * `DataTable` itself is rendering — never a silent full-dataset fetch the
+ * admin didn't ask for.
+ */
+export function ExportCsvButton<T>({
+  rows,
+  columns,
+  fileName,
+}: {
+  rows: readonly T[] | undefined;
+  columns: readonly CsvColumn<T>[];
+  fileName: string;
+}) {
+  return (
+    <Button
+      size="sm"
+      variant="secondary"
+      disabled={!rows || rows.length === 0}
+      onClick={() => rows && exportRowsToCsv(rows, columns, fileName)}
+    >
+      Export CSV
+    </Button>
+  );
+}
+
 /* -------------------------------------------------------------------------- */
 /* Destructive-action confirmation                                            */
 /* -------------------------------------------------------------------------- */

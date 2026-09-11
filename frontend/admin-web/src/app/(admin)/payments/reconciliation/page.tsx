@@ -5,10 +5,18 @@ import Link from "next/link";
 import { useState } from "react";
 import { Alert, Badge, Button, PageHeading, Textarea } from "@/components/ui";
 import type { BadgeTone } from "@/components/ui";
-import { ConfirmDialog, DataTable, Pagination, formatCurrency, formatDateTime } from "@/components/data-table";
-import type { DataTableColumn } from "@/components/data-table";
+import {
+  ConfirmDialog,
+  DataTable,
+  ExportCsvButton,
+  Pagination,
+  formatCurrency,
+  formatDateTime,
+} from "@/components/data-table";
+import type { CsvColumn, DataTableColumn } from "@/components/data-table";
 import { PaymentsTabs } from "@/components/PaymentsTabs";
 import { describeError } from "@/lib/api";
+import { todayIsoDate } from "@/lib/date";
 import { getPaymentReconciliation, voidPaymentTransaction } from "@/lib/payments-api";
 import { PaymentReconciliationCategory } from "@/lib/payments-types";
 import type { AdminPaymentReconciliationItem } from "@/lib/payments-types";
@@ -21,6 +29,16 @@ const CATEGORY_LABELS: Record<PaymentReconciliationCategory, string> = {
   [PaymentReconciliationCategory.Failed]: "Failed",
   [PaymentReconciliationCategory.Orphaned]: "Orphaned",
 };
+
+const RECONCILIATION_CSV_COLUMNS: readonly CsvColumn<AdminPaymentReconciliationItem>[] = [
+  { header: "Bucket", value: (item) => CATEGORY_LABELS[item.category] },
+  { header: "Booking #", value: (item) => item.bookingReference },
+  { header: "Booking status", value: (item) => item.bookingStatusLabel },
+  { header: "Customer", value: (item) => item.customerName },
+  { header: "Amount", value: (item) => item.amount },
+  { header: "Currency", value: (item) => item.currency },
+  { header: "Open since", value: (item) => item.openSinceUtc },
+];
 
 const CATEGORY_TONES: Record<PaymentReconciliationCategory, BadgeTone> = {
   [PaymentReconciliationCategory.StuckPending]: "warning",
@@ -184,6 +202,13 @@ export default function PaymentReconciliationPage() {
       <div className="mt-4">
         <DataTable
           title="Needs attention"
+          actions={
+            <ExportCsvButton
+              rows={query.data?.items}
+              columns={RECONCILIATION_CSV_COLUMNS}
+              fileName={`payment-reconciliation-export-${todayIsoDate()}.csv`}
+            />
+          }
           columns={columns}
           rows={query.data?.items}
           rowKey={(item) => item.paymentTransactionId ?? item.bookingId}

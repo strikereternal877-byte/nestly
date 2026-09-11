@@ -5,16 +5,28 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Alert, Badge, Button, Modal, PageHeading, Select } from "@/components/ui";
 import type { BadgeTone } from "@/components/ui";
-import { DataTable, Pagination } from "@/components/data-table";
-import type { DataTableColumn } from "@/components/data-table";
+import { DataTable, ExportCsvButton, Pagination } from "@/components/data-table";
+import type { CsvColumn, DataTableColumn } from "@/components/data-table";
 import { BookingStatusBadge } from "@/components/status-badges";
 import { BookingsTabs } from "@/components/BookingsTabs";
 import { describeError } from "@/lib/api";
 import { getUnassignedAtRiskBookings } from "@/lib/bookings-api";
 import type { AdminUnassignedAtRiskBooking } from "@/lib/bookings-types";
+import { todayIsoDate } from "@/lib/date";
 import { assignProviderToBooking, getEligibleProviders } from "@/lib/providers-api";
 import type { EligibleProvider } from "@/lib/providers-types";
 import { useAdminClaims } from "@/lib/use-admin-claims";
+
+const QUEUE_CSV_COLUMNS: readonly CsvColumn<AdminUnassignedAtRiskBooking>[] = [
+  { header: "Booking #", value: (booking) => booking.reference },
+  { header: "Customer", value: (booking) => booking.customerName },
+  { header: "Service", value: (booking) => booking.serviceName },
+  { header: "Slot date", value: (booking) => booking.slotDate },
+  { header: "Slot time", value: (booking) => booking.slotStartTime },
+  { header: "City", value: (booking) => booking.city },
+  { header: "Pincode", value: (booking) => booking.pincode },
+  { header: "Status", value: (booking) => booking.statusLabel },
+];
 
 const PAGE_SIZE = 20;
 
@@ -219,6 +231,13 @@ export default function UnassignedAtRiskQueuePage() {
       <div className="mt-6">
         <DataTable
           title="Queue"
+          actions={
+            <ExportCsvButton
+              rows={query.data?.items}
+              columns={QUEUE_CSV_COLUMNS}
+              fileName={`unassigned-at-risk-export-${todayIsoDate()}.csv`}
+            />
+          }
           columns={columns}
           rows={query.data?.items}
           rowKey={(booking) => booking.id}

@@ -7,13 +7,15 @@ import { useEffect, useState } from "react";
 import { Alert, Badge, Button, Field, Modal, PageHeading, Select } from "@/components/ui";
 import {
   DataTable,
+  ExportCsvButton,
   FilterBar,
   FormGrid,
   Pagination,
   countActiveFilters,
   formatDate,
 } from "@/components/data-table";
-import type { DataTableColumn } from "@/components/data-table";
+import type { CsvColumn, DataTableColumn } from "@/components/data-table";
+import { todayIsoDate } from "@/lib/date";
 import { ProviderStatusBadge } from "@/components/status-badges";
 import { describeError } from "@/lib/api";
 import { createProvider, searchProviders } from "@/lib/providers-api";
@@ -54,6 +56,16 @@ interface FilterFormState {
 
 const EMPTY_FILTERS: FilterFormState = { name: "", phone: "", status: "", cityId: "" };
 const EMPTY_CREATE: CreateProviderRequest = { legalName: "", displayName: "", phone: "", email: "" };
+
+const PROVIDER_CSV_COLUMNS: readonly CsvColumn<ProviderSummary>[] = [
+  { header: "Name", value: (provider) => provider.displayName },
+  { header: "Phone", value: (provider) => provider.phone },
+  { header: "Email", value: (provider) => provider.email ?? "" },
+  { header: "Serves", value: (provider) => provider.serviceCities.join("; ") },
+  { header: "Status", value: (provider) => statusLabel(provider.status) },
+  { header: "Onboarding", value: (provider) => ONBOARDING_LABELS[provider.onboardingStatus] },
+  { header: "Created", value: (provider) => provider.createdAt },
+];
 
 /**
  * Admin provider directory: search/list plus admin-created provider records
@@ -262,6 +274,15 @@ export default function ProvidersPage() {
       <div className="mt-6">
         <DataTable
           title="Results"
+          // Server-paged (task 221 pattern), so this exports the current
+          // page — same rows DataTable is already rendering.
+          actions={
+            <ExportCsvButton
+              rows={query.data?.items}
+              columns={PROVIDER_CSV_COLUMNS}
+              fileName={`providers-export-${todayIsoDate()}.csv`}
+            />
+          }
           columns={columns}
           rows={query.data?.items}
           rowKey={(provider) => provider.id}

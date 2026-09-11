@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { Button, Field, PageHeading, Select } from "@/components/ui";
 import {
   DataTable,
+  ExportCsvButton,
   FilterBar,
   Pagination,
   countActiveFilters,
@@ -396,7 +397,17 @@ export default function BookingsPage() {
                   Clear selection
                 </Button>
               </>
-            ) : undefined
+            ) : (
+              // Exports the current page of results — this list is
+              // server-paged (SRS 12.11.1), so a "current filtered view"
+              // export means what's on screen, same as "Export selected"
+              // above once rows are picked.
+              <ExportCsvButton
+                rows={query.data?.items}
+                columns={BOOKING_CSV_COLUMNS}
+                fileName={`bookings-export-${todayIsoDate()}.csv`}
+              />
+            )
           }
           columns={columns}
           rows={query.data?.items}

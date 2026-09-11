@@ -2,11 +2,17 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Alert, Button } from "@/components/ui";
-import { DataTable } from "@/components/data-table";
-import type { DataTableColumn } from "@/components/data-table";
+import { DataTable, ExportCsvButton } from "@/components/data-table";
+import type { CsvColumn, DataTableColumn } from "@/components/data-table";
 import { describeError } from "@/lib/api";
+import { todayIsoDate } from "@/lib/date";
 import { createServicePincodeMapping, listServiceabilityCoverageGaps } from "@/lib/serviceability-api";
 import type { ServiceabilityCoverageGapResponse } from "@/lib/serviceability-types";
+
+const COVERAGE_GAP_CSV_COLUMNS: readonly CsvColumn<ServiceabilityCoverageGapResponse>[] = [
+  { header: "Service", value: (row) => row.serviceName },
+  { header: "Pincode", value: (row) => row.pincodeCode },
+];
 
 /**
  * Coverage gap map, quadrant 2 (docs/OPEN-FIXES-FEATURES.csv "Admin Web,
@@ -57,6 +63,13 @@ export function CoverageGapsSection({ canWrite }: { canWrite: boolean }) {
       <DataTable
         title="Provider coverage but no mapping"
         description="A qualified, active provider already covers this pincode, but there is no active serviceability mapping to make it bookable there."
+        actions={
+          <ExportCsvButton
+            rows={gapsQuery.data}
+            columns={COVERAGE_GAP_CSV_COLUMNS}
+            fileName={`coverage-gaps-export-${todayIsoDate()}.csv`}
+          />
+        }
         columns={columns}
         rows={gapsQuery.data}
         rowKey={(row) => `${row.serviceId}:${row.pincodeId}`}

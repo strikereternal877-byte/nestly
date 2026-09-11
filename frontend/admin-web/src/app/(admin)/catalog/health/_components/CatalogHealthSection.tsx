@@ -4,10 +4,11 @@ import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { Badge } from "@/components/ui";
 import type { BadgeTone } from "@/components/ui";
-import { DataTable } from "@/components/data-table";
-import type { DataTableColumn } from "@/components/data-table";
+import { DataTable, ExportCsvButton } from "@/components/data-table";
+import type { CsvColumn, DataTableColumn } from "@/components/data-table";
 import { listCatalogHealthIssues } from "@/lib/catalog-api";
 import type { CatalogHealthIssueResponse, CatalogHealthReason } from "@/lib/catalog-types";
+import { todayIsoDate } from "@/lib/date";
 
 /**
  * Reason code → badge label/tone, mirroring the tone semantics
@@ -46,6 +47,12 @@ const REASON_TONES: Record<CatalogHealthReason, BadgeTone> = {
  * condition (`UnmappedActiveServicesSection`, which this endpoint reuses
  * server-side via `ListUnmappedActiveServicesAsync`).
  */
+const HEALTH_CSV_COLUMNS: readonly CsvColumn<CatalogHealthIssueResponse>[] = [
+  { header: "Service", value: (row) => row.serviceName },
+  { header: "Category", value: (row) => row.categoryName },
+  { header: "Failing checks", value: (row) => row.reasons.map((reason) => REASON_LABELS[reason]).join("; ") },
+];
+
 export function CatalogHealthSection() {
   const healthQuery = useQuery({ queryKey: ["catalog-health"], queryFn: listCatalogHealthIssues });
 
@@ -96,6 +103,13 @@ export function CatalogHealthSection() {
     <DataTable
       title="Incomplete active services"
       description="Active services missing a price, an image, a serviceability mapping, or that have never been booked — worth fixing before a customer hits them."
+      actions={
+        <ExportCsvButton
+          rows={healthQuery.data}
+          columns={HEALTH_CSV_COLUMNS}
+          fileName={`catalog-health-export-${todayIsoDate()}.csv`}
+        />
+      }
       columns={columns}
       rows={healthQuery.data}
       rowKey={(row) => row.serviceId}
