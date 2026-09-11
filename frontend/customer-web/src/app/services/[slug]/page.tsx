@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { PageBanner } from "@/components/PageBanner";
+import { ServiceRatingBadge } from "@/components/ServiceRatingBadge";
 import { serverJson } from "@/lib/server-api";
 import type { ServiceDetail } from "@/lib/types";
 
@@ -66,9 +67,12 @@ export default async function ServiceDetailPage({
             />
           }
           badge={
-            <span className="mt-1 inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3.5 py-1.5 text-xs font-semibold text-white backdrop-blur-sm">
-              Starts at <span className="nums">₹{service.price}</span>
-            </span>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="mt-1 inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3.5 py-1.5 text-xs font-semibold text-white backdrop-blur-sm">
+                Starts at <span className="nums">₹{service.price}</span>
+              </span>
+              <ServiceRatingBadge slug={service.slug} />
+            </div>
           }
         />
       ) : null}
