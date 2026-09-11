@@ -92,7 +92,7 @@ export default function ForgotPasswordPage() {
   return (
     <AuthShell
       title="Reset your password"
-      subtitle="We verify the code against the mobile number on your account."
+      subtitle="Enter your email — we'll text a verification code to the mobile number on your provider account."
       footer={
         <Link
           href="/login"
