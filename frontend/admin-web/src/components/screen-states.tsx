@@ -116,3 +116,55 @@ export function SectionError({
     </Alert>
   );
 }
+
+/**
+ * Route-segment `loading.tsx` skeleton (task: premium UX audit, "No
+ * per-route loading.tsx anywhere in the app"). Next.js renders this
+ * automatically while a route segment's page component (and whatever data it
+ * suspends on) is still loading, so a slow navigation shows this instead of a
+ * blank/frozen screen.
+ *
+ * Shaped like the generic list-page anatomy every module screen already
+ * shares — `PageHeading` + `FilterBar` + a `DataTable` in its own loading
+ * state — since a `loading.tsx` has no props and cannot know the real title
+ * or column count for the page it is standing in for. It intentionally
+ * mirrors `DataTable`'s own `isLoading` skeleton rows rather than inventing a
+ * different shimmer, so the transition from route-skeleton to table-skeleton
+ * to real data is one continuous shape, not a visible swap.
+ */
+export function RouteLoadingSkeleton({ rows = 6 }: { rows?: number }) {
+  return (
+    <div className="w-full max-w-7xl" aria-hidden>
+      <div className="mb-6 flex w-full flex-col gap-4 rounded-2xl bg-surface p-6 shadow-sm sm:flex-row sm:items-end sm:justify-between">
+        <div className="min-w-0">
+          <Skeleton className="h-3 w-24" />
+          <Skeleton className="mt-3 h-4 w-56 max-w-full" />
+        </div>
+        <Skeleton className="h-10 w-32 shrink-0" />
+      </div>
+
+      <div className="rounded-2xl bg-surface p-4 shadow-sm sm:p-5">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {Array.from({ length: 4 }, (_, index) => (
+            <Skeleton key={index} className="h-10" />
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-6 overflow-hidden rounded-2xl bg-surface shadow-sm">
+        <div className="border-b border-line px-4 py-3 sm:px-5">
+          <Skeleton className="h-5 w-32" />
+        </div>
+        <div className="divide-y divide-line">
+          {Array.from({ length: rows }, (_, index) => (
+            <div key={index} className="flex items-center gap-4 px-4 py-3 sm:px-5">
+              <Skeleton className="h-4 w-40" />
+              <Skeleton className="h-4 w-24" />
+              <Skeleton className="ml-auto h-4 w-16" />
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
