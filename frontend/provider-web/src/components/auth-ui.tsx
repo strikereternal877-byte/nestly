@@ -89,6 +89,16 @@ export function AuthShell({
               </span>
             </Link>
 
+            {/* Task: row 67 in docs/OPEN-FIXES-FEATURES.csv - the three auth
+                screens read as a plain, unbranded card with no first-impression
+                trust element for a professional signing up. A short, honest
+                tagline (no fabricated stats - no ratings/counts are backed by
+                real data yet, see customer-web's TrustMarkers) is enough of a
+                brand touch here without turning this into a redesign. */}
+            <p className="mt-3 text-xs font-medium uppercase tracking-wide text-brand-600 dark:text-brand-400">
+              Where verified professionals grow their business
+            </p>
+
             <h1 className="mt-6 text-display-sm font-semibold text-fg">{title}</h1>
             {subtitle ? (
               <p className="mt-2 text-sm leading-relaxed text-fg-muted text-pretty">{subtitle}</p>
@@ -100,6 +110,21 @@ export function AuthShell({
           </div>
 
           {footer ? <p className="mt-6 text-center text-sm text-fg-muted">{footer}</p> : null}
+
+          {/* Same brand-personality pass as the tagline above - a light,
+              honest trust strip (no fabricated numbers) rather than a full
+              redesign. */}
+          <ul className="mt-6 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-xs font-medium text-fg-subtle">
+            <li className="flex items-center gap-1.5">
+              <ShieldIcon /> Verified jobs
+            </li>
+            <li className="flex items-center gap-1.5">
+              <WalletIcon /> Weekly payouts
+            </li>
+            <li className="flex items-center gap-1.5">
+              <LifebuoyIcon /> Real support
+            </li>
+          </ul>
 
           {/* No public nav/footer exists in this app (see layout.tsx) - this
               is the only place a signed-out visitor can find the PWA install
@@ -218,6 +243,48 @@ export function useResendCountdown(seconds = 30) {
   useEffect(() => clear, [clear]);
 
   return { remaining, start, canResend: remaining === 0 };
+}
+
+/* Line icons for the AuthShell trust strip - same style as
+   customer-web's TrustMarkers (stroke, not filled/emoji). */
+const TRUST_ICON_PROPS = {
+  viewBox: "0 0 24 24",
+  fill: "none",
+  stroke: "currentColor",
+  strokeWidth: "1.75",
+  strokeLinecap: "round",
+  strokeLinejoin: "round",
+  className: "h-3.5 w-3.5 shrink-0",
+  "aria-hidden": true,
+} as const;
+
+function ShieldIcon() {
+  return (
+    <svg {...TRUST_ICON_PROPS}>
+      <path d="M12 3l7 3v5.5c0 4.2-3 8-7 9.5-4-1.5-7-5.3-7-9.5V6l7-3Z" />
+      <path d="m9 12 2 2 4-4" />
+    </svg>
+  );
+}
+
+function WalletIcon() {
+  return (
+    <svg {...TRUST_ICON_PROPS}>
+      <rect x="3" y="6" width="18" height="13" rx="2" />
+      <path d="M3 10h18" />
+      <circle cx="16.5" cy="14" r="1" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+function LifebuoyIcon() {
+  return (
+    <svg {...TRUST_ICON_PROPS}>
+      <circle cx="12" cy="12" r="9" />
+      <circle cx="12" cy="12" r="3.5" />
+      <path d="m5.7 5.7 3.8 3.8M14.5 14.5l3.8 3.8M18.3 5.7l-3.8 3.8M9.5 14.5l-3.8 3.8" />
+    </svg>
+  );
 }
 
 /** "Resend code" row with the countdown applied. */
