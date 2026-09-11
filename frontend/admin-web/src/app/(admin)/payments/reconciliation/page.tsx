@@ -3,9 +3,9 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useState } from "react";
-import { Alert, Badge, Button, Modal, PageHeading, Textarea } from "@/components/ui";
+import { Alert, Badge, Button, PageHeading, Textarea } from "@/components/ui";
 import type { BadgeTone } from "@/components/ui";
-import { DataTable, Pagination, formatCurrency, formatDateTime } from "@/components/data-table";
+import { ConfirmDialog, DataTable, Pagination, formatCurrency, formatDateTime } from "@/components/data-table";
 import type { DataTableColumn } from "@/components/data-table";
 import { PaymentsTabs } from "@/components/PaymentsTabs";
 import { describeError } from "@/lib/api";
@@ -229,6 +229,11 @@ export default function PaymentReconciliationPage() {
  * Voids a stuck pending transaction (`PaymentsController.Void`) - marks OUR
  * record only, no gateway call. The reason is optional; the backend
  * substitutes a default when omitted.
+ *
+ * Built on the shared `ConfirmDialog` (task: premium UX audit, "No
+ * confirmation guard before irreversible actions") rather than a hand-rolled
+ * `Modal` footer, so every destructive admin action shares one confirm/cancel
+ * shape instead of each page inventing its own.
  */
 function VoidModal({
   item,
@@ -250,31 +255,20 @@ function VoidModal({
   });
 
   return (
-    <Modal
+    <ConfirmDialog
       open={item !== null}
-      onClose={onClose}
+      onCancel={onClose}
+      onConfirm={() => voidMutation.mutate()}
       title={item ? `Void payment order — ${item.bookingReference}` : "Void payment order"}
       description={
         item
           ? `Marks this stuck ${item.currency} ${formatCurrency(item.amount)} order as cancelled in our records. No gateway call is made, and it can no longer be retried - the booking will need to be reconciled separately (a manual payment record, or cancellation).`
           : undefined
       }
-      footer={
-        <>
-          <Button variant="secondary" onClick={onClose} disabled={voidMutation.isPending}>
-            Cancel
-          </Button>
-          <Button
-            variant="danger"
-            loading={voidMutation.isPending}
-            onClick={() => voidMutation.mutate()}
-          >
-            Void order
-          </Button>
-        </>
-      }
+      confirmLabel="Void order"
+      loading={voidMutation.isPending}
+      error={voidMutation.isError ? describeError(voidMutation.error) : null}
     >
-      {voidMutation.isError ? <Alert tone="error">{describeError(voidMutation.error)}</Alert> : null}
       <Textarea
         label="Reason (optional)"
         name="reason"
@@ -282,6 +276,6 @@ function VoidModal({
         onChange={(e) => setReason(e.target.value)}
         placeholder="e.g. Confirmed with customer the order was abandoned"
       />
-    </Modal>
+    </ConfirmDialog>
   );
 }
