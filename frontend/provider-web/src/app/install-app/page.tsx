@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
+import { QRCodeSVG } from "qrcode.react";
 import { AuthShell } from "@/components/auth-ui";
 import { Button } from "@/components/ui";
 
@@ -140,14 +141,33 @@ function InstallScreen() {
   }
 
   if (platform === "desktop") {
+    // Row 68 in docs/OPEN-FIXES-FEATURES.csv: a text-only "open this on your
+    // phone" message is a dead end for a desktop visitor with no other way
+    // forward. The install steps themselves are a genuine technical
+    // blocker on desktop (there's no home-screen/PWA install surface for a
+    // desktop browser here), so the fix is a scannable QR code straight to
+    // this same page's mobile install flow - not a "continue anyway" link,
+    // since there is nothing on desktop for that link to unlock.
+    const installUrl =
+      typeof window !== "undefined" ? `${window.location.origin}/install-app` : "/install-app";
+
     return (
       <AuthShell
         title="Get Glavyx Provider on your phone"
         subtitle="The provider portal installs like an app from your phone's browser — this page can't install it here."
       >
-        <p className="rounded-xl border border-line bg-surface-subtle px-4 py-3 text-center text-sm font-medium text-fg">
-          Open this page on your phone to continue.
-        </p>
+        <div className="flex flex-col items-center gap-4">
+          {/* Deliberately literal white/black rather than the surface/fg
+              tokens: a QR code's scanability depends on real light-on-dark
+              contrast, which must hold in dark mode too - token-driven
+              colors here would invert to a low-contrast dark-on-dark code. */}
+          <div className="rounded-2xl border border-line bg-white p-4">
+            <QRCodeSVG value={installUrl} size={168} level="M" marginSize={0} title="Scan to open the install page on your phone" />
+          </div>
+          <p className="rounded-xl border border-line bg-surface-subtle px-4 py-3 text-center text-sm font-medium text-fg">
+            Scan this code with your phone&apos;s camera, or open this page on your phone to continue.
+          </p>
+        </div>
       </AuthShell>
     );
   }
