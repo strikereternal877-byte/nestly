@@ -24,8 +24,14 @@ import type { SlotAvailability } from "@/lib/types";
 export function ServiceAvailability({ serviceId }: { serviceId: string }) {
   const { city, locality } = useSelectedCity();
 
+  // `undefined` means the persisted city is still being read (same
+  // transient state `CategoryTiles` guards against) - rendering `null` here
+  // left this whole card blank for that instant, then popping in a moment
+  // later and shoving everything below it down the page
+  // (docs/OPEN-FIXES-FEATURES.csv "Service detail, Page hydration"). A
+  // skeleton sized to the resolved card keeps the same slot reserved instead.
   if (city === undefined) {
-    return null;
+    return <ServiceAvailabilitySkeleton />;
   }
 
   return (
@@ -47,6 +53,19 @@ export function ServiceAvailability({ serviceId }: { serviceId: string }) {
       ) : (
         <ServiceLocalityAvailability serviceId={serviceId} localityId={locality.id} localityName={locality.name} />
       )}
+    </section>
+  );
+}
+
+/** Mirrors the loaded card's frame (heading + a couple of content lines) so nothing jumps when the persisted city resolves. */
+function ServiceAvailabilitySkeleton() {
+  return (
+    <section
+      aria-hidden
+      className="flex flex-col gap-3 rounded-2xl border border-line bg-surface p-5 shadow-sm"
+    >
+      <Skeleton className="h-4 w-40" />
+      <Skeleton className="h-16 w-full" />
     </section>
   );
 }

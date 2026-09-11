@@ -41,6 +41,13 @@ export function PageBanner({
         "relative isolate overflow-hidden px-4 sm:px-6",
         size === "compact" ? "rounded-2xl py-8 sm:py-10" : "py-12 sm:py-16",
         !imageUrl && "listing-banner",
+        // A brand-toned ground behind the image, not the page background -
+        // the photo is known and requested from the very first paint
+        // (`priority`, same-origin), but still takes a moment to arrive over
+        // the network. Without this the band was a stark blank flash until
+        // it did (docs/OPEN-FIXES-FEATURES.csv "Service detail, Page
+        // hydration").
+        imageUrl && "bg-brand-900",
       )}
     >
       {imageUrl ? (
