@@ -122,16 +122,22 @@ WHERE c.name = :'city_name'
 -- app would never offer the category. That is BookabilityProbe's
 -- bookability.no_category_city_mapping gap, and the reason it reports
 -- IsDiscoverable separately from IsBookable.
+-- DISTINCT is on (category_id, city_id) in the subquery, before id is
+-- generated - a DISTINCT that included gen_random_uuid() in the same SELECT
+-- would never dedupe, since the random id makes every row unique on its own.
 INSERT INTO category_city_mapping (id, category_id, city_id, is_active)
-SELECT DISTINCT gen_random_uuid(), sv.category_id, c.id, TRUE
-FROM service sv
-CROSS JOIN city c
-JOIN state s ON s.id = c.state_id AND s.code = :'state_code'
-WHERE c.name = :'city_name'
-  AND sv.is_active
-  AND NOT EXISTS (
-      SELECT 1 FROM category_city_mapping m
-      WHERE m.category_id = sv.category_id AND m.city_id = c.id);
+SELECT gen_random_uuid(), t.category_id, t.city_id, TRUE
+FROM (
+    SELECT DISTINCT sv.category_id, c.id AS city_id
+    FROM service sv
+    CROSS JOIN city c
+    JOIN state s ON s.id = c.state_id AND s.code = :'state_code'
+    WHERE c.name = :'city_name'
+      AND sv.is_active
+) t
+WHERE NOT EXISTS (
+    SELECT 1 FROM category_city_mapping m
+    WHERE m.category_id = t.category_id AND m.city_id = t.city_id);
 
 -- 8. Slot windows -----------------------------------------------------------
 -- Three standard windows. Times are intervals from midnight, matching the
