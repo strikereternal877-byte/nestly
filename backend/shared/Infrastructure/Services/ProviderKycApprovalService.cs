@@ -1,4 +1,5 @@
 using Nestly.Application;
+using Nestly.Application.Abstractions.Auditing;
 using Nestly.Application.ProviderManagement;
 using Nestly.Application.Serviceability;
 using Nestly.BuildingBlocks.Results;
@@ -13,17 +14,20 @@ public class ProviderKycApprovalService : IProviderKycApprovalService
     private readonly IProviderKycDocumentRepository _kycDocumentRepository;
     private readonly IProviderBackgroundCheckRepository _backgroundCheckRepository;
     private readonly IServiceabilityMappingManagementService _serviceabilityMappingManagementService;
+    private readonly IAuditLogWriter _auditLogWriter;
 
     public ProviderKycApprovalService(
         IProviderRepository providerRepository,
         IProviderKycDocumentRepository kycDocumentRepository,
         IProviderBackgroundCheckRepository backgroundCheckRepository,
-        IServiceabilityMappingManagementService serviceabilityMappingManagementService)
+        IServiceabilityMappingManagementService serviceabilityMappingManagementService,
+        IAuditLogWriter auditLogWriter)
     {
         _providerRepository = providerRepository;
         _kycDocumentRepository = kycDocumentRepository;
         _backgroundCheckRepository = backgroundCheckRepository;
         _serviceabilityMappingManagementService = serviceabilityMappingManagementService;
+        _auditLogWriter = auditLogWriter;
     }
 
     public async Task<Result<ProviderKycDocumentResponse>> ApproveDocumentAsync(Guid documentId, Guid adminUserId)
@@ -40,6 +44,7 @@ public class ProviderKycApprovalService : IProviderKycApprovalService
         }
 
         document.Approve(adminUserId);
+        await _auditLogWriter.WriteAsync(new AuditEntry("ProviderKycDocument", document.Id.ToString(), "Approved"));
         await _kycDocumentRepository.UpdateAsync(document);
 
         // Advances onboarding to KycVerified the first time a document is
@@ -68,6 +73,8 @@ public class ProviderKycApprovalService : IProviderKycApprovalService
         }
 
         document.Reject(adminUserId);
+        await _auditLogWriter.WriteAsync(new AuditEntry(
+            "ProviderKycDocument", document.Id.ToString(), "Rejected", NewValues: request.Reason));
         await _kycDocumentRepository.UpdateAsync(document);
 
         return ToResponse(document);
@@ -86,6 +93,8 @@ public class ProviderKycApprovalService : IProviderKycApprovalService
         }
 
         var check = new ProviderBackgroundCheck(Guid.NewGuid(), providerId, request.Status, adminUserId, request.Notes);
+        await _auditLogWriter.WriteAsync(new AuditEntry(
+            "ProviderBackgroundCheck", check.Id.ToString(), check.Status.ToString(), NewValues: check.Notes));
         await _backgroundCheckRepository.AddAsync(check);
 
         return new ProviderBackgroundCheckResponse(check.Id, check.Status, check.CheckedBy, check.CheckedAt, check.Notes);
@@ -124,6 +133,7 @@ public class ProviderKycApprovalService : IProviderKycApprovalService
 
         provider.ChangeStatus(ProviderStatus.Active);
         provider.MarkOnboardingCompleted();
+        await _auditLogWriter.WriteAsync(new AuditEntry("Provider", provider.Id.ToString(), "Activated"));
         await _providerRepository.UpdateAsync(provider);
 
         // Bug 3 auto-enable: skills/areas set earlier during onboarding

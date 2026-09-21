@@ -47,6 +47,7 @@ Every topic has exactly **one authoritative document**.
 | [PHASE-26-HANDOFF.md](PHASE-26-HANDOFF.md) | Execution plan for Phase 26 — branches in flight, merge order, per-agent file-ownership boundaries, and the verification gate before any row is closed |
 | [UAT-REPORT.md](UAT-REPORT.md) | User acceptance testing results |
 | [BOOKING-FLOW-AUDIT.md](BOOKING-FLOW-AUDIT.md) | Point-in-time audit of the booking funnel (source of the Phase 13 defect rows) |
+| [ENTERPRISE-GAP-WALKTHROUGH-2026-09-22.md](ENTERPRISE-GAP-WALKTHROUGH-2026-09-22.md) | Point-in-time manual pass over the full signup→booking→completion→payout lifecycle as customer, provider and admin — not a pass/fail check, a list of what enterprise readiness still needs beyond the happy path |
 | [CATALOG-ARCHITECTURE-REVIEW.md](CATALOG-ARCHITECTURE-REVIEW.md) | Point-in-time review of the catalog hierarchy (service groups, variants, add-on groups) |
 | [migrations-audit.md](migrations-audit.md) · [migrations-plan.md](migrations-plan.md) | Point-in-time migration audit and remediation plan |
 | [PHASE-12-HANDOFF.md](PHASE-12-HANDOFF.md) · [PHASE-16-CLOUD-BRIEF.md](PHASE-16-CLOUD-BRIEF.md) | Historical phase handoff notes — superseded, kept for provenance |
