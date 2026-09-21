@@ -19,6 +19,10 @@ public class OtpService : IOTPService
     private static readonly TimeSpan ResendCooldown = TimeSpan.FromSeconds(30);
     private const int MaxAttempts = 5;
 
+    // Only ever checked when OtpOptions.AllowDevBypass is true - see that
+    // property's doc comment for why this can't reach a deployed environment.
+    private const string DevBypassCode = "000000";
+
     private readonly NestlyDbContext _context;
     private readonly INotificationProvider _notificationProvider;
     private readonly OtpOptions _options;
@@ -101,7 +105,8 @@ public class OtpService : IOTPService
 
         otp.RecordAttempt();
 
-        if (otp.CodeHash != Hash(otpCode))
+        bool isDevBypass = _options.AllowDevBypass && otpCode == DevBypassCode;
+        if (!isDevBypass && otp.CodeHash != Hash(otpCode))
         {
             await _context.SaveChangesAsync();
             return Result.Failure(Error.Validation("Otp.Incorrect", "The OTP code is incorrect."));

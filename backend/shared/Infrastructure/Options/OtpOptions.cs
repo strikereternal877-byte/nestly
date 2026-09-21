@@ -16,4 +16,14 @@ public class OtpOptions
 
     [Required, MinLength(32)]
     public string Pepper { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Lets <c>OtpService</c>/<c>ProviderOtpService</c> accept a fixed
+    /// well-known code instead of the real one - for local testing only,
+    /// where the sandbox notification provider deliberately never exposes
+    /// the real code (no-secrets-in-logs rule). Defaults to false and is set
+    /// true only in appsettings.Development.json, never in appsettings.json
+    /// or any deployed environment's config, so it cannot reach staging/production.
+    /// </summary>
+    public bool AllowDevBypass { get; set; }
 }
