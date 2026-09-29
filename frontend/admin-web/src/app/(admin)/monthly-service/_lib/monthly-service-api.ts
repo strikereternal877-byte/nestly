@@ -312,9 +312,9 @@ export function formatPeriod(periodStart: string): string {
   return new Date(y, m - 1, 1).toLocaleDateString("en-IN", { month: "long", year: "numeric" });
 }
 
-const PLANS = `${API_V1}/admin/monthly-service-plans`;
-const CONTRACTS = `${API_V1}/admin/monthly-service-contracts`;
-const INVOICES = `${API_V1}/admin/monthly-service-invoices`;
+const PLANS = `${API_V1}/monthly-service-plans`;
+const CONTRACTS = `${API_V1}/monthly-service-contracts`;
+const INVOICES = `${API_V1}/monthly-service-invoices`;
 
 const post = <T>(url: string, body?: unknown) =>
   apiFetch<T>(url, { method: "POST", authenticated: true, body: body === undefined ? undefined : JSON.stringify(body) });

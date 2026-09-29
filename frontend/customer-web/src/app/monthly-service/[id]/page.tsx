@@ -242,18 +242,16 @@ function AttendanceCalendar({ contract }: { contract: MonthlyServiceContract }) 
     <Card
       title="Attendance"
       description="Tap a day to see details, skip an upcoming visit, or report a problem."
-      actions={
-        <div className="flex items-center gap-1">
-          <Button size="sm" variant="ghost" aria-label="Previous month" onClick={() => shift(-1)}>
-            ‹
-          </Button>
-          <span className="min-w-[8.5rem] text-center text-sm font-medium text-fg">{monthTitle(cursor.year, cursor.month)}</span>
-          <Button size="sm" variant="ghost" aria-label="Next month" onClick={() => shift(1)}>
-            ›
-          </Button>
-        </div>
-      }
     >
+      <div className="mb-4 flex items-center justify-between rounded-xl border border-line px-2 py-1">
+        <Button size="sm" variant="ghost" aria-label="Previous month" onClick={() => shift(-1)}>
+          ‹
+        </Button>
+        <span className="text-sm font-semibold text-fg">{monthTitle(cursor.year, cursor.month)}</span>
+        <Button size="sm" variant="ghost" aria-label="Next month" onClick={() => shift(1)}>
+          ›
+        </Button>
+      </div>
       {query.isPending ? (
         <div className="h-72 animate-pulse rounded-xl bg-surface-2" aria-hidden />
       ) : query.isError ? (

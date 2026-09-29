@@ -83,7 +83,7 @@ export default function MonthlyServiceInvoicesPage() {
       <MonthlyServiceTabs />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <KpiCard icon={KpiIcons.money} tone="danger" label="Outstanding" value={query.data ? formatCurrency(query.data.outstandingAmount) : "—"} />
+        <KpiCard icon={KpiIcons.money} tone={query.data && query.data.outstandingAmount > 0 ? "danger" : "success"} label="Outstanding" value={query.data ? formatCurrency(query.data.outstandingAmount) : "—"} />
       </div>
 
       <FilterBar activeCount={countActiveFilters({ status })} onClear={() => setStatus("")} busy={query.isFetching} columns={2}>
