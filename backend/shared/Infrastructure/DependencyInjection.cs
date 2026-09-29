@@ -11,6 +11,7 @@ using Microsoft.IdentityModel.Tokens;
 using Nestly.Application;
 using Nestly.Application.Abstractions.Auditing;
 using Nestly.Application.Amc;
+using Nestly.Application.MonthlyService;
 using Nestly.Application.Abstractions.Observability;
 using Nestly.Application.Abstractions.Time;
 using Nestly.Application.AdminRoleManagement;
@@ -232,6 +233,13 @@ public static class DependencyInjection
         services
             .AddOptions<RecurringBookingOptions>()
             .Bind(configuration.GetSection(RecurringBookingOptions.SectionName))
+            .ValidateDataAnnotations();
+
+        // docs/MONTHLY-SERVICE.md: attendance windows, billing days - not
+        // secrets, all with production-sensible defaults.
+        services
+            .AddOptions<MonthlyServiceOptions>()
+            .Bind(configuration.GetSection(MonthlyServiceOptions.SectionName))
             .ValidateDataAnnotations();
 
         // Task 240: not a secret, has a safe production-sensible default -
@@ -742,6 +750,18 @@ public static class DependencyInjection
         services.AddScoped<IAmcServiceVisitRepository, AmcServiceVisitRepository>();
         services.AddScoped<IAmcCustomerService, AmcCustomerService>();
         services.AddScoped<IAmcAdminService, AmcAdminService>();
+
+        // Monthly Service module (docs/MONTHLY-SERVICE.md): maid-style
+        // month-long engagements, attendance register, month-end billing.
+        services.AddScoped<IMonthlyServicePlanRepository, MonthlyServicePlanRepository>();
+        services.AddScoped<IMonthlyServiceContractRepository, MonthlyServiceContractRepository>();
+        services.AddScoped<IMonthlyServiceAttendanceRepository, MonthlyServiceAttendanceRepository>();
+        services.AddScoped<IMonthlyServiceInvoiceRepository, MonthlyServiceInvoiceRepository>();
+        services.AddScoped<Services.MonthlyService.MonthlyServiceEngine>();
+        services.AddScoped<IMonthlyServiceCustomerService, Services.MonthlyService.MonthlyServiceCustomerService>();
+        services.AddScoped<IMonthlyServiceProviderService, Services.MonthlyService.MonthlyServiceProviderService>();
+        services.AddScoped<IMonthlyServiceAdminService, Services.MonthlyService.MonthlyServiceAdminService>();
+        services.AddScoped<IMonthlyServiceDailyJob, Services.MonthlyService.MonthlyServiceDailyJob>();
 
         // Tasks 184-186: recurring booking plans. IRecurringBookingPlanService
         // depends on the existing IBookingSummaryService/IBookingService

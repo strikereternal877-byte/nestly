@@ -1,0 +1,219 @@
+using Nestly.BuildingBlocks.Primitives;
+
+namespace Nestly.Domain.MonthlyService;
+
+/// <summary>
+/// A customer's month-long engagement with one professional
+/// (docs/MONTHLY-SERVICE.md) - "Sunita comes Mon-Sat at 8am". The aggregate
+/// root for the module: owns the schedule, the assigned professional and the
+/// lifecycle. The day-by-day record of work lives in
+/// <see cref="MonthlyServiceAttendance"/> rows, queried independently (the
+/// same reasoning <see cref="AmcServiceVisit"/> gives for not being a
+/// navigation collection - a year of daily rows is not something to load
+/// with the contract).
+///
+/// Every plan term is snapshotted at request time, same convention as
+/// <see cref="CustomerAmcContract"/>: an admin repricing a plan never changes
+/// an existing customer's rate mid-engagement.
+/// </summary>
+public class MonthlyServiceContract : AggregateRoot<Guid>
+{
+    public const int MaxNoteLength = 500;
+
+    private List<string> _includedTasksSnapshot = [];
+
+    public Guid CustomerId { get; private set; }
+
+    /// <summary>Traceability only - see the class doc comment.</summary>
+    public Guid PlanId { get; private set; }
+
+    public string PlanNameSnapshot { get; private set; } = string.Empty;
+
+    public Guid ServiceIdSnapshot { get; private set; }
+
+    public Guid CityIdSnapshot { get; private set; }
+
+    public MonthlyServicePlanBasis BasisSnapshot { get; private set; }
+
+    public decimal? HoursPerVisitSnapshot { get; private set; }
+
+    public IReadOnlyList<string> IncludedTasksSnapshot
+    {
+        get => _includedTasksSnapshot;
+        private set => _includedTasksSnapshot = value.ToList();
+    }
+
+    public decimal RatePerVisitSnapshot { get; private set; }
+
+    public decimal CommissionPercentSnapshot { get; private set; }
+
+    public Guid AddressId { get; private set; }
+
+    public MonthlyServiceWeekdays Weekdays { get; private set; }
+
+    /// <summary>Visit start, business-local time of day.</summary>
+    public TimeOnly VisitStartTime { get; private set; }
+
+    public DateOnly StartDate { get; private set; }
+
+    /// <summary>Null = runs until cancelled.</summary>
+    public DateOnly? EndDate { get; private set; }
+
+    /// <summary>The one professional for this engagement (docs/MONTHLY-SERVICE.md BUSINESS DECISIONS #3). Null only while <see cref="MonthlyServiceContractStatus.PendingAssignment"/>.</summary>
+    public Guid? ProviderId { get; private set; }
+
+    public DateTime? ProviderAssignedAtUtc { get; private set; }
+
+    public MonthlyServiceContractStatus Status { get; private set; }
+
+    public MonthlyServicePauseReason? PauseReason { get; private set; }
+
+    public string? CustomerNote { get; private set; }
+
+    public DateTime CreatedAtUtc { get; private set; }
+
+    public DateTime UpdatedAtUtc { get; private set; }
+
+    public DateTime? CancelledAtUtc { get; private set; }
+
+    public string? CancellationReason { get; private set; }
+
+    protected MonthlyServiceContract() { }
+
+    public MonthlyServiceContract(
+        Guid id,
+        Guid customerId,
+        MonthlyServicePlan plan,
+        Guid addressId,
+        MonthlyServiceWeekdays weekdays,
+        TimeOnly visitStartTime,
+        DateOnly startDate,
+        DateOnly? endDate,
+        string? customerNote,
+        DateTime nowUtc)
+        : base(id)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+
+        if (!plan.IsActive)
+        {
+            throw new InvalidOperationException("This plan is not open to new requests.");
+        }
+
+        if ((weekdays & MonthlyServiceWeekdays.All) == MonthlyServiceWeekdays.None || (weekdays & ~MonthlyServiceWeekdays.All) != 0)
+        {
+            throw new ArgumentException("Choose at least one valid day of the week.", nameof(weekdays));
+        }
+
+        if (endDate is { } end && end < startDate)
+        {
+            throw new ArgumentException("End date cannot be before the start date.", nameof(endDate));
+        }
+
+        if (customerNote is { Length: > MaxNoteLength })
+        {
+            throw new ArgumentOutOfRangeException(nameof(customerNote), $"Note must be at most {MaxNoteLength} characters.");
+        }
+
+        CustomerId = customerId;
+        PlanId = plan.Id;
+        PlanNameSnapshot = plan.Name;
+        ServiceIdSnapshot = plan.ServiceId;
+        CityIdSnapshot = plan.CityId;
+        BasisSnapshot = plan.Basis;
+        HoursPerVisitSnapshot = plan.HoursPerVisit;
+        _includedTasksSnapshot = plan.IncludedTasks.ToList();
+        RatePerVisitSnapshot = plan.RatePerVisit;
+        CommissionPercentSnapshot = plan.CommissionPercent;
+        AddressId = addressId;
+        Weekdays = weekdays;
+        VisitStartTime = visitStartTime;
+        StartDate = startDate;
+        EndDate = endDate;
+        CustomerNote = string.IsNullOrWhiteSpace(customerNote) ? null : customerNote.Trim();
+        Status = MonthlyServiceContractStatus.PendingAssignment;
+        CreatedAtUtc = nowUtc;
+        UpdatedAtUtc = nowUtc;
+    }
+
+    /// <summary>
+    /// Visit length used for schedule-conflict checks: the hourly plan's hours,
+    /// or one hour for a task-based plan (whose length is not fixed).
+    /// </summary>
+    public TimeSpan VisitDuration => TimeSpan.FromHours((double)(HoursPerVisitSnapshot ?? 1m));
+
+    public bool IsScheduledOn(DateOnly date) =>
+        Weekdays.Includes(date.DayOfWeek) && date >= StartDate && (EndDate is null || date <= EndDate);
+
+    /// <summary>
+    /// Admin assigns the professional. From <see cref="MonthlyServiceContractStatus.PendingAssignment"/>
+    /// this activates the contract. On a running contract it replaces the
+    /// professional - an admin-only action for when the original leaves
+    /// (leave days themselves are never covered by a replacement).
+    /// </summary>
+    public void AssignProvider(Guid providerId, DateTime nowUtc)
+    {
+        if (providerId == Guid.Empty)
+        {
+            throw new ArgumentException("A professional is required.", nameof(providerId));
+        }
+
+        if (Status == MonthlyServiceContractStatus.Cancelled)
+        {
+            throw new InvalidOperationException("Cannot assign a professional to a cancelled contract.");
+        }
+
+        ProviderId = providerId;
+        ProviderAssignedAtUtc = nowUtc;
+        if (Status == MonthlyServiceContractStatus.PendingAssignment)
+        {
+            Status = MonthlyServiceContractStatus.Active;
+        }
+
+        UpdatedAtUtc = nowUtc;
+    }
+
+    public void Pause(MonthlyServicePauseReason reason, DateTime nowUtc)
+    {
+        if (Status != MonthlyServiceContractStatus.Active)
+        {
+            throw new InvalidOperationException($"Only an active contract can be paused (this one is {Status}).");
+        }
+
+        Status = MonthlyServiceContractStatus.Paused;
+        PauseReason = reason;
+        UpdatedAtUtc = nowUtc;
+    }
+
+    public void Resume(DateTime nowUtc)
+    {
+        if (Status != MonthlyServiceContractStatus.Paused)
+        {
+            throw new InvalidOperationException($"Only a paused contract can be resumed (this one is {Status}).");
+        }
+
+        Status = ProviderId is null ? MonthlyServiceContractStatus.PendingAssignment : MonthlyServiceContractStatus.Active;
+        PauseReason = null;
+        UpdatedAtUtc = nowUtc;
+    }
+
+    /// <summary>Terminal. Visits already recorded are still billed at month end; future scheduled days are removed by the application service.</summary>
+    public void Cancel(string? reason, DateTime nowUtc)
+    {
+        if (Status == MonthlyServiceContractStatus.Cancelled)
+        {
+            throw new InvalidOperationException("This contract is already cancelled.");
+        }
+
+        if (reason is { Length: > MaxNoteLength })
+        {
+            throw new ArgumentOutOfRangeException(nameof(reason), $"Reason must be at most {MaxNoteLength} characters.");
+        }
+
+        Status = MonthlyServiceContractStatus.Cancelled;
+        PauseReason = null;
+        CancellationReason = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
+        CancelledAtUtc = nowUtc;
+        UpdatedAtUtc = nowUtc;
+    }
+}

@@ -210,6 +210,10 @@ app.ScheduleBookingFulfilmentPromotion();
 // simply rely on being touched again by the next provider event.
 app.ScheduleServiceabilityAutoDisableSweepJob();
 
+// docs/MONTHLY-SERVICE.md: closes past days, schedules ahead, issues
+// month-end invoices and pauses contracts unpaid past grace - once a day.
+app.ScheduleMonthlyServiceDailyJob();
+
 // Task 294: delivers customer notifications whose in-process, post-commit
 // dispatch never completed. This is the "and a retry path that does not depend
 // on the in-process handler having run" half of the rule docs/ARCHITECTURE.md

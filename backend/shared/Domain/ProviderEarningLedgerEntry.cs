@@ -33,7 +33,10 @@ public enum ProviderEarningSourceType
     NestlyCoinsClawback,
 
     /// <summary>Credited when a provider referral qualifies and is disbursed (PROVIDER-REFERRAL.md), mirroring WalletSourceType.ReferralReward. SourceReferenceId is the ProviderReferral's id.</summary>
-    ProviderReferralReward
+    ProviderReferralReward,
+
+    /// <summary>Credited (net of commission) when a monthly service invoice is paid (docs/MONTHLY-SERVICE.md). SourceReferenceId is the MonthlyServiceInvoice's id.</summary>
+    MonthlyServiceInvoice
 }
 
 /// <summary>

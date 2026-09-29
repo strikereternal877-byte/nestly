@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Nestly.Domain;
+using Nestly.Domain.MonthlyService;
 using Nestly.Domain.NestlyCoins;
 
 namespace Nestly.Infrastructure.Persistence;
@@ -87,6 +88,10 @@ public sealed class NestlyDbContext : DbContext
     public DbSet<AmcPlan> AmcPlans { get; set; }
     public DbSet<CustomerAmcContract> CustomerAmcContracts { get; set; }
     public DbSet<AmcServiceVisit> AmcServiceVisits { get; set; }
+    public DbSet<MonthlyServicePlan> MonthlyServicePlans { get; set; }
+    public DbSet<MonthlyServiceContract> MonthlyServiceContracts { get; set; }
+    public DbSet<MonthlyServiceAttendance> MonthlyServiceAttendance { get; set; }
+    public DbSet<MonthlyServiceInvoice> MonthlyServiceInvoices { get; set; }
 
     public NestlyDbContext(DbContextOptions<NestlyDbContext> options) : base(options)
     {
