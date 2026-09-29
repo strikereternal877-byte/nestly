@@ -7,6 +7,7 @@ import { Button, Card, EmptyState, PageHeading, Skeleton } from "@/components/ui
 import { isNotImplemented } from "@/lib/api";
 import { formatDateTime, formatInr, formatIsoDate, formatTime } from "@/lib/format";
 import { listJobs } from "@/lib/jobs-api";
+import { listMonthlyVisits, MonthlyServiceAttendanceStatus } from "@/lib/monthly-service";
 import { pickActiveJob } from "@/lib/jobs-active";
 import { JobStatus } from "@/lib/jobs-types";
 import { JobStatusBadge } from "../jobs/_components/JobStatusBadge";
@@ -59,6 +60,7 @@ export default function TodayPage() {
   return (
     <div>
       <PageHeading title="Today" subtitle="The job that needs you right now." />
+      <MonthlyVisitsToday />
 
       {query.isPending ? (
         <TodaySkeleton />
@@ -202,5 +204,29 @@ function TodaySkeleton() {
       <Skeleton className="h-4 w-full" />
       <Skeleton className="mt-2 h-11 w-full rounded-lg" />
     </div>
+  );
+}
+
+/**
+ * Monthly Service homes due today (docs/MONTHLY-SERVICE.md) - a one-line
+ * pointer, since on a phone the Monthly clients screen is not in the tab bar.
+ * Renders nothing for a professional with no monthly work today.
+ */
+function MonthlyVisitsToday() {
+  const query = useQuery({ queryKey: ["monthly-visits", "today"], queryFn: () => listMonthlyVisits(), retry: false });
+  const visits = query.data ?? [];
+  if (visits.length === 0) return null;
+  const pending = visits.filter((v) => v.attendance.status === MonthlyServiceAttendanceStatus.Scheduled).length;
+  return (
+    <Link
+      href="/monthly"
+      className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-brand-200 bg-brand-50 px-4 py-3 text-sm text-brand-700 transition-colors hover:bg-brand-100 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-300"
+    >
+      <span>
+        <span className="font-semibold">{visits.length} monthly home{visits.length === 1 ? "" : "s"} today</span>
+        {pending > 0 ? ` · ${pending} to check in` : " · all marked"}
+      </span>
+      <span aria-hidden>›</span>
+    </Link>
   );
 }

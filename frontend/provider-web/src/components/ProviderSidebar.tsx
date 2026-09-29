@@ -26,11 +26,14 @@ const NAV_ITEMS: readonly {
   label: string;
   icon: ReactNode;
   flagKey?: keyof import("@/lib/feature-flags").ProviderFeatureFlags;
+  /** Side rail only - the phone tab bar is already full; on a phone the same screen is reached from Today. */
+  railOnly?: boolean;
 }[] = [
   { key: "today", href: "/today", label: "Today", icon: <TodayIcon /> },
   { key: "offers", href: "/offers", label: "Offers", icon: <OfferIcon />, flagKey: "offersScreenEnabled" },
   { key: "active", href: "/active", label: "Active", icon: <ActiveJobIcon /> },
   { key: "jobs", href: "/jobs", label: "Jobs", icon: <BriefcaseIcon /> },
+  { key: "monthly", href: "/monthly", label: "Monthly clients", icon: <HomeRepeatIcon />, railOnly: true },
   { key: "availability", href: "/availability", label: "Availability", icon: <CalendarIcon /> },
   { key: "earnings", href: "/earnings", label: "Earnings", icon: <WalletIcon /> },
   { key: "profile", href: "/profile", label: "Profile", icon: <UserIcon /> },
@@ -230,7 +233,7 @@ export function ProviderTabBar() {
   const isActive = useActiveMatcher();
   const pendingOfferCount = usePendingOfferCount();
   const activeJobCount = useActiveJobCount();
-  const navItems = useVisibleNavItems();
+  const navItems = useVisibleNavItems().filter((item) => !item.railOnly);
 
   // See isJobDetailPath's comment - redundant with that screen's own sticky
   // action bar.
@@ -279,6 +282,18 @@ const ICON_PROPS = {
   className: "h-5 w-5 shrink-0",
   "aria-hidden": true,
 } as const;
+
+/** A house with a repeat arrow - a standing monthly engagement at one home. */
+function HomeRepeatIcon(): ReactNode {
+  return (
+    <svg {...ICON_PROPS}>
+      <path d="M4 11.5 12 5l8 6.5" />
+      <path d="M6 10v9h12v-9" />
+      <path d="M14.5 14.5a2.5 2.5 0 1 1-.9-1.9" />
+      <path d="M14 11.5v1.6h-1.6" />
+    </svg>
+  );
+}
 
 function TodayIcon(): ReactNode {
   return (
