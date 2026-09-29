@@ -3,7 +3,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { AuthShell, ResendRow, useResendCountdown } from "@/components/auth-ui";
@@ -34,6 +34,8 @@ const detailsSchema = z.object({
   consentAccepted: z.literal(true, {
     error: "You must accept the terms to register.",
   }),
+  // Matches the backend validator's 20-character cap.
+  referralCode: z.string().trim().max(20, "Referral code is not valid"),
 });
 type DetailsFormValues = z.infer<typeof detailsSchema>;
 
@@ -71,8 +73,22 @@ export default function ProviderRegisterPage() {
       // provider never gave, and would make the schema's z.literal(true) rule
       // unreachable.
       consentAccepted: false as unknown as true,
+      referralCode: "",
     },
   });
+
+  // Shared provider referral links carry the referrer's code as `?ref=`
+  // (ProviderReferralOptions.ShareLinkBaseUrl). Read directly rather than via
+  // useSearchParams so the page stays statically prerendered - same approach
+  // as login/page.tsx.
+  const [referralCodeFromLink, setReferralCodeFromLink] = useState("");
+  useEffect(() => {
+    const code = new URLSearchParams(window.location.search).get("ref")?.trim() ?? "";
+    if (code) {
+      setReferralCodeFromLink(code);
+      detailsForm.setValue("referralCode", code);
+    }
+  }, [detailsForm]);
 
   const requestOtp = emailForm.handleSubmit(async (values) => {
     setError(null);
@@ -98,6 +114,7 @@ export default function ProviderRegisterPage() {
         mobile: values.mobile,
         password: values.password,
         consentAccepted: values.consentAccepted,
+        referralCode: values.referralCode === "" ? null : values.referralCode,
       });
       // /install-app shows the "add to home screen" steps on a mobile
       // browser that hasn't seen them before, then forwards on to /login.
@@ -127,7 +144,7 @@ export default function ProviderRegisterPage() {
     setStep("email");
     setError(null);
     setInfoMessage(null);
-    detailsForm.reset();
+    detailsForm.reset({ ...detailsForm.formState.defaultValues, referralCode: referralCodeFromLink });
   };
 
   const consentError = detailsForm.formState.errors.consentAccepted?.message;
@@ -230,6 +247,13 @@ export default function ProviderRegisterPage() {
                 hint="At least 8 characters."
                 error={detailsForm.formState.errors.password?.message}
                 {...detailsForm.register("password")}
+              />
+              <Field
+                label="Referral code"
+                autoComplete="off"
+                hint="Optional - from another provider's invite link."
+                error={detailsForm.formState.errors.referralCode?.message}
+                {...detailsForm.register("referralCode")}
               />
 
               <div className="flex flex-col gap-1.5">

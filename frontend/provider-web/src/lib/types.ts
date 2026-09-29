@@ -104,6 +104,7 @@ export interface RegisterProviderWithEmailRequest {
   mobile: string;
   password: string;
   consentAccepted: boolean;
+  referralCode?: string | null;
 }
 
 export interface VerifyLoginOtpRequest {
