@@ -66,6 +66,7 @@ export const ACCOUNT_LINKS: readonly {
 }[] = [
   { href: "/bookings", label: "My bookings" },
   { href: "/recurring-bookings", label: "Recurring bookings" },
+  { href: "/monthly-service", label: "Monthly services" },
   { href: "/addresses", label: "Addresses" },
   { href: "/wallet", label: "Wallet", flagKey: "walletEnabled" },
   { href: "/subscription", label: "Glavyx Plus" },
