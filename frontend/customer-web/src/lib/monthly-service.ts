@@ -15,6 +15,17 @@ export enum MonthlyServicePlanBasis {
   TaskBased = 1,
 }
 
+export enum MonthlyServiceFrequency {
+  /** Customer picks any weekdays (a maid). */
+  Weekdays = 0,
+  /** Exactly N weekdays (e.g. car wash 3x a week). */
+  TimesPerWeek = 1,
+  /** Exactly N dates of the month, 1-28 (e.g. car wash 4x a month). */
+  TimesPerMonth = 2,
+}
+
+export const MAX_MONTH_DATE = 28;
+
 export enum MonthlyServiceContractStatus {
   PendingAssignment = 0,
   Active = 1,
@@ -75,6 +86,8 @@ export interface MonthlyServicePlan {
   hoursPerVisit: number | null;
   includedTasks: string[];
   ratePerVisit: number;
+  frequency: MonthlyServiceFrequency;
+  timesPerPeriod: number | null;
 }
 
 export interface MonthlyServiceAddressSummary {
@@ -155,6 +168,9 @@ export interface MonthlyServiceContract {
   createdAtUtc: string;
   cancelledAtUtc: string | null;
   cancellationReason: string | null;
+  frequency: MonthlyServiceFrequency;
+  timesPerPeriod: number | null;
+  monthDates: number[];
 }
 
 export interface MonthlyServiceInvoice {
@@ -193,6 +209,7 @@ export interface MonthlyServiceContractRequestBody {
   startDate: string;
   endDate: string | null;
   note: string | null;
+  monthDates?: number[];
 }
 
 export const MONTHLY_SERVICE_ACTIONS = {
@@ -219,6 +236,27 @@ export function describeDays(days: number[]): string {
   if (set.size === 6 && !set.has(0)) return "Mon – Sat";
   if (set.size === 5 && !set.has(0) && !set.has(6)) return "Mon – Fri";
   return WEEKDAYS.filter((d) => set.has(d.value)).map((d) => d.short).join(", ");
+}
+
+function ordinal(n: number): string {
+  const suffix = n % 10 === 1 && n !== 11 ? "st" : n % 10 === 2 && n !== 12 ? "nd" : n % 10 === 3 && n !== 13 ? "rd" : "th";
+  return `${n}${suffix}`;
+}
+
+/** How often, in words - "3 times a week" / "4 times a month" / null for a free-weekday plan. */
+export function describeFrequency(plan: { frequency: MonthlyServiceFrequency; timesPerPeriod: number | null }): string | null {
+  if (plan.frequency === MonthlyServiceFrequency.TimesPerWeek) return `${plan.timesPerPeriod} time${plan.timesPerPeriod === 1 ? "" : "s"} a week`;
+  if (plan.frequency === MonthlyServiceFrequency.TimesPerMonth) return `${plan.timesPerPeriod} time${plan.timesPerPeriod === 1 ? "" : "s"} a month`;
+  return null;
+}
+
+/** A contract's schedule in words: "Mon – Sat", or "4 times a month (1st, 8th, 15th, 22nd)". */
+export function describeSchedule(contract: { frequency: MonthlyServiceFrequency; timesPerPeriod: number | null; days: number[]; monthDates: number[] }): string {
+  if (contract.frequency === MonthlyServiceFrequency.TimesPerMonth) {
+    return `${describeFrequency(contract)} (${contract.monthDates.map(ordinal).join(", ")})`;
+  }
+  const days = describeDays(contract.days);
+  return contract.frequency === MonthlyServiceFrequency.TimesPerWeek ? `${describeFrequency(contract)} (${days})` : days;
 }
 
 export function describeVisit(plan: { basis: MonthlyServicePlanBasis; hoursPerVisit: number | null }): string {

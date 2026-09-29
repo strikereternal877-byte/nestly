@@ -19,7 +19,7 @@ import {
   MonthlyServicePlanBasis,
   assignMonthlyProvider,
   cancelMonthlyContract,
-  describeDays,
+  describeSchedule,
   formatClock,
   formatDay,
   formatPeriod,
@@ -69,7 +69,7 @@ export default function MonthlyServiceContractPage() {
     <div className="flex w-full flex-col gap-6">
       <PageHeading
         title={`${c.customerName} · ${c.planName}`}
-        subtitle={`${describeDays(c.days)} at ${formatClock(c.visitStartTime)} · ${c.cityName}`}
+        subtitle={`${describeSchedule(c)} at ${formatClock(c.visitStartTime)} · ${c.cityName}`}
         breadcrumbs={<Breadcrumbs items={[{ label: "Monthly Service", href: "/monthly-service" }, { label: c.customerName }]} />}
         actions={canWriteBookings ? <LifecycleActions detail={detail} /> : undefined}
       />

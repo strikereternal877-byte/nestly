@@ -12,7 +12,7 @@ import { useAdminClaims } from "@/lib/use-admin-claims";
 import {
   CONTRACT_STATUS_LABELS,
   MonthlyServiceContractStatus,
-  describeDays,
+  describeSchedule,
   formatClock,
   formatDay,
   runMonthlyDailyJob,
@@ -106,7 +106,7 @@ export default function MonthlyServiceContractsPage() {
       header: "Schedule",
       cell: (row) => (
         <span className="text-sm text-fg">
-          {describeDays(row.days)} · {formatClock(row.visitStartTime)}
+          {describeSchedule(row)} · {formatClock(row.visitStartTime)}
         </span>
       ),
     },

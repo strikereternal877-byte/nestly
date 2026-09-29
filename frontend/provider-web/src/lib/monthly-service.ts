@@ -15,6 +15,12 @@ export enum MonthlyServicePlanBasis {
   TaskBased = 1,
 }
 
+export enum MonthlyServiceFrequency {
+  Weekdays = 0,
+  TimesPerWeek = 1,
+  TimesPerMonth = 2,
+}
+
 export enum MonthlyServiceContractStatus {
   PendingAssignment = 0,
   Active = 1,
@@ -101,6 +107,9 @@ export interface MonthlyContract {
   ratePerVisit: number;
   netPerVisit: number;
   currentMonth: MonthlySummary;
+  frequency: MonthlyServiceFrequency;
+  timesPerPeriod: number | null;
+  monthDates: number[];
 }
 
 export interface MonthlyVisit {
@@ -158,6 +167,18 @@ export function describeDays(days: number[]): string {
   if (set.size === 6 && !set.has(0)) return "Mon – Sat";
   if (set.size === 5 && !set.has(0) && !set.has(6)) return "Mon – Fri";
   return [1, 2, 3, 4, 5, 6, 0].filter((d) => set.has(d)).map((d) => WEEKDAY_SHORT[d]).join(", ");
+}
+
+function ordinal(n: number): string {
+  const suffix = n % 10 === 1 && n !== 11 ? "st" : n % 10 === 2 && n !== 12 ? "nd" : n % 10 === 3 && n !== 13 ? "rd" : "th";
+  return `${n}${suffix}`;
+}
+
+/** "Mon – Sat", "3x a week (Mon, Wed, Fri)" or "4x a month (1st, 8th, 15th, 22nd)". */
+export function describeSchedule(c: { frequency: MonthlyServiceFrequency; timesPerPeriod: number | null; days: number[]; monthDates: number[] }): string {
+  if (c.frequency === MonthlyServiceFrequency.TimesPerMonth) return `${c.timesPerPeriod}x a month (${c.monthDates.map(ordinal).join(", ")})`;
+  if (c.frequency === MonthlyServiceFrequency.TimesPerWeek) return `${c.timesPerPeriod}x a week (${describeDays(c.days)})`;
+  return describeDays(c.days);
 }
 
 export function formatClock(hhmm: string): string {

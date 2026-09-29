@@ -11,7 +11,10 @@ import { canWriteModule } from "@/lib/permissions";
 import { listCities } from "@/lib/serviceability-api";
 import { useAdminClaims } from "@/lib/use-admin-claims";
 import {
+  FREQUENCY_LABELS,
+  MonthlyServiceFrequency,
   MonthlyServicePlanBasis,
+  describePlanFrequency,
   createMonthlyPlan,
   listMonthlyPlans,
   setMonthlyPlanActive,
@@ -58,6 +61,7 @@ export default function MonthlyServicePlansPage() {
       ),
       sortValue: (p) => p.name,
     },
+    { key: "schedule", header: "Schedule", cell: (p) => describePlanFrequency(p) },
     {
       key: "visit",
       header: "Visit",
@@ -138,6 +142,8 @@ function PlanFormModal({ editing, onClose }: { editing: MonthlyServicePlanAdmin 
     tasks: "",
     ratePerVisit: "",
     commissionPercent: "10",
+    frequency: MonthlyServiceFrequency.Weekdays,
+    timesPerPeriod: "",
   });
   const [error, setError] = useState<string | null>(null);
 
@@ -156,8 +162,22 @@ function PlanFormModal({ editing, onClose }: { editing: MonthlyServicePlanAdmin 
             tasks: plan.includedTasks.join("\n"),
             ratePerVisit: String(plan.ratePerVisit),
             commissionPercent: String(plan.commissionPercent),
+            frequency: plan.frequency,
+            timesPerPeriod: plan.timesPerPeriod ? String(plan.timesPerPeriod) : "",
           }
-        : { serviceId: "", cityId: "", name: "", description: "", basis: MonthlyServicePlanBasis.Hourly, hoursPerVisit: "2", tasks: "", ratePerVisit: "", commissionPercent: "10" },
+        : {
+            serviceId: "",
+            cityId: "",
+            name: "",
+            description: "",
+            basis: MonthlyServicePlanBasis.Hourly,
+            hoursPerVisit: "2",
+            tasks: "",
+            ratePerVisit: "",
+            commissionPercent: "10",
+            frequency: MonthlyServiceFrequency.Weekdays,
+            timesPerPeriod: "",
+          },
     );
   }, [open, plan]);
 
@@ -183,6 +203,11 @@ function PlanFormModal({ editing, onClose }: { editing: MonthlyServicePlanAdmin 
     if (!(commission >= 0 && commission <= 50)) return setError("Commission must be between 0 and 50%.");
     if (form.basis === MonthlyServicePlanBasis.Hourly && !(hours > 0 && hours <= 12)) return setError("Hours per visit must be between 0 and 12.");
     if (form.basis === MonthlyServicePlanBasis.TaskBased && tasks.length === 0) return setError("List at least one task, one per line.");
+    const times = Number(form.timesPerPeriod);
+    if (form.frequency === MonthlyServiceFrequency.TimesPerWeek && !(Number.isInteger(times) && times >= 1 && times <= 7))
+      return setError("Times per week must be a whole number from 1 to 7.");
+    if (form.frequency === MonthlyServiceFrequency.TimesPerMonth && !(Number.isInteger(times) && times >= 1 && times <= 28))
+      return setError("Times per month must be a whole number from 1 to 28.");
     setError(null);
     save.mutate({
       serviceId: form.serviceId,
@@ -194,6 +219,8 @@ function PlanFormModal({ editing, onClose }: { editing: MonthlyServicePlanAdmin 
       includedTasks: tasks,
       ratePerVisit: rate,
       commissionPercent: commission,
+      frequency: form.frequency,
+      timesPerPeriod: form.frequency === MonthlyServiceFrequency.Weekdays ? null : times,
     });
   };
 
@@ -248,6 +275,33 @@ function PlanFormModal({ editing, onClose }: { editing: MonthlyServicePlanAdmin 
           <Field label="Hours per visit" type="number" min={0.5} max={12} step={0.5} value={form.hoursPerVisit} onChange={set("hoursPerVisit")} />
         ) : (
           <div />
+        )}
+        <Select
+          label="Schedule"
+          value={String(form.frequency)}
+          onChange={(e) => setForm((f) => ({ ...f, frequency: Number(e.target.value) as MonthlyServiceFrequency }))}
+          options={[MonthlyServiceFrequency.Weekdays, MonthlyServiceFrequency.TimesPerWeek, MonthlyServiceFrequency.TimesPerMonth].map((f) => ({
+            value: String(f),
+            label: FREQUENCY_LABELS[f],
+          }))}
+        />
+        {form.frequency === MonthlyServiceFrequency.Weekdays ? (
+          <div />
+        ) : (
+          <Field
+            label={form.frequency === MonthlyServiceFrequency.TimesPerWeek ? "Times per week" : "Times per month"}
+            type="number"
+            min={1}
+            max={form.frequency === MonthlyServiceFrequency.TimesPerWeek ? 7 : 28}
+            step={1}
+            hint={
+              form.frequency === MonthlyServiceFrequency.TimesPerWeek
+                ? "Customer picks exactly this many weekdays."
+                : "Customer picks exactly this many dates (1–28)."
+            }
+            value={form.timesPerPeriod}
+            onChange={set("timesPerPeriod")}
+          />
         )}
         <Field label="Rate per visit (₹)" type="number" min={1} step={1} value={form.ratePerVisit} onChange={set("ratePerVisit")} />
         <Field

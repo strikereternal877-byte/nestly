@@ -17,7 +17,7 @@ import {
   actOnAttendance,
   attendanceLabel,
   cancelMyMonthlyService,
-  describeDays,
+  describeSchedule,
   describeVisit,
   disputeAttendance,
   formatClock,
@@ -94,7 +94,7 @@ function DetailScreen() {
     <main className="flex w-full flex-col">
       <PageBanner
         title={contract.planName}
-        description={`${describeDays(contract.days)} at ${formatClock(contract.visitStartTime)} · ${describeVisit(contract)}`}
+        description={`${describeSchedule(contract)} at ${formatClock(contract.visitStartTime)} · ${describeVisit(contract)}`}
         breadcrumb={
           <BannerBreadcrumb
             items={[{ label: "Home", href: "/" }, { label: "Monthly services", href: "/monthly-service" }, { label: contract.planName }]}

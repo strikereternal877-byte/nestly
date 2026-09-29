@@ -18,7 +18,7 @@ import {
   checkInVisit,
   checkOutVisit,
   currentPosition,
-  describeDays,
+  describeSchedule,
   formatClock,
   listMonthlyContracts,
   listMonthlyInvoices,
@@ -337,7 +337,7 @@ function ClientCard({ contract }: { contract: MonthlyContract }) {
         <div className="min-w-0">
           <p className="truncate text-base font-semibold text-fg">{contract.customerName}</p>
           <p className="text-sm text-fg-muted">
-            {describeDays(contract.days)} · {formatClock(contract.visitStartTime)} · {contract.planName}
+            {describeSchedule(contract)} · {formatClock(contract.visitStartTime)} · {contract.planName}
           </p>
         </div>
         <Badge tone={contract.status === MonthlyServiceContractStatus.Active ? "success" : "warning"}>

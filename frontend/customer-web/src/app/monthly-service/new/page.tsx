@@ -24,7 +24,10 @@ import { useSelectedCity } from "@/hooks/useSelectedCity";
 import { API_V1, apiFetch, describeError } from "@/lib/api";
 import { isoDateOffsetFromToday, todayIsoDate } from "@/lib/date";
 import {
+  MAX_MONTH_DATE,
+  MonthlyServiceFrequency,
   WEEKDAYS,
+  describeFrequency,
   browseMonthlyPlans,
   describeVisit,
   requestMonthlyService,
@@ -36,6 +39,23 @@ import { MY_MONTHLY_SERVICES_KEY } from "../_components/shared";
 /** Average weeks in a month - only for the "about Rs X a month" estimate, never for billing. */
 const WEEKS_PER_MONTH = 4.33;
 const MON_TO_SAT = [1, 2, 3, 4, 5, 6];
+
+/** Sensible starting picks for "N times a week" - spread out, not bunched. */
+const EVEN_SPREAD_WEEKDAYS: Record<number, number[]> = {
+  1: [0],
+  2: [3, 0],
+  3: [1, 3, 5],
+  4: [1, 3, 5, 0],
+  5: [1, 2, 3, 4, 5],
+  6: MON_TO_SAT,
+  7: [1, 2, 3, 4, 5, 6, 0],
+};
+
+/** N dates spread across 1-28, e.g. 4 -> 1, 8, 15, 22. */
+function evenMonthDates(count: number): number[] {
+  const step = 28 / count;
+  return Array.from({ length: count }, (_, i) => Math.floor(i * step) + 1);
+}
 
 /**
  * Choose a monthly plan and request it (docs/MONTHLY-SERVICE.md "HOW IT
@@ -61,6 +81,7 @@ function NewMonthlyServiceScreen() {
   const [plan, setPlan] = useState<MonthlyServicePlan | null>(null);
   const [addressId, setAddressId] = useState<string | null>(null);
   const [days, setDays] = useState<number[]>(MON_TO_SAT);
+  const [monthDates, setMonthDates] = useState<number[]>([]);
   const [visitTime, setVisitTime] = useState("08:00");
   const [startDate, setStartDate] = useState(isoDateOffsetFromToday(1));
   const [note, setNote] = useState("");
@@ -92,32 +113,60 @@ function NewMonthlyServiceScreen() {
     },
   });
 
-  const monthlyEstimate = useMemo(
-    () => (plan ? Math.round(plan.ratePerVisit * days.length * WEEKS_PER_MONTH) : 0),
-    [plan, days.length],
-  );
+  const perMonth = plan?.frequency === MonthlyServiceFrequency.TimesPerMonth;
+  const perWeek = plan?.frequency === MonthlyServiceFrequency.TimesPerWeek;
+  const required = plan?.timesPerPeriod ?? 0;
+
+  const monthlyEstimate = useMemo(() => {
+    if (!plan) return 0;
+    const visits = plan.frequency === MonthlyServiceFrequency.TimesPerMonth ? (plan.timesPerPeriod ?? 0) : days.length * WEEKS_PER_MONTH;
+    return Math.round(plan.ratePerVisit * visits);
+  }, [plan, days.length]);
 
   const choosePlan = (next: MonthlyServicePlan) => {
     setPlan(next);
+    // Start each plan from a valid-looking default rather than a leftover
+    // selection that no longer fits its "N times" rule.
+    if (next.frequency === MonthlyServiceFrequency.TimesPerWeek) {
+      setDays(EVEN_SPREAD_WEEKDAYS[next.timesPerPeriod ?? 1] ?? MON_TO_SAT.slice(0, next.timesPerPeriod ?? 1));
+    } else if (next.frequency === MonthlyServiceFrequency.Weekdays) {
+      setDays(MON_TO_SAT);
+    }
+    setMonthDates(next.frequency === MonthlyServiceFrequency.TimesPerMonth ? evenMonthDates(next.timesPerPeriod ?? 1) : []);
     setFormError(null);
     requestMutation.reset();
     requestAnimationFrame(() => formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
   };
 
   const toggleDay = (value: number) =>
-    setDays((prev) => (prev.includes(value) ? prev.filter((d) => d !== value) : [...prev, value]));
+    setDays((prev) => {
+      if (prev.includes(value)) return prev.filter((d) => d !== value);
+      // A fixed-count plan swaps out the oldest pick instead of going over.
+      if (perWeek && prev.length >= required) return [...prev.slice(1), value];
+      return [...prev, value];
+    });
+
+  const toggleDate = (value: number) =>
+    setMonthDates((prev) => {
+      if (prev.includes(value)) return prev.filter((d) => d !== value);
+      if (prev.length >= required) return [...prev.slice(1), value].sort((a, b) => a - b);
+      return [...prev, value].sort((a, b) => a - b);
+    });
 
   const submit = () => {
     if (!plan || requestMutation.isPending) return;
     if (!addressId) return setFormError("Choose the address the professional should come to.");
-    if (days.length === 0) return setFormError("Choose at least one day.");
+    if (perMonth && monthDates.length !== required) return setFormError(`Choose exactly ${required} date(s) of the month.`);
+    if (!perMonth && days.length === 0) return setFormError("Choose at least one day.");
+    if (perWeek && days.length !== required) return setFormError(`Choose exactly ${required} day(s) of the week.`);
     if (!/^\d{2}:\d{2}$/.test(visitTime)) return setFormError("Choose a visit time.");
     if (startDate < todayIsoDate()) return setFormError("Start date cannot be in the past.");
     setFormError(null);
     requestMutation.mutate({
       planId: plan.id,
       addressId,
-      days,
+      days: perMonth ? [] : days,
+      monthDates: perMonth ? monthDates : undefined,
       visitStartTime: visitTime,
       startDate,
       endDate: null,
@@ -204,7 +253,43 @@ function NewMonthlyServiceScreen() {
               )}
             </Card>
 
-            <Card title="Which days" description="Tap to add or remove a day. All seven means every day.">
+            {perMonth ? (
+            <Card
+              title="Which dates"
+              description={`Choose ${required} date${required === 1 ? "" : "s"} of the month — ${monthDates.length} of ${required} chosen. Dates run 1–28 so every month has them.`}
+            >
+              <div className="grid grid-cols-7 gap-1.5" role="group" aria-label="Visit dates">
+                {Array.from({ length: MAX_MONTH_DATE }, (_, i) => i + 1).map((date) => {
+                  const on = monthDates.includes(date);
+                  return (
+                    <button
+                      key={date}
+                      type="button"
+                      aria-pressed={on}
+                      aria-label={`${date} of every month`}
+                      onClick={() => toggleDate(date)}
+                      className={cx(
+                        "nums h-11 rounded-xl border text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500",
+                        on
+                          ? "border-brand-600 bg-brand-600 text-white"
+                          : "border-line bg-surface text-fg-muted hover:border-brand-400 hover:text-fg",
+                      )}
+                    >
+                      {date}
+                    </button>
+                  );
+                })}
+              </div>
+            </Card>
+            ) : (
+            <Card
+              title="Which days"
+              description={
+                perWeek
+                  ? `Choose ${required} day${required === 1 ? "" : "s"} of the week — ${days.length} of ${required} chosen.`
+                  : "Tap to add or remove a day. All seven means every day."
+              }
+            >
               <div className="flex flex-wrap gap-2" role="group" aria-label="Visit days">
                 {WEEKDAYS.map((day) => {
                   const on = days.includes(day.value);
@@ -227,6 +312,7 @@ function NewMonthlyServiceScreen() {
                   );
                 })}
               </div>
+              {perWeek ? null : (
               <div className="mt-3 flex flex-wrap gap-2 text-xs">
                 <button type="button" className="text-brand-600 hover:underline dark:text-brand-400" onClick={() => setDays(MON_TO_SAT)}>
                   Mon – Sat
@@ -240,7 +326,9 @@ function NewMonthlyServiceScreen() {
                   Every day
                 </button>
               </div>
+              )}
             </Card>
+            )}
 
             <Card title="When">
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -279,7 +367,8 @@ function NewMonthlyServiceScreen() {
               <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center justify-between gap-3">
                 <div className="min-w-0">
                   <p className="text-xs text-fg-muted">
-                    {plan.name} · {days.length} day{days.length === 1 ? "" : "s"} a week
+                    {plan.name} ·{" "}
+                    {perMonth ? `${monthDates.length} visit${monthDates.length === 1 ? "" : "s"} a month` : `${days.length} day${days.length === 1 ? "" : "s"} a week`}
                   </p>
                   <p className="nums text-base font-semibold text-fg">
                     about {inr(monthlyEstimate)}
@@ -313,6 +402,7 @@ function PlanCard({ plan, selected, onChoose }: { plan: MonthlyServicePlan; sele
         </p>
 
         <ul className="mt-4 flex flex-1 flex-col gap-2">
+          {describeFrequency(plan) ? <PlanPoint>{describeFrequency(plan)}</PlanPoint> : null}
           <PlanPoint>{describeVisit(plan)}</PlanPoint>
           {plan.includedTasks.map((task) => (
             <PlanPoint key={task}>{task}</PlanPoint>

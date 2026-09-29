@@ -10,7 +10,7 @@ import { Alert, Button, Card, EmptyState, LinkButton } from "@/components/ui";
 import { describeError } from "@/lib/api";
 import {
   MonthlyServiceContractStatus,
-  describeDays,
+  describeSchedule,
   describeVisit,
   formatClock,
   listMyMonthlyServices,
@@ -97,7 +97,7 @@ function ContractCard({ contract }: { contract: MonthlyServiceContract }) {
         <div className="min-w-0">
           <p className="text-sm font-semibold text-fg">{contract.planName}</p>
           <p className="mt-0.5 text-xs text-fg-muted">
-            {describeDays(contract.days)} · {formatClock(contract.visitStartTime)} · {describeVisit(contract)}
+            {describeSchedule(contract)} · {formatClock(contract.visitStartTime)} · {describeVisit(contract)}
           </p>
         </div>
         <ContractStatusBadge contract={contract} />
