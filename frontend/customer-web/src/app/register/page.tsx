@@ -57,7 +57,7 @@ export default function RegisterPage() {
 function RegisterScreen() {
   const router = useRouter();
   // Shared referral links carry the referrer's code as `?ref=` (see
-  // ReferralOptions.ShareLinkBaseUrl, "https://nestly.app/register?ref=").
+  // ReferralOptions.ShareLinkBaseUrl).
   const referralCodeFromLink = useSearchParams().get("ref") ?? "";
   const [step, setStep] = useState<"otp" | "details">("otp");
   const [email, setEmail] = useState("");

@@ -12,6 +12,6 @@ public class ReferralOptions
 {
     public const string SectionName = "Referral";
 
-    /// <summary>Customer-web registration URL a referral code is appended to as a query parameter, e.g. "https://nestly.app/register?ref=".</summary>
-    public string ShareLinkBaseUrl { get; set; } = "https://nestly.app/register?ref=";
+    /// <summary>Customer-web registration URL a referral code is appended to as a query parameter. Defaults to the live customer-web deployment; override via "Referral:ShareLinkBaseUrl" once a custom domain exists.</summary>
+    public string ShareLinkBaseUrl { get; set; } = "https://glavyx-customer-web.vercel.app/register?ref=";
 }
