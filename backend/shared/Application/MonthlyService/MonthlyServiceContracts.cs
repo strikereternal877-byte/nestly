@@ -20,7 +20,9 @@ public sealed record MonthlyServicePlanAdminResponse(
     bool IsActive,
     int ActiveContractCount,
     DateTime CreatedAtUtc,
-    DateTime UpdatedAtUtc);
+    DateTime UpdatedAtUtc,
+    MonthlyServiceFrequency Frequency,
+    int? TimesPerPeriod);
 
 /// <summary>Create and update share one shape: every field is editable.</summary>
 public sealed record MonthlyServicePlanUpsertRequest(
@@ -32,7 +34,9 @@ public sealed record MonthlyServicePlanUpsertRequest(
     decimal? HoursPerVisit,
     IReadOnlyList<string>? IncludedTasks,
     decimal RatePerVisit,
-    decimal CommissionPercent);
+    decimal CommissionPercent,
+    MonthlyServiceFrequency Frequency = MonthlyServiceFrequency.Weekdays,
+    int? TimesPerPeriod = null);
 
 /// <summary>Customer-facing subset of a plan - no commission.</summary>
 public sealed record MonthlyServicePlanBrowseResponse(
@@ -46,7 +50,9 @@ public sealed record MonthlyServicePlanBrowseResponse(
     MonthlyServicePlanBasis Basis,
     decimal? HoursPerVisit,
     IReadOnlyList<string> IncludedTasks,
-    decimal RatePerVisit);
+    decimal RatePerVisit,
+    MonthlyServiceFrequency Frequency,
+    int? TimesPerPeriod);
 
 // ---- Shared pieces ----
 
@@ -103,7 +109,9 @@ public sealed record MonthlyServiceContractRequest(
     string VisitStartTime,
     DateOnly StartDate,
     DateOnly? EndDate,
-    string? Note);
+    string? Note,
+    /// <summary>Required for a "times per month" plan: exactly that many dates, 1-28. Ignored otherwise.</summary>
+    IReadOnlyList<int>? MonthDates = null);
 
 public sealed record MonthlyServiceContractResponse(
     Guid Id,
@@ -128,7 +136,10 @@ public sealed record MonthlyServiceContractResponse(
     decimal UnpaidAmount,
     DateTime CreatedAtUtc,
     DateTime? CancelledAtUtc,
-    string? CancellationReason);
+    string? CancellationReason,
+    MonthlyServiceFrequency Frequency,
+    int? TimesPerPeriod,
+    IReadOnlyList<int> MonthDates);
 
 public sealed record MonthlyServiceCancelRequest(string? Reason);
 
@@ -183,7 +194,10 @@ public sealed record MonthlyServiceProviderContractResponse(
     MonthlyServiceAddressSummary? Address,
     decimal RatePerVisit,
     decimal NetPerVisit,
-    MonthlyServiceAttendanceSummary CurrentMonth);
+    MonthlyServiceAttendanceSummary CurrentMonth,
+    MonthlyServiceFrequency Frequency,
+    int? TimesPerPeriod,
+    IReadOnlyList<int> MonthDates);
 
 /// <summary>One visit on the professional's day list: the attendance row plus where and what.</summary>
 public sealed record MonthlyServiceProviderVisitResponse(
@@ -214,7 +228,10 @@ public sealed record MonthlyServiceContractAdminListItem(
     string VisitStartTime,
     DateOnly StartDate,
     DateOnly? EndDate,
-    DateTime CreatedAtUtc);
+    DateTime CreatedAtUtc,
+    MonthlyServiceFrequency Frequency,
+    int? TimesPerPeriod,
+    IReadOnlyList<int> MonthDates);
 
 public sealed record MonthlyServiceContractAdminSearchResponse(
     IReadOnlyList<MonthlyServiceContractAdminListItem> Items,

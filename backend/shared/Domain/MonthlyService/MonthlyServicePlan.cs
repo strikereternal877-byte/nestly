@@ -45,6 +45,12 @@ public class MonthlyServicePlan : Entity<Guid>
     /// <summary>Platform commission taken from each paid invoice, 0-50.</summary>
     public decimal CommissionPercent { get; private set; }
 
+    /// <summary>How visits are scheduled - free weekdays (a maid), or N times per week / month (a car wash).</summary>
+    public MonthlyServiceFrequency Frequency { get; private set; }
+
+    /// <summary>The N in "N times a week/month"; null for <see cref="MonthlyServiceFrequency.Weekdays"/>.</summary>
+    public int? TimesPerPeriod { get; private set; }
+
     public bool IsActive { get; private set; }
 
     public DateTime CreatedAtUtc { get; private set; }
@@ -65,10 +71,12 @@ public class MonthlyServicePlan : Entity<Guid>
         decimal? hoursPerVisit,
         IEnumerable<string>? includedTasks,
         decimal ratePerVisit,
-        decimal commissionPercent)
+        decimal commissionPercent,
+        MonthlyServiceFrequency frequency = MonthlyServiceFrequency.Weekdays,
+        int? timesPerPeriod = null)
         : base(id)
     {
-        Apply(serviceId, cityId, name, description, basis, hoursPerVisit, includedTasks, ratePerVisit, commissionPercent);
+        Apply(serviceId, cityId, name, description, basis, hoursPerVisit, includedTasks, ratePerVisit, commissionPercent, frequency, timesPerPeriod);
         IsActive = true;
         CreatedAtUtc = DateTime.UtcNow;
         UpdatedAtUtc = CreatedAtUtc;
@@ -84,9 +92,11 @@ public class MonthlyServicePlan : Entity<Guid>
         IEnumerable<string>? includedTasks,
         decimal ratePerVisit,
         decimal commissionPercent,
-        Guid? updatedByAdminUserId)
+        Guid? updatedByAdminUserId,
+        MonthlyServiceFrequency frequency = MonthlyServiceFrequency.Weekdays,
+        int? timesPerPeriod = null)
     {
-        Apply(serviceId, cityId, name, description, basis, hoursPerVisit, includedTasks, ratePerVisit, commissionPercent);
+        Apply(serviceId, cityId, name, description, basis, hoursPerVisit, includedTasks, ratePerVisit, commissionPercent, frequency, timesPerPeriod);
         UpdatedAtUtc = DateTime.UtcNow;
         UpdatedByAdminUserId = updatedByAdminUserId;
     }
@@ -115,7 +125,9 @@ public class MonthlyServicePlan : Entity<Guid>
         decimal? hoursPerVisit,
         IEnumerable<string>? includedTasks,
         decimal ratePerVisit,
-        decimal commissionPercent)
+        decimal commissionPercent,
+        MonthlyServiceFrequency frequency,
+        int? timesPerPeriod)
     {
         if (serviceId == Guid.Empty)
         {
@@ -179,8 +191,33 @@ public class MonthlyServicePlan : Entity<Guid>
             throw new ArgumentOutOfRangeException(nameof(commissionPercent), $"Commission must be between 0 and {MaxCommissionPercent}%.");
         }
 
+        switch (frequency)
+        {
+            case MonthlyServiceFrequency.Weekdays:
+                timesPerPeriod = null;
+                break;
+            case MonthlyServiceFrequency.TimesPerWeek:
+                if (timesPerPeriod is not (>= 1 and <= 7))
+                {
+                    throw new ArgumentOutOfRangeException(nameof(timesPerPeriod), "Times per week must be between 1 and 7.");
+                }
+
+                break;
+            case MonthlyServiceFrequency.TimesPerMonth:
+                if (timesPerPeriod is not (>= 1 and <= MonthDays.MaxDay))
+                {
+                    throw new ArgumentOutOfRangeException(nameof(timesPerPeriod), $"Times per month must be between 1 and {MonthDays.MaxDay}.");
+                }
+
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(frequency));
+        }
+
         ServiceId = serviceId;
         CityId = cityId;
+        Frequency = frequency;
+        TimesPerPeriod = timesPerPeriod;
         Name = name.Trim();
         Description = string.IsNullOrWhiteSpace(description) ? null : description.Trim();
         Basis = basis;

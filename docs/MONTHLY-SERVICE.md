@@ -44,6 +44,22 @@ work is an attendance register.
 4. **Billing at month end.** Postpaid: one invoice per contract per calendar
    month, for billable visits x rate per visit.
 
+## SCHEDULES
+
+Each plan fixes how its visits are scheduled; the customer then picks the
+specific days when requesting:
+
+| Plan schedule | Example | Customer picks |
+|---|---|---|
+| `Weekdays` | Maid, Mon-Sat | Any set of weekdays (all seven = daily) |
+| `TimesPerWeek` (N) | Car wash 3x a week | Exactly N weekdays |
+| `TimesPerMonth` (N) | Car wash 4x a month | Exactly N dates of the month, 1-28 |
+
+Per-month dates stop at 28 so every month, February included, has every
+chosen date. Everything downstream - attendance, skip/leave, disputes,
+per-visit month-end billing, conflict checks between a professional's
+contracts - works the same for all three.
+
 ## HOW IT WORKS
 
 ```
@@ -120,8 +136,8 @@ attendance is locked.
 
 | Table | Purpose |
 |---|---|
-| `monthly_service_plan` | Admin catalog: service, city, name, description, basis (Hourly/TaskBased), hours per visit, included tasks, rate per visit, commission %, active flag |
-| `monthly_service_contract` | Aggregate root: customer, plan + term snapshots, address, weekdays (bitmask), visit start time, start/end date, assigned professional, status (PendingAssignment/Active/Paused/Cancelled), pause reason |
+| `monthly_service_plan` | Admin catalog: service, city, name, description, basis (Hourly/TaskBased), hours per visit, included tasks, rate per visit, commission %, schedule (frequency + times per period), active flag |
+| `monthly_service_contract` | Aggregate root: customer, plan + term snapshots (incl. frequency), address, weekdays (bitmask), month dates (bitmask, per-month plans), visit start time, start/end date, assigned professional, status (PendingAssignment/Active/Paused/Cancelled), pause reason |
 | `monthly_service_attendance` | One row per contract per date: status, day code, check-in/out time and coordinates, note, dispute fields, invoice id once invoiced |
 | `monthly_service_invoice` | One per contract per month: visit counts by status, rate, amount, commission, net, status (Issued/Overdue/Paid), due date, payment method/reference |
 

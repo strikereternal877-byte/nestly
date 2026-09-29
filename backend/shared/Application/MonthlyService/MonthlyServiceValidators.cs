@@ -37,6 +37,15 @@ public class MonthlyServicePlanUpsertRequestValidator : AbstractValidator<Monthl
         RuleForEach(x => x.IncludedTasks).MaximumLength(MonthlyServicePlan.MaxTaskLength);
         RuleFor(x => x.RatePerVisit).GreaterThan(0).LessThanOrEqualTo(100_000);
         RuleFor(x => x.CommissionPercent).InclusiveBetween(0, MonthlyServicePlan.MaxCommissionPercent);
+        RuleFor(x => x.Frequency).IsInEnum();
+        RuleFor(x => x.TimesPerPeriod)
+            .NotNull().WithMessage("How many times a week?")
+            .InclusiveBetween(1, 7)
+            .When(x => x.Frequency == MonthlyServiceFrequency.TimesPerWeek);
+        RuleFor(x => x.TimesPerPeriod)
+            .NotNull().WithMessage("How many times a month?")
+            .InclusiveBetween(1, MonthDays.MaxDay)
+            .When(x => x.Frequency == MonthlyServiceFrequency.TimesPerMonth);
     }
 }
 
@@ -46,8 +55,14 @@ public class MonthlyServiceContractRequestValidator : AbstractValidator<MonthlyS
     {
         RuleFor(x => x.PlanId).NotEmpty();
         RuleFor(x => x.AddressId).NotEmpty();
-        RuleFor(x => x.Days).NotEmpty().WithMessage("Choose at least one day.");
+        // Days are required unless the plan is per-month (dates instead) - the
+        // service checks the exact count against the plan, which this
+        // validator cannot see.
+        RuleFor(x => x.Days).NotNull();
+        RuleFor(x => x).Must(x => (x.Days?.Count ?? 0) > 0 || (x.MonthDates?.Count ?? 0) > 0)
+            .WithName("Days").WithMessage("Choose at least one day.");
         RuleForEach(x => x.Days).IsInEnum();
+        RuleForEach(x => x.MonthDates).InclusiveBetween(1, MonthDays.MaxDay);
         RuleFor(x => x.VisitStartTime)
             .Must(v => MonthlyServiceTimeFormat.TryParse(v, out _))
             .WithMessage("Visit time must be in HH:mm format.");

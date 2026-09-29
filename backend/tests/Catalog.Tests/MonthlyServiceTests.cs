@@ -148,6 +148,85 @@ public sealed class MonthlyServiceTests : IClassFixture<TestDatabase>
         MonthlyServiceEngine.FindConflict(afterwards, [morningWeekdays]).Should().BeNull("a 2-hour 8am visit ends at 10am");
     }
 
+    [Fact]
+    public void Times_per_week_plan_needs_exactly_that_many_weekdays()
+    {
+        var carWash = NewPlan(MonthlyServicePlanBasis.TaskBased, null, ["Exterior wash"], MonthlyServiceFrequency.TimesPerWeek, 3);
+
+        var tooFew = () => NewContract(carWash, MonthlyServiceWeekdays.Monday | MonthlyServiceWeekdays.Friday, new TimeOnly(7, 0));
+        tooFew.Should().Throw<ArgumentException>();
+
+        var contract = NewContract(carWash, MonthlyServiceWeekdays.Monday | MonthlyServiceWeekdays.Wednesday | MonthlyServiceWeekdays.Friday, new TimeOnly(7, 0));
+        contract.IsScheduledOn(new DateOnly(2026, 10, 5)).Should().BeTrue("5 Oct 2026 is a Monday");
+        contract.IsScheduledOn(new DateOnly(2026, 10, 6)).Should().BeFalse();
+    }
+
+    [Fact]
+    public void Times_per_month_plan_visits_on_the_chosen_dates_only()
+    {
+        var carWash = NewPlan(MonthlyServicePlanBasis.TaskBased, null, ["Exterior wash"], MonthlyServiceFrequency.TimesPerMonth, 4);
+        var invalidPlan = () => NewPlan(MonthlyServicePlanBasis.TaskBased, null, ["Wash"], MonthlyServiceFrequency.TimesPerMonth, 29);
+        invalidPlan.Should().Throw<ArgumentOutOfRangeException>();
+
+        var wrongCount = () => NewContract(carWash, MonthlyServiceWeekdays.None, new TimeOnly(7, 0), MonthDays.ToMask([1, 15]));
+        wrongCount.Should().Throw<ArgumentException>();
+        var badDate = () => MonthDays.ToMask([30]);
+        badDate.Should().Throw<ArgumentOutOfRangeException>();
+
+        var contract = NewContract(carWash, MonthlyServiceWeekdays.All, new TimeOnly(7, 0), MonthDays.ToMask([1, 8, 15, 22]));
+        contract.Weekdays.Should().Be(MonthlyServiceWeekdays.None, "a per-month schedule ignores weekdays");
+        MonthDays.FromMask(contract.MonthDaysMask).Should().Equal(1, 8, 15, 22);
+        contract.IsScheduledOn(new DateOnly(2026, 10, 8)).Should().BeTrue();
+        contract.IsScheduledOn(new DateOnly(2026, 10, 9)).Should().BeFalse();
+        contract.IsScheduledOn(new DateOnly(2026, 11, 22)).Should().BeTrue();
+    }
+
+    [Fact]
+    public void Conflict_is_found_between_a_weekday_and_a_monthly_schedule_on_a_shared_date()
+    {
+        var maid = NewContract(NewPlan(MonthlyServicePlanBasis.Hourly, 2m, null), MonthlyServiceWeekdays.Monday, new TimeOnly(8, 0));
+        var washPlan = NewPlan(MonthlyServicePlanBasis.Hourly, 1m, null, MonthlyServiceFrequency.TimesPerMonth, 1);
+        // 5 Oct 2026 is a Monday, so the 5th clashes with the Monday maid visit at 8-10am.
+        var clashing = NewContract(washPlan, MonthlyServiceWeekdays.None, new TimeOnly(9, 0), MonthDays.ToMask([5]));
+        var otherTime = NewContract(washPlan, MonthlyServiceWeekdays.None, new TimeOnly(11, 0), MonthDays.ToMask([5]));
+
+        MonthlyServiceEngine.FindConflict(clashing, [maid]).Should().Be(maid);
+        MonthlyServiceEngine.FindConflict(otherTime, [maid]).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Car_wash_four_times_a_month_is_scheduled_on_its_dates()
+    {
+        // 07:30 IST on Thu 1 Oct 2026.
+        var clock = new MutableTimeProvider(new DateTime(2026, 10, 1, 2, 0, 0, DateTimeKind.Utc));
+        await using var context = _db.CreateContext();
+        var seed = await SeedAsync(context);
+        var app = Build(context, clock);
+
+        var plan = await app.Admin.CreatePlanAsync(
+            new MonthlyServicePlanUpsertRequest(seed.ServiceId, seed.CityId, "Car wash 4x " + Guid.NewGuid().ToString("N")[..6], null,
+                MonthlyServicePlanBasis.TaskBased, null, ["Exterior wash", "Interior vacuum"], 200m, 15m,
+                MonthlyServiceFrequency.TimesPerMonth, 4),
+            Guid.NewGuid());
+        plan.IsSuccess.Should().BeTrue(plan.IsFailure ? plan.Error.Message : null);
+        plan.Value.TimesPerPeriod.Should().Be(4);
+
+        var wrong = await app.Customer.RequestContractAsync(seed.CustomerId, new MonthlyServiceContractRequest(
+            plan.Value.Id, seed.AddressId, [], "09:00", new DateOnly(2026, 10, 1), null, null, [1, 15]));
+        wrong.IsFailure.Should().BeTrue("four dates are required");
+
+        var requested = await app.Customer.RequestContractAsync(seed.CustomerId, new MonthlyServiceContractRequest(
+            plan.Value.Id, seed.AddressId, [], "09:00", new DateOnly(2026, 10, 1), null, null, [1, 8, 15, 22]));
+        requested.IsSuccess.Should().BeTrue(requested.IsFailure ? requested.Error.Message : null);
+        requested.Value.MonthDates.Should().Equal(1, 8, 15, 22);
+
+        (await app.Admin.AssignProviderAsync(requested.Value.Id, seed.ProviderId, Guid.NewGuid())).IsSuccess.Should().BeTrue();
+
+        // 14-day horizon from 1 Oct covers the 1st and the 8th only.
+        var october = (await app.Customer.GetAttendanceAsync(seed.CustomerId, requested.Value.Id, 2026, 10)).Value;
+        october.Items.Select(i => i.Date).Should().Equal(new DateOnly(2026, 10, 1), new DateOnly(2026, 10, 8));
+    }
+
     // ---- Full lifecycle ----
 
     [Fact]
@@ -206,7 +285,12 @@ public sealed class MonthlyServiceTests : IClassFixture<TestDatabase>
         // 00:30 IST on 3 Nov: October is closed and due for billing, but the open dispute holds it.
         clock.Set(new DateTime(2026, 11, 2, 19, 0, 0, DateTimeKind.Utc));
         var firstRun = await app.Job.RunAsync(CancellationToken.None);
-        firstRun.DaysClosedAsAbsent.Should().Be(9, "the 9 remaining scheduled days had nothing recorded");
+        // The fixture's database is shared across this class's tests, so the
+        // job's global count can include other tests' rows - assert on this
+        // contract's own register instead.
+        firstRun.DaysClosedAsAbsent.Should().BeGreaterThanOrEqualTo(9);
+        (await app.Customer.GetAttendanceAsync(seed.CustomerId, contractId, 2026, 10)).Value.Summary.Absent
+            .Should().Be(9, "the 9 remaining scheduled days had nothing recorded");
         firstRun.InvoicesIssued.Should().Be(0);
         firstRun.InvoicesHeldForDisputes.Should().Be(1);
 
@@ -280,11 +364,13 @@ public sealed class MonthlyServiceTests : IClassFixture<TestDatabase>
 
     // ---- Helpers ----
 
-    private static MonthlyServicePlan NewPlan(MonthlyServicePlanBasis basis, decimal? hours, IEnumerable<string>? tasks) =>
-        new(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "Plan " + Guid.NewGuid().ToString("N")[..6], null, basis, hours, tasks, 150m, 10m);
+    private static MonthlyServicePlan NewPlan(
+        MonthlyServicePlanBasis basis, decimal? hours, IEnumerable<string>? tasks,
+        MonthlyServiceFrequency frequency = MonthlyServiceFrequency.Weekdays, int? timesPerPeriod = null) =>
+        new(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "Plan " + Guid.NewGuid().ToString("N")[..6], null, basis, hours, tasks, 150m, 10m, frequency, timesPerPeriod);
 
-    private static MonthlyServiceContract NewContract(MonthlyServicePlan plan, MonthlyServiceWeekdays days, TimeOnly start) =>
-        new(Guid.NewGuid(), Guid.NewGuid(), plan, Guid.NewGuid(), days, start, new DateOnly(2026, 10, 1), null, null, DateTime.UtcNow);
+    private static MonthlyServiceContract NewContract(MonthlyServicePlan plan, MonthlyServiceWeekdays days, TimeOnly start, int monthDaysMask = 0) =>
+        new(Guid.NewGuid(), Guid.NewGuid(), plan, Guid.NewGuid(), days, start, new DateOnly(2026, 10, 1), null, null, DateTime.UtcNow, monthDaysMask);
 
     private static MonthlyServiceAttendance NewRow(DateOnly date, TimeOnly start) =>
         new(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), date, start, DateTime.UtcNow);

@@ -50,7 +50,7 @@ public class MonthlyServiceCustomerService : IMonthlyServiceCustomerService
         return plans.Select(p => new MonthlyServicePlanBrowseResponse(
             p.Id, p.ServiceId, services.GetValueOrDefault(p.ServiceId, string.Empty),
             p.CityId, cities.GetValueOrDefault(p.CityId, string.Empty),
-            p.Name, p.Description, p.Basis, p.HoursPerVisit, p.IncludedTasks, p.RatePerVisit)).ToList();
+            p.Name, p.Description, p.Basis, p.HoursPerVisit, p.IncludedTasks, p.RatePerVisit, p.Frequency, p.TimesPerPeriod)).ToList();
     }
 
     public async Task<Result<MonthlyServiceContractResponse>> RequestContractAsync(Guid customerId, MonthlyServiceContractRequest request)
@@ -96,7 +96,8 @@ public class MonthlyServiceCustomerService : IMonthlyServiceCustomerService
             contract = new MonthlyServiceContract(
                 Guid.NewGuid(), customerId, plan, address.Id,
                 MonthlyServiceEngine.ToWeekdays(request.Days), visitStart,
-                request.StartDate, request.EndDate, request.Note, _engine.NowUtc);
+                request.StartDate, request.EndDate, request.Note, _engine.NowUtc,
+                MonthDays.ToMask(request.MonthDates ?? []));
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
         {
@@ -265,7 +266,10 @@ public class MonthlyServiceCustomerService : IMonthlyServiceCustomerService
             unpaid,
             contract.CreatedAtUtc,
             contract.CancelledAtUtc,
-            contract.CancellationReason);
+            contract.CancellationReason,
+            contract.FrequencySnapshot,
+            contract.TimesPerPeriodSnapshot,
+            MonthlyServiceEngine.MonthDates(contract));
     }
 
     private static Error ContractNotFound() =>

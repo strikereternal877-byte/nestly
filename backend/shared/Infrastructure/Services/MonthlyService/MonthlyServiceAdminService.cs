@@ -73,7 +73,8 @@ public class MonthlyServiceAdminService : IMonthlyServiceAdminService
         {
             plan = new MonthlyServicePlan(
                 Guid.NewGuid(), request.ServiceId, request.CityId, request.Name, request.Description,
-                request.Basis, request.HoursPerVisit, request.IncludedTasks, request.RatePerVisit, request.CommissionPercent);
+                request.Basis, request.HoursPerVisit, request.IncludedTasks, request.RatePerVisit, request.CommissionPercent,
+                request.Frequency, request.TimesPerPeriod);
         }
         catch (ArgumentException ex)
         {
@@ -102,7 +103,8 @@ public class MonthlyServiceAdminService : IMonthlyServiceAdminService
         try
         {
             plan.Update(request.ServiceId, request.CityId, request.Name, request.Description, request.Basis,
-                request.HoursPerVisit, request.IncludedTasks, request.RatePerVisit, request.CommissionPercent, adminUserId);
+                request.HoursPerVisit, request.IncludedTasks, request.RatePerVisit, request.CommissionPercent, adminUserId,
+                request.Frequency, request.TimesPerPeriod);
         }
         catch (ArgumentException ex)
         {
@@ -366,7 +368,7 @@ public class MonthlyServiceAdminService : IMonthlyServiceAdminService
             p.Id, p.ServiceId, services.GetValueOrDefault(p.ServiceId, string.Empty),
             p.CityId, cities.GetValueOrDefault(p.CityId, string.Empty),
             p.Name, p.Description, p.Basis, p.HoursPerVisit, p.IncludedTasks, p.RatePerVisit, p.CommissionPercent,
-            p.IsActive, counts.GetValueOrDefault(p.Id), p.CreatedAtUtc, p.UpdatedAtUtc)).ToList();
+            p.IsActive, counts.GetValueOrDefault(p.Id), p.CreatedAtUtc, p.UpdatedAtUtc, p.Frequency, p.TimesPerPeriod)).ToList();
     }
 
     private async Task<IReadOnlyList<MonthlyServiceContractAdminListItem>> ToListItemsAsync(IReadOnlyList<MonthlyServiceContract> contracts)
@@ -389,7 +391,10 @@ public class MonthlyServiceAdminService : IMonthlyServiceAdminService
             MonthlyServiceTimeFormat.Format(c.VisitStartTime),
             c.StartDate,
             c.EndDate,
-            c.CreatedAtUtc)).ToList();
+            c.CreatedAtUtc,
+            c.FrequencySnapshot,
+            c.TimesPerPeriodSnapshot,
+            MonthlyServiceEngine.MonthDates(c))).ToList();
     }
 
     private async Task<MonthlyServiceContractAdminDetailResponse> ToDetailAsync(MonthlyServiceContract contract)

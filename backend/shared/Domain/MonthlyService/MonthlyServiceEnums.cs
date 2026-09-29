@@ -10,6 +10,23 @@ public enum MonthlyServicePlanBasis
     TaskBased
 }
 
+/// <summary>
+/// How a plan's visits are scheduled (docs/MONTHLY-SERVICE.md SCHEDULES).
+/// A maid comes on whichever weekdays the customer picks; a car wash comes
+/// a fixed number of times per week or per month.
+/// </summary>
+public enum MonthlyServiceFrequency
+{
+    /// <summary>Customer picks any set of weekdays (all seven = daily).</summary>
+    Weekdays,
+
+    /// <summary>Exactly <c>TimesPerPeriod</c> weekdays, chosen by the customer.</summary>
+    TimesPerWeek,
+
+    /// <summary>Exactly <c>TimesPerPeriod</c> dates of the month (1-28, so every month has them), chosen by the customer.</summary>
+    TimesPerMonth
+}
+
 /// <summary>Days of the week a contract's professional visits. All seven = daily.</summary>
 [Flags]
 public enum MonthlyServiceWeekdays
@@ -40,6 +57,44 @@ public static class MonthlyServiceWeekdaysExtensions
 
     public static bool Includes(this MonthlyServiceWeekdays weekdays, DayOfWeek dayOfWeek) =>
         (weekdays & dayOfWeek.ToWeekdayFlag()) != 0;
+
+    public static int Count(this MonthlyServiceWeekdays weekdays) =>
+        System.Numerics.BitOperations.PopCount((uint)(weekdays & MonthlyServiceWeekdays.All));
+}
+
+/// <summary>
+/// Dates of the month (1-28) a <see cref="MonthlyServiceFrequency.TimesPerMonth"/>
+/// contract is visited on, as a bitmask: bit (day - 1) set = visit that day.
+/// Capped at 28 so every month, February included, has every chosen date.
+/// </summary>
+public static class MonthDays
+{
+    public const int MaxDay = 28;
+    public const int AllMask = (1 << MaxDay) - 1;
+
+    public static int ToMask(IEnumerable<int> days)
+    {
+        var mask = 0;
+        foreach (var day in days)
+        {
+            if (day is < 1 or > MaxDay)
+            {
+                throw new ArgumentOutOfRangeException(nameof(days), $"Dates must be between 1 and {MaxDay}.");
+            }
+
+            mask |= 1 << (day - 1);
+        }
+
+        return mask;
+    }
+
+    public static IReadOnlyList<int> FromMask(int mask) =>
+        Enumerable.Range(1, MaxDay).Where(day => (mask & (1 << (day - 1))) != 0).ToList();
+
+    public static bool Includes(int mask, int dayOfMonth) =>
+        dayOfMonth is >= 1 and <= MaxDay && (mask & (1 << (dayOfMonth - 1))) != 0;
+
+    public static int Count(int mask) => System.Numerics.BitOperations.PopCount((uint)(mask & AllMask));
 }
 
 public enum MonthlyServiceContractStatus

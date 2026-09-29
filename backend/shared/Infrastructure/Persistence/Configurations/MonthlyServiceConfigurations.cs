@@ -52,6 +52,8 @@ public class MonthlyServicePlanConfiguration : IEntityTypeConfiguration<MonthlyS
             .HasMaxLength(2100);
         builder.Property(x => x.RatePerVisit).IsRequired().HasPrecision(12, 2);
         builder.Property(x => x.CommissionPercent).IsRequired().HasPrecision(5, 2);
+        builder.Property(x => x.Frequency).IsRequired().HasConversion<string>().HasMaxLength(20);
+        builder.Property(x => x.TimesPerPeriod);
         builder.Property(x => x.IsActive).IsRequired();
         builder.Property(x => x.CreatedAtUtc).IsRequired();
         builder.Property(x => x.UpdatedAtUtc).IsRequired();
@@ -91,7 +93,10 @@ public class MonthlyServiceContractConfiguration : IEntityTypeConfiguration<Mont
         builder.Property(x => x.AddressId).IsRequired();
         builder.HasOne<CustomerAddress>().WithMany().HasForeignKey(x => x.AddressId).OnDelete(DeleteBehavior.Restrict);
 
+        builder.Property(x => x.FrequencySnapshot).IsRequired().HasConversion<string>().HasMaxLength(20);
+        builder.Property(x => x.TimesPerPeriodSnapshot);
         builder.Property(x => x.Weekdays).IsRequired().HasConversion<int>();
+        builder.Property(x => x.MonthDaysMask).IsRequired();
         builder.Property(x => x.VisitStartTime).IsRequired();
         builder.Property(x => x.StartDate).IsRequired();
         builder.Property(x => x.EndDate);

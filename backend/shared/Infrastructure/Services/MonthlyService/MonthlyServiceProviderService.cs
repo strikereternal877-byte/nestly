@@ -62,7 +62,10 @@ public class MonthlyServiceProviderService : IMonthlyServiceProviderService
             MonthlyServiceEngine.ToAddress(addresses.GetValueOrDefault(c.AddressId)),
             c.RatePerVisitSnapshot,
             NetPerVisit(c),
-            _engine.Summarize(monthRows[c.Id], NetPerVisit(c)))).ToList();
+            _engine.Summarize(monthRows[c.Id], NetPerVisit(c)),
+            c.FrequencySnapshot,
+            c.TimesPerPeriodSnapshot,
+            MonthlyServiceEngine.MonthDates(c))).ToList();
     }
 
     public async Task<Result<MonthlyServiceAttendanceMonthResponse>> GetAttendanceAsync(Guid providerId, Guid contractId, int year, int month)

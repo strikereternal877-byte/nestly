@@ -49,7 +49,15 @@ public class MonthlyServiceContract : AggregateRoot<Guid>
 
     public Guid AddressId { get; private set; }
 
+    public MonthlyServiceFrequency FrequencySnapshot { get; private set; }
+
+    public int? TimesPerPeriodSnapshot { get; private set; }
+
+    /// <summary>Visit weekdays - used by <see cref="MonthlyServiceFrequency.Weekdays"/> and <see cref="MonthlyServiceFrequency.TimesPerWeek"/>; None for a per-month schedule.</summary>
     public MonthlyServiceWeekdays Weekdays { get; private set; }
+
+    /// <summary>Visit dates of the month as a <see cref="MonthDays"/> bitmask - used only by <see cref="MonthlyServiceFrequency.TimesPerMonth"/>; 0 otherwise.</summary>
+    public int MonthDaysMask { get; private set; }
 
     /// <summary>Visit start, business-local time of day.</summary>
     public TimeOnly VisitStartTime { get; private set; }
@@ -90,7 +98,8 @@ public class MonthlyServiceContract : AggregateRoot<Guid>
         DateOnly startDate,
         DateOnly? endDate,
         string? customerNote,
-        DateTime nowUtc)
+        DateTime nowUtc,
+        int monthDaysMask = 0)
         : base(id)
     {
         ArgumentNullException.ThrowIfNull(plan);
@@ -100,10 +109,7 @@ public class MonthlyServiceContract : AggregateRoot<Guid>
             throw new InvalidOperationException("This plan is not open to new requests.");
         }
 
-        if ((weekdays & MonthlyServiceWeekdays.All) == MonthlyServiceWeekdays.None || (weekdays & ~MonthlyServiceWeekdays.All) != 0)
-        {
-            throw new ArgumentException("Choose at least one valid day of the week.", nameof(weekdays));
-        }
+        ValidateSchedule(plan, weekdays, monthDaysMask);
 
         if (endDate is { } end && end < startDate)
         {
@@ -126,7 +132,10 @@ public class MonthlyServiceContract : AggregateRoot<Guid>
         RatePerVisitSnapshot = plan.RatePerVisit;
         CommissionPercentSnapshot = plan.CommissionPercent;
         AddressId = addressId;
-        Weekdays = weekdays;
+        FrequencySnapshot = plan.Frequency;
+        TimesPerPeriodSnapshot = plan.TimesPerPeriod;
+        Weekdays = plan.Frequency == MonthlyServiceFrequency.TimesPerMonth ? MonthlyServiceWeekdays.None : weekdays;
+        MonthDaysMask = plan.Frequency == MonthlyServiceFrequency.TimesPerMonth ? monthDaysMask : 0;
         VisitStartTime = visitStartTime;
         StartDate = startDate;
         EndDate = endDate;
@@ -143,7 +152,42 @@ public class MonthlyServiceContract : AggregateRoot<Guid>
     public TimeSpan VisitDuration => TimeSpan.FromHours((double)(HoursPerVisitSnapshot ?? 1m));
 
     public bool IsScheduledOn(DateOnly date) =>
-        Weekdays.Includes(date.DayOfWeek) && date >= StartDate && (EndDate is null || date <= EndDate);
+        date >= StartDate
+        && (EndDate is null || date <= EndDate)
+        && (FrequencySnapshot == MonthlyServiceFrequency.TimesPerMonth
+            ? MonthDays.Includes(MonthDaysMask, date.Day)
+            : Weekdays.Includes(date.DayOfWeek));
+
+    private static void ValidateSchedule(MonthlyServicePlan plan, MonthlyServiceWeekdays weekdays, int monthDaysMask)
+    {
+        switch (plan.Frequency)
+        {
+            case MonthlyServiceFrequency.TimesPerMonth:
+                if ((monthDaysMask & ~MonthDays.AllMask) != 0)
+                {
+                    throw new ArgumentException($"Dates must be between 1 and {MonthDays.MaxDay}.", nameof(monthDaysMask));
+                }
+
+                if (MonthDays.Count(monthDaysMask) != plan.TimesPerPeriod)
+                {
+                    throw new ArgumentException($"Choose exactly {plan.TimesPerPeriod} date(s) of the month.", nameof(monthDaysMask));
+                }
+
+                return;
+            default:
+                if ((weekdays & MonthlyServiceWeekdays.All) == MonthlyServiceWeekdays.None || (weekdays & ~MonthlyServiceWeekdays.All) != 0)
+                {
+                    throw new ArgumentException("Choose at least one valid day of the week.", nameof(weekdays));
+                }
+
+                if (plan.Frequency == MonthlyServiceFrequency.TimesPerWeek && weekdays.Count() != plan.TimesPerPeriod)
+                {
+                    throw new ArgumentException($"Choose exactly {plan.TimesPerPeriod} day(s) of the week.", nameof(weekdays));
+                }
+
+                return;
+        }
+    }
 
     /// <summary>
     /// Admin assigns the professional. From <see cref="MonthlyServiceContractStatus.PendingAssignment"/>

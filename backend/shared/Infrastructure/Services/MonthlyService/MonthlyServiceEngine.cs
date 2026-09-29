@@ -151,6 +151,10 @@ public class MonthlyServiceEngine
     /// </summary>
     public static MonthlyServiceContract? FindConflict(MonthlyServiceContract contract, IEnumerable<MonthlyServiceContract> providerContracts)
     {
+        // Two months of dates covers every weekday pattern and every
+        // date-of-month pattern at least once, whichever schedule type
+        // either side uses (maid weekdays vs car wash dates).
+        const int WindowDays = 62;
         var start = contract.VisitStartTime.ToTimeSpan();
         var end = start + contract.VisitDuration;
         foreach (var other in providerContracts)
@@ -160,23 +164,20 @@ public class MonthlyServiceEngine
                 continue;
             }
 
-            if ((other.Weekdays & contract.Weekdays) == MonthlyServiceWeekdays.None)
-            {
-                continue;
-            }
-
-            var datesOverlap = (contract.EndDate is null || other.StartDate <= contract.EndDate)
-                && (other.EndDate is null || contract.StartDate <= other.EndDate);
-            if (!datesOverlap)
-            {
-                continue;
-            }
-
             var otherStart = other.VisitStartTime.ToTimeSpan();
             var otherEnd = otherStart + other.VisitDuration;
-            if (start < otherEnd && otherStart < end)
+            if (!(start < otherEnd && otherStart < end))
             {
-                return other;
+                continue;
+            }
+
+            var from = contract.StartDate > other.StartDate ? contract.StartDate : other.StartDate;
+            for (var date = from; date < from.AddDays(WindowDays); date = date.AddDays(1))
+            {
+                if (contract.IsScheduledOn(date) && other.IsScheduledOn(date))
+                {
+                    return other;
+                }
             }
         }
 
@@ -296,6 +297,8 @@ public class MonthlyServiceEngine
         new[] { DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday, DayOfWeek.Saturday, DayOfWeek.Sunday }
             .Where(d => weekdays.Includes(d))
             .ToList();
+
+    public static IReadOnlyList<int> MonthDates(MonthlyServiceContract contract) => MonthDays.FromMask(contract.MonthDaysMask);
 
     public static MonthlyServiceWeekdays ToWeekdays(IEnumerable<DayOfWeek> days) =>
         days.Aggregate(MonthlyServiceWeekdays.None, (acc, d) => acc | d.ToWeekdayFlag());
