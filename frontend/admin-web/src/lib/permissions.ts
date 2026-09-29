@@ -59,7 +59,8 @@ export type NavModuleKey =
   | "nestly-coins"
   | "subscription"
   | "payments"
-  | "provider-referral";
+  | "provider-referral"
+  | "monthly-service";
 
 export interface NavModule {
   key: NavModuleKey;
@@ -91,6 +92,9 @@ export const NAV_MODULES: readonly NavModule[] = [
   { key: "serviceability", label: "Serviceability", href: "/serviceability", srsRef: "SRS 12.9", requiredPermission: "serviceability.read" },
   { key: "slots", label: "Slots & Availability", href: "/slots", srsRef: "SRS 12.10", requiredPermission: "slots.read" },
   { key: "bookings", label: "Bookings", href: "/bookings", srsRef: "SRS 12.11, 12.13", requiredPermission: "bookings.read" },
+  // docs/MONTHLY-SERVICE.md: day-to-day fulfilment operations, same "bookings.read"
+  // tier its admin-api controllers use - no separate permission module.
+  { key: "monthly-service", label: "Monthly Service", href: "/monthly-service", srsRef: "docs/MONTHLY-SERVICE.md", requiredPermission: "bookings.read" },
   { key: "coupons", label: "Coupons & Campaigns", href: "/coupons", srsRef: "SRS 12.12", requiredPermission: "coupons.read" },
   { key: "support", label: "Support Tickets", href: "/support", srsRef: "SRS 12.14", requiredPermission: "support.read" },
   { key: "chat", label: "Chat", href: "/chat", srsRef: "PRODUCT-ENHANCEMENTS.md IN-APP CHAT", requiredPermission: "chat.read" },
@@ -140,13 +144,13 @@ export function canWriteModule(claims: AdminSessionClaims | null, moduleKey: Nav
  */
 const ROLE_MODULE_FALLBACK: Record<string, NavModuleKey[] | "*"> = {
   "Super Admin": "*",
-  "Operations Admin": ["dashboard", "overview", "fulfilment", "customers", "bookings", "serviceability", "slots", "support", "chat", "provider", "payments", "provider-referral"],
-  "Booking Admin": ["dashboard", "overview", "fulfilment", "bookings", "slots", "serviceability"],
+  "Operations Admin": ["dashboard", "overview", "fulfilment", "customers", "bookings", "serviceability", "slots", "support", "chat", "provider", "payments", "provider-referral", "monthly-service"],
+  "Booking Admin": ["dashboard", "overview", "fulfilment", "bookings", "slots", "serviceability", "monthly-service"],
   "Support Admin": ["dashboard", "overview", "support", "chat", "customers", "reviews"],
   "Catalog Admin": ["dashboard", "overview", "catalog", "pricing"],
   "Pricing Admin": ["dashboard", "overview", "pricing", "coupons"],
   "Marketing Admin": ["dashboard", "overview", "coupons", "cms", "landing", "notifications", "reviews", "referral", "nestly-coins", "subscription"],
-  "Finance Admin": ["dashboard", "overview", "fulfilment", "bookings", "reports", "provider", "nestly-coins", "subscription", "payments", "provider-referral"],
+  "Finance Admin": ["dashboard", "overview", "fulfilment", "bookings", "reports", "provider", "nestly-coins", "subscription", "payments", "provider-referral", "monthly-service"],
   "Read-only Analyst": ["dashboard", "overview", "reports"],
 };
 
