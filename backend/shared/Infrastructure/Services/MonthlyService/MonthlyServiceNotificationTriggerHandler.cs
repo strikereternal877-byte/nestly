@@ -119,6 +119,10 @@ public sealed class MonthlyServiceNotificationTriggerHandler :
     {
         await SendAsync(e, NotificationEventType.MonthlyProviderAssigned, e.ContractId, Audience.Customer, e.ProviderId, null, cancellationToken);
         await SendAsync(e, NotificationEventType.MonthlyNewClient, e.ContractId, Audience.Provider, e.ProviderId, null, cancellationToken);
+        if (e.PreviousProviderId is { } previousProviderId)
+        {
+            await SendAsync(e, NotificationEventType.MonthlyClientCancelled, e.ContractId, Audience.Provider, previousProviderId, null, cancellationToken);
+        }
     }
 
     private async Task SendAsync(
@@ -170,6 +174,14 @@ public sealed class MonthlyServiceNotificationTriggerHandler :
             cancellationToken);
     }
 
+    private static string Ordinal(int day) => day switch
+    {
+        1 or 21 => $"{day}st",
+        2 or 22 => $"{day}nd",
+        3 or 23 => $"{day}rd",
+        _ => $"{day}th"
+    };
+
     private static string FormatDay(DateOnly date) => date.ToString("ddd, d MMM", Formats);
 
     /// <summary>"Mon-Sat", "3 times a week (Mon, Wed, Fri)" or "4 times a month (1, 8, 15, 22)" - plain words for a message.</summary>
@@ -177,7 +189,7 @@ public sealed class MonthlyServiceNotificationTriggerHandler :
     {
         if (contract.FrequencySnapshot == MonthlyServiceFrequency.TimesPerMonth)
         {
-            return $"{contract.TimesPerPeriodSnapshot} times a month (on the {string.Join(", ", MonthDays.FromMask(contract.MonthDaysMask))})";
+            return $"{contract.TimesPerPeriodSnapshot} times a month (on the {string.Join(", ", MonthDays.FromMask(contract.MonthDaysMask).Select(Ordinal))})";
         }
 
         var days = MonthlyServiceEngine.Days(contract.Weekdays);

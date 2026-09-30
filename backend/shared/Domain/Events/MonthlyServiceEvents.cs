@@ -6,7 +6,7 @@ namespace Nestly.Domain.Events;
 // professional should hear about without having to open the app.
 
 /// <summary>A professional was assigned to (or replaced on) a monthly engagement. Tells the customer who is coming, and the professional about their new home.</summary>
-public sealed record MonthlyServiceProviderAssignedEvent(Guid ContractId, Guid CustomerId, Guid ProviderId, bool IsReplacement) : DomainEvent;
+public sealed record MonthlyServiceProviderAssignedEvent(Guid ContractId, Guid CustomerId, Guid ProviderId, bool IsReplacement, Guid? PreviousProviderId = null) : DomainEvent;
 
 /// <summary>The professional marked leave for a day - the customer should not wait for them.</summary>
 public sealed record MonthlyServiceLeaveMarkedEvent(Guid AttendanceId, Guid ContractId, Guid CustomerId, Guid ProviderId, DateOnly Date) : DomainEvent;

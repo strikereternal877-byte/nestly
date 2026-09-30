@@ -328,6 +328,18 @@ public class MonthlyServiceAttendance : AggregateRoot<Guid>
         }
     }
 
+    /// <summary>Moves a not-yet-happened customer skip to the contract's new professional after a replacement.</summary>
+    public void ReassignProvider(Guid providerId)
+    {
+        EnsureNotInvoiced();
+        if (Status != MonthlyServiceAttendanceStatus.CustomerSkipped)
+        {
+            throw new InvalidOperationException("Only a customer-skipped day moves to the new professional.");
+        }
+
+        ProviderId = providerId;
+    }
+
     public void AttachToInvoice(Guid invoiceId)
     {
         EnsureNotInvoiced();

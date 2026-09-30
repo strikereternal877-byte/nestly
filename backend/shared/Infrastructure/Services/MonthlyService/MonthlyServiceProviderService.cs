@@ -155,7 +155,7 @@ public class MonthlyServiceProviderService : IMonthlyServiceProviderService
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
         {
-            return Error.Business("MonthlyService.AttendanceActionNotAllowed", ex.Message);
+            return Error.Business("MonthlyService.AttendanceActionNotAllowed", MonthlyServiceEngine.UserMessage(ex));
         }
 
         await _attendanceRepository.UpdateAsync(row);

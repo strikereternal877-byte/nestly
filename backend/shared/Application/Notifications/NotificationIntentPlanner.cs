@@ -106,7 +106,10 @@ public static class NotificationIntentPlanner
 
         // docs/MONTHLY-SERVICE.md NOTIFICATIONS: an assignment tells both
         // sides; a cancellation only matters to a professional who was going.
-        MonthlyServiceProviderAssignedEvent => [NotificationEventType.MonthlyProviderAssigned, NotificationEventType.MonthlyNewClient],
+        MonthlyServiceProviderAssignedEvent assigned => assigned.PreviousProviderId is null
+            ? [NotificationEventType.MonthlyProviderAssigned, NotificationEventType.MonthlyNewClient]
+            // A replacement also tells the outgoing professional to stop going.
+            : [NotificationEventType.MonthlyProviderAssigned, NotificationEventType.MonthlyNewClient, NotificationEventType.MonthlyClientCancelled],
         MonthlyServiceLeaveMarkedEvent => [NotificationEventType.MonthlyProviderLeave],
         MonthlyServiceVisitSkippedEvent => [NotificationEventType.MonthlyVisitSkipped],
         MonthlyServiceInvoiceIssuedEvent => [NotificationEventType.MonthlyInvoiceIssued],

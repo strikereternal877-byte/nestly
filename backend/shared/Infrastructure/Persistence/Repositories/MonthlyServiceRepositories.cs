@@ -223,6 +223,35 @@ public class MonthlyServiceAttendanceRepository : IMonthlyServiceAttendanceRepos
         return rows.Count;
     }
 
+    public async Task<int> ClearFutureMarksAsync(Guid contractId, DateOnly afterDate, Guid? newProviderId)
+    {
+        var rows = await _context.MonthlyServiceAttendance
+            .Where(a => a.ContractId == contractId
+                && a.Date > afterDate
+                && a.InvoiceId == null
+                && (a.Status == MonthlyServiceAttendanceStatus.ProviderLeave || a.Status == MonthlyServiceAttendanceStatus.CustomerSkipped))
+            .ToListAsync();
+        if (rows.Count == 0)
+        {
+            return 0;
+        }
+
+        foreach (var row in rows)
+        {
+            if (newProviderId is { } providerId && row.Status == MonthlyServiceAttendanceStatus.CustomerSkipped)
+            {
+                row.ReassignProvider(providerId);
+            }
+            else
+            {
+                _context.MonthlyServiceAttendance.Remove(row);
+            }
+        }
+
+        await _context.SaveChangesAsync();
+        return rows.Count;
+    }
+
     public async Task<IReadOnlyList<Guid>> ListContractIdsWithUninvoicedRowsAsync(DateOnly from, DateOnly to) =>
         await _context.MonthlyServiceAttendance
             .Where(a => a.Date >= from && a.Date <= to

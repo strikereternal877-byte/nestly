@@ -142,6 +142,11 @@ function TodayCard({ contract }: { contract: MonthlyServiceContract }) {
     return (
       <Card title="Today">
         <p className="text-sm text-fg-muted">No visit scheduled today.</p>
+        {contract.nextVisitDate ? (
+          <p className="mt-2 text-sm text-fg">
+            Next visit: <span className="font-medium">{formatDay(contract.nextVisitDate)}</span> at {formatClock(contract.visitStartTime)}
+          </p>
+        ) : null}
       </Card>
     );
   }

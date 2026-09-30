@@ -78,7 +78,7 @@ public class MonthlyServiceAdminService : IMonthlyServiceAdminService
         }
         catch (ArgumentException ex)
         {
-            return Error.Validation("MonthlyService.InvalidPlan", ex.Message);
+            return Error.Validation("MonthlyService.InvalidPlan", MonthlyServiceEngine.UserMessage(ex));
         }
 
         await _auditLogWriter.WriteAsync(new AuditEntry(nameof(MonthlyServicePlan), plan.Id.ToString(), "Created"));
@@ -108,7 +108,7 @@ public class MonthlyServiceAdminService : IMonthlyServiceAdminService
         }
         catch (ArgumentException ex)
         {
-            return Error.Validation("MonthlyService.InvalidPlan", ex.Message);
+            return Error.Validation("MonthlyService.InvalidPlan", MonthlyServiceEngine.UserMessage(ex));
         }
 
         await _auditLogWriter.WriteAsync(new AuditEntry(nameof(MonthlyServicePlan), plan.Id.ToString(), "Updated"));
@@ -243,7 +243,7 @@ public class MonthlyServiceAdminService : IMonthlyServiceAdminService
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
         {
-            return Error.Business("MonthlyService.CannotAssign", ex.Message);
+            return Error.Business("MonthlyService.CannotAssign", MonthlyServiceEngine.UserMessage(ex));
         }
 
         await _auditLogWriter.WriteAsync(new AuditEntry(
@@ -253,7 +253,7 @@ public class MonthlyServiceAdminService : IMonthlyServiceAdminService
 
         // A replacement takes over the upcoming schedule; the predecessor's
         // past days (and their billing) are untouched.
-        await _engine.RemoveUpcomingAsync(contract);
+        await _engine.HandOverUpcomingAsync(contract, providerId);
         await _engine.MaterializeUpcomingAsync(contract);
         _logger.LogInformation("Monthly service contract {ContractId} assigned to provider {ProviderId}.", contract.Id, providerId);
         return await ToDetailAsync(contract);
@@ -272,7 +272,7 @@ public class MonthlyServiceAdminService : IMonthlyServiceAdminService
     public Task<Result> CancelContractAsync(Guid contractId, string? reason, Guid adminUserId) =>
         ChangeContractAsync(contractId, "Cancelled",
             c => c.Cancel(reason, _engine.NowUtc),
-            c => _engine.RemoveUpcomingAsync(c));
+            c => _engine.RemoveAllUpcomingAsync(c));
 
     // ---- Attendance / disputes ----
 
@@ -421,7 +421,7 @@ public class MonthlyServiceAdminService : IMonthlyServiceAdminService
     }
 
     private async Task<Result> ChangeContractAsync(
-        Guid contractId, string action, Action<MonthlyServiceContract> change, Func<MonthlyServiceContract, Task<int>> afterSave)
+        Guid contractId, string action, Action<MonthlyServiceContract> change, Func<MonthlyServiceContract, Task> afterSave)
     {
         var contract = await _contractRepository.GetByIdAsync(contractId);
         if (contract is null)
@@ -435,7 +435,7 @@ public class MonthlyServiceAdminService : IMonthlyServiceAdminService
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
         {
-            return Result.Failure(Error.Business("MonthlyService.ContractActionNotAllowed", ex.Message));
+            return Result.Failure(Error.Business("MonthlyService.ContractActionNotAllowed", MonthlyServiceEngine.UserMessage(ex)));
         }
 
         // Audit entry joins the same unit of work as the contract change.
@@ -461,7 +461,7 @@ public class MonthlyServiceAdminService : IMonthlyServiceAdminService
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
         {
-            return Error.Business("MonthlyService.AttendanceActionNotAllowed", ex.Message);
+            return Error.Business("MonthlyService.AttendanceActionNotAllowed", MonthlyServiceEngine.UserMessage(ex));
         }
 
         await _auditLogWriter.WriteAsync(new AuditEntry(nameof(MonthlyServiceAttendance), row.Id.ToString(), action));

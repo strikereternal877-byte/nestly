@@ -101,7 +101,7 @@ public class MonthlyServiceCustomerService : IMonthlyServiceCustomerService
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
         {
-            return Error.Validation("MonthlyService.InvalidRequest", ex.Message);
+            return Error.Validation("MonthlyService.InvalidRequest", MonthlyServiceEngine.UserMessage(ex));
         }
 
         await _contractRepository.AddAsync(contract);
@@ -157,11 +157,11 @@ public class MonthlyServiceCustomerService : IMonthlyServiceCustomerService
         }
         catch (InvalidOperationException ex)
         {
-            return Result.Failure(Error.Business("MonthlyService.CannotCancel", ex.Message));
+            return Result.Failure(Error.Business("MonthlyService.CannotCancel", MonthlyServiceEngine.UserMessage(ex)));
         }
 
         await _contractRepository.UpdateAsync(contract);
-        await _engine.RemoveUpcomingAsync(contract);
+        await _engine.RemoveAllUpcomingAsync(contract);
         _logger.LogInformation("Monthly service contract {ContractId} cancelled by the customer.", contract.Id);
         return Result.Success();
     }
@@ -224,7 +224,7 @@ public class MonthlyServiceCustomerService : IMonthlyServiceCustomerService
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
         {
-            return Error.Business("MonthlyService.AttendanceActionNotAllowed", ex.Message);
+            return Error.Business("MonthlyService.AttendanceActionNotAllowed", MonthlyServiceEngine.UserMessage(ex));
         }
 
         await _attendanceRepository.UpdateAsync(row);
@@ -242,6 +242,7 @@ public class MonthlyServiceCustomerService : IMonthlyServiceCustomerService
         var monthRows = await _attendanceRepository.ListByContractAsync(contract.Id, monthStart, monthEnd);
         var todayRow = monthRows.FirstOrDefault(r => r.Date == today);
         var unpaid = (await _invoiceRepository.ListByContractAsync(contract.Id)).Where(i => !i.IsPaid).Sum(i => i.Amount);
+        var nextVisit = await _engine.NextVisitDateAsync(contract);
 
         return new MonthlyServiceContractResponse(
             contract.Id,
@@ -269,7 +270,8 @@ public class MonthlyServiceCustomerService : IMonthlyServiceCustomerService
             contract.CancellationReason,
             contract.FrequencySnapshot,
             contract.TimesPerPeriodSnapshot,
-            MonthlyServiceEngine.MonthDates(contract));
+            MonthlyServiceEngine.MonthDates(contract),
+            nextVisit);
     }
 
     private static Error ContractNotFound() =>

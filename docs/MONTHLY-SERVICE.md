@@ -40,7 +40,10 @@ work is an attendance register.
    attendance record; only visits that happened are billed.
 3. **Same professional throughout.** If the professional takes leave, that
    day is not billed and no replacement is sent. Replacing the professional
-   is an admin action only (e.g. they leave the platform).
+   is an admin action only (e.g. they leave the platform). On replacement
+   the outgoing professional is notified to stop, their upcoming days and
+   leave go to the new professional, and the customer's skips carry over.
+   Cancelling removes every upcoming day, including skips and leave.
 4. **Billing at month end.** Postpaid: one invoice per contract per calendar
    month, for billable visits x rate per visit.
 

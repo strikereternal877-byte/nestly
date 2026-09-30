@@ -228,6 +228,52 @@ public sealed class MonthlyServiceTests : IClassFixture<TestDatabase>
     }
 
     [Fact]
+    public async Task Replacement_hands_over_skips_and_cancel_clears_every_upcoming_day()
+    {
+        // 07:30 IST on Mon 5 Oct 2026.
+        var clock = new MutableTimeProvider(new DateTime(2026, 10, 5, 2, 0, 0, DateTimeKind.Utc));
+        await using var context = _db.CreateContext();
+        var seed = await SeedAsync(context);
+        var app = Build(context, clock);
+
+        var plan = (await app.Admin.CreatePlanAsync(PlanRequest(seed), Guid.NewGuid())).Value;
+        var contractId = (await app.Customer.RequestContractAsync(seed.CustomerId, new MonthlyServiceContractRequest(
+            plan.Id, seed.AddressId, [DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday], "09:00", new DateOnly(2026, 10, 5), null, null))).Value.Id;
+        (await app.Admin.AssignProviderAsync(contractId, seed.ProviderId, Guid.NewGuid())).IsSuccess.Should().BeTrue();
+
+        var rows = (await app.Customer.GetAttendanceAsync(seed.CustomerId, contractId, 2026, 10)).Value.Items;
+        var tuesday = rows.Single(i => i.Date == new DateOnly(2026, 10, 6));
+        var wednesday = rows.Single(i => i.Date == new DateOnly(2026, 10, 7));
+        (await app.Customer.SkipAsync(seed.CustomerId, tuesday.Id)).IsSuccess.Should().BeTrue();
+        (await app.Provider.MarkLeaveAsync(seed.ProviderId, wednesday.Id, null)).IsSuccess.Should().BeTrue();
+
+        var wrongCode = await app.Provider.CheckInAsync(seed.ProviderId, rows.Single(i => i.Date == new DateOnly(2026, 10, 5)).Id,
+            new MonthlyServiceCheckInRequest("abcd", null, null));
+        wrongCode.Error.Message.Should().NotContain("Parameter", "users never see .NET argument names");
+
+        var replacement = new Provider(Guid.NewGuid(), "Meena Kumari", "Meena", ProviderType.Individual, "+9197" + Guid.NewGuid().ToString("N")[..8]);
+        replacement.ChangeStatus(ProviderStatus.Active);
+        var categoryId = await context.Set<Service>().Where(x => x.Id == seed.ServiceId).Select(x => x.CategoryId).SingleAsync();
+        context.Add(replacement);
+        context.Add(new ProviderSkillMapping(Guid.NewGuid(), replacement.Id, categoryId, seed.ServiceId));
+        context.Add(new ProviderServiceArea(Guid.NewGuid(), replacement.Id, seed.CityId, null, null));
+        await context.SaveChangesAsync();
+        var replaced = await app.Admin.AssignProviderAsync(contractId, replacement.Id, Guid.NewGuid());
+        replaced.IsSuccess.Should().BeTrue(replaced.IsFailure ? replaced.Error.Message : null);
+
+        var afterReplace = (await app.Customer.GetAttendanceAsync(seed.CustomerId, contractId, 2026, 10)).Value.Items;
+        afterReplace.Single(i => i.Date == new DateOnly(2026, 10, 6)).Status
+            .Should().Be(MonthlyServiceAttendanceStatus.CustomerSkipped, "the customer's skip still stands");
+        afterReplace.Single(i => i.Date == new DateOnly(2026, 10, 7)).Status
+            .Should().Be(MonthlyServiceAttendanceStatus.Scheduled, "the outgoing professional's leave does not bind the new one");
+        (await app.Provider.ListVisitsAsync(replacement.Id, new DateOnly(2026, 10, 7))).Should().ContainSingle();
+
+        (await app.Customer.CancelContractAsync(seed.CustomerId, contractId, "Moving")).IsSuccess.Should().BeTrue();
+        (await app.Customer.GetAttendanceAsync(seed.CustomerId, contractId, 2026, 10)).Value.Items
+            .Should().NotContain(i => i.Date > new DateOnly(2026, 10, 5), "a stopped service shows nothing ahead");
+    }
+
+    [Fact]
     public void Customer_and_professional_are_told_about_the_moments_that_matter()
     {
         var contract = NewContract(NewPlan(MonthlyServicePlanBasis.Hourly, 2m, null), MonthlyServiceWeekdays.All, new TimeOnly(8, 0));
@@ -239,7 +285,11 @@ public sealed class MonthlyServiceTests : IClassFixture<TestDatabase>
             .Should().BeEquivalentTo([NotificationEventType.MonthlyProviderAssigned, NotificationEventType.MonthlyNewClient]);
 
         contract.AssignProvider(Guid.NewGuid(), DateTime.UtcNow);
-        contract.DomainEvents.OfType<Nestly.Domain.Events.MonthlyServiceProviderAssignedEvent>().Last().IsReplacement.Should().BeTrue();
+        var replaced = contract.DomainEvents.OfType<Nestly.Domain.Events.MonthlyServiceProviderAssignedEvent>().Last();
+        replaced.IsReplacement.Should().BeTrue();
+        replaced.PreviousProviderId.Should().Be(providerId);
+        Nestly.Application.Notifications.NotificationIntentPlanner.Plan(replaced)
+            .Should().Contain(NotificationEventType.MonthlyClientCancelled, "the outgoing professional must stop going");
 
         var row = NewRow(new DateOnly(2026, 10, 7), new TimeOnly(8, 0));
         row.MarkLeave(null, new DateTime(2026, 10, 6, 20, 0, 0), DateTime.UtcNow);

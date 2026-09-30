@@ -145,6 +145,64 @@ public class MonthlyServiceEngine
         _attendanceRepository.DeleteScheduledFromAsync(contract.Id, Today);
 
     /// <summary>
+    /// The next day a visit is still due for an active contract: the first
+    /// scheduled row from today on, or - past the materialized horizon (a
+    /// monthly date weeks away) - the next date the schedule itself names.
+    /// </summary>
+    public async Task<DateOnly?> NextVisitDateAsync(MonthlyServiceContract contract)
+    {
+        if (contract.Status != MonthlyServiceContractStatus.Active)
+        {
+            return null;
+        }
+
+        var today = Today;
+        var horizonEnd = today.AddDays(Options.ScheduleHorizonDays - 1);
+        var rows = await _attendanceRepository.ListByContractAsync(contract.Id, today, horizonEnd);
+        var next = rows
+            .Where(r => r.Status == MonthlyServiceAttendanceStatus.Scheduled)
+            .OrderBy(r => r.Date)
+            .FirstOrDefault();
+        if (next is not null)
+        {
+            return next.Date;
+        }
+
+        // Any date inside the horizon already has its row (possibly skipped), so look beyond it.
+        for (var date = horizonEnd.AddDays(1); date <= horizonEnd.AddDays(NextVisitSearchDays); date = date.AddDays(1))
+        {
+            if (contract.IsScheduledOn(date))
+            {
+                return date;
+            }
+        }
+
+        return null;
+    }
+
+    private const int NextVisitSearchDays = 62;
+
+    /// <summary>
+    /// Cancellation: removes the upcoming schedule and any leave/skip marks on
+    /// later days, so a stopped service shows nothing ahead.
+    /// </summary>
+    public async Task RemoveAllUpcomingAsync(MonthlyServiceContract contract)
+    {
+        await RemoveUpcomingAsync(contract);
+        await _attendanceRepository.ClearFutureMarksAsync(contract.Id, Today, newProviderId: null);
+    }
+
+    /// <summary>
+    /// Replacement: the outgoing professional's upcoming days and leave go;
+    /// the customer's skips carry over to the new professional.
+    /// </summary>
+    public async Task HandOverUpcomingAsync(MonthlyServiceContract contract, Guid newProviderId)
+    {
+        await RemoveUpcomingAsync(contract);
+        await _attendanceRepository.ClearFutureMarksAsync(contract.Id, Today, newProviderId);
+    }
+
+    /// <summary>
     /// Another non-cancelled contract of <paramref name="providerId"/> whose
     /// days and visit window overlap <paramref name="contract"/>'s, if any -
     /// the one professional cannot be in two houses at once.
@@ -290,6 +348,15 @@ public class MonthlyServiceEngine
             .Where(c => c.Id == cityId).Select(c => c.Name).FirstOrDefaultAsync();
         return cityName is not null && string.Equals(cityName.Trim(), address.City.Trim(), StringComparison.OrdinalIgnoreCase);
     }
+
+    /// <summary>
+    /// A domain guard's message as the user should read it - without the
+    /// " (Parameter 'x')" suffix .NET appends to argument exceptions.
+    /// </summary>
+    public static string UserMessage(Exception ex) =>
+        ex is ArgumentException { ParamName: { } param } argument
+            ? argument.Message.Replace($" (Parameter '{param}')", string.Empty, StringComparison.Ordinal).Split('\n')[0].Trim()
+            : ex.Message;
 
     // ---- Mapping ----
 

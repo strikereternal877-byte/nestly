@@ -139,7 +139,9 @@ public sealed record MonthlyServiceContractResponse(
     string? CancellationReason,
     MonthlyServiceFrequency Frequency,
     int? TimesPerPeriod,
-    IReadOnlyList<int> MonthDates);
+    IReadOnlyList<int> MonthDates,
+    /// <summary>The next day a visit is still due (today included), skipping days already skipped or on leave; null unless active.</summary>
+    DateOnly? NextVisitDate = null);
 
 public sealed record MonthlyServiceCancelRequest(string? Reason);
 

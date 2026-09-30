@@ -171,6 +171,8 @@ export interface MonthlyServiceContract {
   frequency: MonthlyServiceFrequency;
   timesPerPeriod: number | null;
   monthDates: number[];
+  /** Next day a visit is still due (today included); null unless active. */
+  nextVisitDate: string | null;
 }
 
 export interface MonthlyServiceInvoice {

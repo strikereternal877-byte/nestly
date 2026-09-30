@@ -66,6 +66,14 @@ public interface IMonthlyServiceAttendanceRepository
     /// <summary>Removes not-yet-happened scheduled rows from <paramref name="fromDate"/> on (pause/cancel/reassignment).</summary>
     Task<int> DeleteScheduledFromAsync(Guid contractId, DateOnly fromDate);
 
+    /// <summary>
+    /// Clears not-yet-invoiced leave/skip marks dated after <paramref name="afterDate"/>.
+    /// Leave rows are always removed (they belong to the outgoing professional);
+    /// the customer's skips move to <paramref name="newProviderId"/>, or are
+    /// removed too when it is null (cancellation).
+    /// </summary>
+    Task<int> ClearFutureMarksAsync(Guid contractId, DateOnly afterDate, Guid? newProviderId);
+
     /// <summary>Contract ids with any not-yet-invoiced, non-scheduled row in the range.</summary>
     Task<IReadOnlyList<Guid>> ListContractIdsWithUninvoicedRowsAsync(DateOnly from, DateOnly to);
 

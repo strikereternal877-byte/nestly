@@ -208,10 +208,10 @@ public class MonthlyServiceContract : AggregateRoot<Guid>
             throw new InvalidOperationException("Cannot assign a professional to a cancelled contract.");
         }
 
-        var isReplacement = ProviderId is not null;
+        var previousProviderId = ProviderId;
         ProviderId = providerId;
         ProviderAssignedAtUtc = nowUtc;
-        RaiseDomainEvent(new MonthlyServiceProviderAssignedEvent(Id, CustomerId, providerId, isReplacement));
+        RaiseDomainEvent(new MonthlyServiceProviderAssignedEvent(Id, CustomerId, providerId, previousProviderId is not null, previousProviderId));
         if (Status == MonthlyServiceContractStatus.PendingAssignment)
         {
             Status = MonthlyServiceContractStatus.Active;
