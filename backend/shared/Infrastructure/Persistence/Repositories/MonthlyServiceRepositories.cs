@@ -120,6 +120,9 @@ public class MonthlyServiceContractRepository : IMonthlyServiceContractRepositor
         return (items, total);
     }
 
+    public Task<bool> HasRunningContractAtAddressAsync(Guid addressId) =>
+        _context.MonthlyServiceContracts.AnyAsync(c => c.AddressId == addressId && c.Status != MonthlyServiceContractStatus.Cancelled);
+
     public async Task<Dictionary<Guid, int>> CountActiveByPlanAsync() =>
         await _context.MonthlyServiceContracts
             .Where(c => c.Status != MonthlyServiceContractStatus.Cancelled)

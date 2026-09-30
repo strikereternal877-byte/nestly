@@ -103,5 +103,30 @@ public enum NotificationEventType
     AmcContractExpiringSoon,
 
     /// <summary>Every entitled visit on an AMC contract has been redeemed while the term still has time left.</summary>
-    AmcContractExhausted
+    AmcContractExhausted,
+
+    // Monthly Service module (docs/MONTHLY-SERVICE.md NOTIFICATIONS).
+    // APPENDED, NEVER INSERTED - same wire-format rule as above. Names stay
+    // within the 30-character event_type columns.
+
+    /// <summary>To the customer: a professional was assigned to (or replaced on) their monthly service.</summary>
+    MonthlyProviderAssigned,
+
+    /// <summary>To the professional: a new monthly home was assigned to them.</summary>
+    MonthlyNewClient,
+
+    /// <summary>To the customer: their professional marked leave for a day.</summary>
+    MonthlyProviderLeave,
+
+    /// <summary>To the professional: the customer skipped a day.</summary>
+    MonthlyVisitSkipped,
+
+    /// <summary>To the customer: a month-end bill was issued.</summary>
+    MonthlyInvoiceIssued,
+
+    /// <summary>To the customer: the service was paused for an unpaid bill.</summary>
+    MonthlyServicePaused,
+
+    /// <summary>To the professional: a monthly home they serve was cancelled.</summary>
+    MonthlyClientCancelled
 }

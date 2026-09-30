@@ -1,4 +1,5 @@
 using Nestly.BuildingBlocks.Primitives;
+using Nestly.Domain.Events;
 
 namespace Nestly.Domain.MonthlyService;
 
@@ -120,6 +121,7 @@ public class MonthlyServiceInvoice : AggregateRoot<Guid>
         Status = MonthlyServiceInvoiceStatus.Issued;
         IssuedAtUtc = nowUtc;
         DueDate = issueDate.AddDays(dueDays);
+        RaiseDomainEvent(new MonthlyServiceInvoiceIssuedEvent(Id, ContractId, CustomerId, Amount, PeriodStart, DueDate));
     }
 
     public bool IsPaid => Status == MonthlyServiceInvoiceStatus.Paid;

@@ -90,8 +90,12 @@ public class MonthlyServiceContractConfiguration : IEntityTypeConfiguration<Mont
         builder.Property(x => x.RatePerVisitSnapshot).IsRequired().HasPrecision(12, 2);
         builder.Property(x => x.CommissionPercentSnapshot).IsRequired().HasPrecision(5, 2);
 
+        // Not a foreign key on purpose: a customer may delete an address once
+        // the service there is cancelled (a running one blocks the delete in
+        // CustomerAddressService), and the cancelled contract's history must
+        // survive that. Readers treat a missing address as "no longer on file".
         builder.Property(x => x.AddressId).IsRequired();
-        builder.HasOne<CustomerAddress>().WithMany().HasForeignKey(x => x.AddressId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasIndex(x => x.AddressId);
 
         builder.Property(x => x.FrequencySnapshot).IsRequired().HasConversion<string>().HasMaxLength(20);
         builder.Property(x => x.TimesPerPeriodSnapshot);

@@ -1,4 +1,5 @@
 using Nestly.BuildingBlocks.Primitives;
+using Nestly.Domain.Events;
 
 namespace Nestly.Domain.MonthlyService;
 
@@ -207,8 +208,10 @@ public class MonthlyServiceContract : AggregateRoot<Guid>
             throw new InvalidOperationException("Cannot assign a professional to a cancelled contract.");
         }
 
+        var isReplacement = ProviderId is not null;
         ProviderId = providerId;
         ProviderAssignedAtUtc = nowUtc;
+        RaiseDomainEvent(new MonthlyServiceProviderAssignedEvent(Id, CustomerId, providerId, isReplacement));
         if (Status == MonthlyServiceContractStatus.PendingAssignment)
         {
             Status = MonthlyServiceContractStatus.Active;
@@ -227,6 +230,10 @@ public class MonthlyServiceContract : AggregateRoot<Guid>
         Status = MonthlyServiceContractStatus.Paused;
         PauseReason = reason;
         UpdatedAtUtc = nowUtc;
+        if (reason == MonthlyServicePauseReason.OverdueInvoice)
+        {
+            RaiseDomainEvent(new MonthlyServicePausedForNonPaymentEvent(Id, CustomerId));
+        }
     }
 
     public void Resume(DateTime nowUtc)
@@ -259,5 +266,6 @@ public class MonthlyServiceContract : AggregateRoot<Guid>
         CancellationReason = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
         CancelledAtUtc = nowUtc;
         UpdatedAtUtc = nowUtc;
+        RaiseDomainEvent(new MonthlyServiceCancelledEvent(Id, CustomerId, ProviderId));
     }
 }

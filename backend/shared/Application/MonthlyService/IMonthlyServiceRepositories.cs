@@ -38,6 +38,9 @@ public interface IMonthlyServiceContractRepository
 
     Task<Dictionary<Guid, int>> CountActiveByPlanAsync();
 
+    /// <summary>Whether any not-cancelled contract (pending, active or paused) is at this address.</summary>
+    Task<bool> HasRunningContractAtAddressAsync(Guid addressId);
+
     Task<Dictionary<Guid, int>> CountActiveByProviderAsync(IReadOnlyCollection<Guid> providerIds);
 }
 

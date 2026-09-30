@@ -903,6 +903,7 @@ public static class DependencyInjection
         services.AddScoped<INotificationTriggerHandler, SupportTicketNotificationTriggerHandler>();
         services.AddScoped<INotificationTriggerHandler, SubscriptionNotificationTriggerHandler>();
         services.AddScoped<INotificationTriggerHandler, AmcNotificationTriggerHandler>();
+        services.AddScoped<INotificationTriggerHandler, Services.MonthlyService.MonthlyServiceNotificationTriggerHandler>();
 
         // Task 126a-d: admin CRUD, preview and change audit over the template
         // store above (SRS 12.17).

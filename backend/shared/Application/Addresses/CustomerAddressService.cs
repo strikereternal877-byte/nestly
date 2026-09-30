@@ -1,4 +1,5 @@
 using Nestly.Application.Geography;
+using Nestly.Application.MonthlyService;
 using Nestly.BuildingBlocks.Results;
 using Nestly.Domain;
 
@@ -13,9 +14,14 @@ public class CustomerAddressService : ICustomerAddressService
 {
     private readonly ICustomerAddressRepository _repository;
     private readonly IGeographyRepository _geographyRepository;
+    private readonly IMonthlyServiceContractRepository _monthlyServiceContracts;
 
-    public CustomerAddressService(ICustomerAddressRepository repository, IGeographyRepository geographyRepository)
+    public CustomerAddressService(
+        ICustomerAddressRepository repository,
+        IGeographyRepository geographyRepository,
+        IMonthlyServiceContractRepository monthlyServiceContracts)
     {
+        _monthlyServiceContracts = monthlyServiceContracts;
         _repository = repository;
         _geographyRepository = geographyRepository;
     }
@@ -82,6 +88,16 @@ public class CustomerAddressService : ICustomerAddressService
         if (address is null || address.CustomerId != customerId)
         {
             return Result.Failure(Error.NotFound("Address.NotFound", "Address not found."));
+        }
+
+        // A monthly service still running here would lose its address - the
+        // customer is told to stop it first rather than meeting a database
+        // error (docs/MONTHLY-SERVICE.md).
+        if (await _monthlyServiceContracts.HasRunningContractAtAddressAsync(addressId))
+        {
+            return Result.Failure(Error.Business(
+                "Address.InUseByMonthlyService",
+                "This address has a monthly service running. Cancel that service first, then delete the address."));
         }
 
         // A real delete (SRS 11.3.3): once bookings copy address fields at

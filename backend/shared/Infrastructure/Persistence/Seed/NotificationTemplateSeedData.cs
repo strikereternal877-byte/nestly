@@ -217,7 +217,57 @@ public static class NotificationTemplateSeedData
         Row(NotificationEventType.JobCompleted, NotificationChannel.Email, "job_completed_email", "Your service is complete",
             "Hi {{CustomerName}},\n\nYour {{ServiceName}} booking {{BookingId}} has been completed by {{ProviderName}}. We'd love to hear how it went - you can leave a rating in the app."),
         Row(NotificationEventType.JobCompleted, NotificationChannel.Push, "job_completed_push", "Service complete",
-            "Your {{ServiceName}} is complete. Tap to rate your experience.")
+            "Your {{ServiceName}} is complete. Tap to rate your experience."),
+
+        // docs/MONTHLY-SERVICE.md NOTIFICATIONS (maid / car wash monthly service).
+        Row(NotificationEventType.MonthlyProviderAssigned, NotificationChannel.Sms, "monthly_provider_assigned_sms", null,
+            "{{ProviderName}} will be your professional for {{PlanName}} ({{Schedule}} at {{VisitTime}}). Share the visit code shown in the app when they arrive. - Glavyx"),
+        Row(NotificationEventType.MonthlyProviderAssigned, NotificationChannel.Email, "monthly_provider_assigned_email", "Your monthly professional is assigned",
+            "Hi {{CustomerName}},\n\n{{ProviderName}} will be your professional for {{PlanName}} - {{Schedule}} at {{VisitTime}}.\n\nEach visit day the app shows a 4-digit visit code. Tell it to {{ProviderName}} when they arrive; it marks their attendance, and you are billed at month end only for visits that happened."),
+        Row(NotificationEventType.MonthlyProviderAssigned, NotificationChannel.Push, "monthly_provider_assigned_push", "Professional assigned",
+            "{{ProviderName}} will come {{Schedule}} at {{VisitTime}} for {{PlanName}}."),
+
+        Row(NotificationEventType.MonthlyNewClient, NotificationChannel.Sms, "monthly_new_client_sms", null,
+            "New monthly home: {{CustomerName}}, {{Schedule}} at {{VisitTime}} ({{PlanName}}). See Monthly clients in the Glavyx Provider app."),
+        Row(NotificationEventType.MonthlyNewClient, NotificationChannel.Email, "monthly_new_client_email", "New monthly home assigned",
+            "Hi {{ProviderName}},\n\nYou have a new monthly home: {{CustomerName}}, {{Schedule}} at {{VisitTime}} ({{PlanName}}).\n\nOn each visit, ask the customer for that day's 4-digit code and check in from Monthly clients. If you cannot go on a day, mark leave in the app beforehand."),
+        Row(NotificationEventType.MonthlyNewClient, NotificationChannel.Push, "monthly_new_client_push", "New monthly home",
+            "{{CustomerName}}: {{Schedule}} at {{VisitTime}}. Open Monthly clients for details."),
+
+        Row(NotificationEventType.MonthlyProviderLeave, NotificationChannel.Sms, "monthly_provider_leave_sms", null,
+            "{{ProviderName}} is on leave on {{Date}} and will not come that day. You will not be charged for it. - Glavyx"),
+        Row(NotificationEventType.MonthlyProviderLeave, NotificationChannel.Email, "monthly_provider_leave_email", "Your professional is on leave",
+            "Hi {{CustomerName}},\n\n{{ProviderName}} has marked leave on {{Date}} and will not come for {{PlanName}} that day. That day is not charged. Visits continue as usual after it."),
+        Row(NotificationEventType.MonthlyProviderLeave, NotificationChannel.Push, "monthly_provider_leave_push", "Professional on leave",
+            "{{ProviderName}} won't come on {{Date}}. No charge for that day."),
+
+        Row(NotificationEventType.MonthlyVisitSkipped, NotificationChannel.Sms, "monthly_visit_skipped_sms", null,
+            "{{CustomerName}} has skipped {{Date}}. Please do not go that day. - Glavyx"),
+        Row(NotificationEventType.MonthlyVisitSkipped, NotificationChannel.Email, "monthly_visit_skipped_email", "Visit skipped by customer",
+            "Hi {{ProviderName}},\n\n{{CustomerName}} has skipped the visit on {{Date}} ({{PlanName}}). Please do not go that day. Your other days are unchanged."),
+        Row(NotificationEventType.MonthlyVisitSkipped, NotificationChannel.Push, "monthly_visit_skipped_push", "Visit skipped",
+            "{{CustomerName}} skipped {{Date}}. Don't go that day."),
+
+        Row(NotificationEventType.MonthlyInvoiceIssued, NotificationChannel.Sms, "monthly_invoice_issued_sms", null,
+            "Your {{Month}} bill for {{PlanName}} is Rs {{Amount}}, due by {{DueDate}}. Pay in the Glavyx app. - Glavyx"),
+        Row(NotificationEventType.MonthlyInvoiceIssued, NotificationChannel.Email, "monthly_invoice_issued_email", "Your monthly bill is ready",
+            "Hi {{CustomerName}},\n\nYour {{Month}} bill for {{PlanName}} is Rs {{Amount}}, for the visits that happened. Please pay by {{DueDate}} from Monthly services in the app. You can see every day's attendance there too."),
+        Row(NotificationEventType.MonthlyInvoiceIssued, NotificationChannel.Push, "monthly_invoice_issued_push", "Monthly bill ready",
+            "{{Month}} bill: Rs {{Amount}}, due {{DueDate}}."),
+
+        Row(NotificationEventType.MonthlyServicePaused, NotificationChannel.Sms, "monthly_service_paused_sms", null,
+            "Your {{PlanName}} is paused because a bill is unpaid. Pay in the Glavyx app to restart visits right away. - Glavyx"),
+        Row(NotificationEventType.MonthlyServicePaused, NotificationChannel.Email, "monthly_service_paused_email", "Your monthly service is paused",
+            "Hi {{CustomerName}},\n\nYour {{PlanName}} is paused because a bill is still unpaid. Paying it from Monthly services in the app restarts the visits automatically."),
+        Row(NotificationEventType.MonthlyServicePaused, NotificationChannel.Push, "monthly_service_paused_push", "Service paused",
+            "{{PlanName}} is paused for an unpaid bill. Pay to restart."),
+
+        Row(NotificationEventType.MonthlyClientCancelled, NotificationChannel.Sms, "monthly_client_cancelled_sms", null,
+            "{{CustomerName}}'s monthly service ({{PlanName}}) has stopped. Please do not go from now on. - Glavyx"),
+        Row(NotificationEventType.MonthlyClientCancelled, NotificationChannel.Email, "monthly_client_cancelled_email", "Monthly home stopped",
+            "Hi {{ProviderName}},\n\n{{CustomerName}}'s monthly service ({{PlanName}}) has been stopped. Please do not go from now on. Visits you already did are still paid with the month's bill."),
+        Row(NotificationEventType.MonthlyClientCancelled, NotificationChannel.Push, "monthly_client_cancelled_push", "Monthly home stopped",
+            "{{CustomerName}}'s monthly service has stopped. Don't go from now on."),
     ];
 
     private static SeedRow Row(NotificationEventType eventType, NotificationChannel channel, string templateKey, string? subject, string body) =>

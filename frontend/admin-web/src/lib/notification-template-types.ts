@@ -44,6 +44,17 @@ export enum NotificationEventType {
   JobStarted = 20,
   JobCompleted = 21,
   ProviderChanged = 22,
+  AmcContractPurchased = 23,
+  AmcVisitRedeemed = 24,
+  AmcContractExpiringSoon = 25,
+  AmcContractExhausted = 26,
+  MonthlyProviderAssigned = 27,
+  MonthlyNewClient = 28,
+  MonthlyProviderLeave = 29,
+  MonthlyVisitSkipped = 30,
+  MonthlyInvoiceIssued = 31,
+  MonthlyServicePaused = 32,
+  MonthlyClientCancelled = 33,
 }
 
 /** Mirrors Nestly.Domain.NotificationChannel's declaration order exactly. */
@@ -77,6 +88,17 @@ export const NOTIFICATION_EVENT_TYPE_LABELS: Record<NotificationEventType, strin
   [NotificationEventType.JobStarted]: "Job started",
   [NotificationEventType.JobCompleted]: "Job completed",
   [NotificationEventType.ProviderChanged]: "Professional changed",
+  [NotificationEventType.AmcContractPurchased]: "AMC purchased",
+  [NotificationEventType.AmcVisitRedeemed]: "AMC visit redeemed",
+  [NotificationEventType.AmcContractExpiringSoon]: "AMC expiring soon",
+  [NotificationEventType.AmcContractExhausted]: "AMC visits used up",
+  [NotificationEventType.MonthlyProviderAssigned]: "Monthly: professional assigned (customer)",
+  [NotificationEventType.MonthlyNewClient]: "Monthly: new home (professional)",
+  [NotificationEventType.MonthlyProviderLeave]: "Monthly: professional on leave (customer)",
+  [NotificationEventType.MonthlyVisitSkipped]: "Monthly: day skipped (professional)",
+  [NotificationEventType.MonthlyInvoiceIssued]: "Monthly: bill issued (customer)",
+  [NotificationEventType.MonthlyServicePaused]: "Monthly: paused for unpaid bill (customer)",
+  [NotificationEventType.MonthlyClientCancelled]: "Monthly: home stopped (professional)",
 };
 
 export const NOTIFICATION_CHANNEL_LABELS: Record<NotificationChannel, string> = {

@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using Nestly.BuildingBlocks.Primitives;
+using Nestly.Domain.Events;
 
 namespace Nestly.Domain.MonthlyService;
 
@@ -28,7 +29,7 @@ public sealed record MonthlyServiceAttendancePolicy(
 /// Once <see cref="InvoiceId"/> is set the row is locked: its month has been
 /// billed and nothing about it may change.
 /// </summary>
-public class MonthlyServiceAttendance : Entity<Guid>
+public class MonthlyServiceAttendance : AggregateRoot<Guid>
 {
     public const int DayCodeLength = 4;
     public const int MaxNoteLength = 500;
@@ -121,6 +122,7 @@ public class MonthlyServiceAttendance : Entity<Guid>
         }
 
         SetStatus(MonthlyServiceAttendanceStatus.CustomerSkipped, MonthlyServiceAttendanceActor.Customer, nowUtc, null);
+        RaiseDomainEvent(new MonthlyServiceVisitSkippedEvent(Id, ContractId, CustomerId, ProviderId, Date));
     }
 
     public void Unskip(DateTime nowLocal, DateTime nowUtc, MonthlyServiceAttendancePolicy policy)
@@ -247,6 +249,7 @@ public class MonthlyServiceAttendance : Entity<Guid>
         }
 
         SetStatus(MonthlyServiceAttendanceStatus.ProviderLeave, MonthlyServiceAttendanceActor.Provider, nowUtc, note);
+        RaiseDomainEvent(new MonthlyServiceLeaveMarkedEvent(Id, ContractId, CustomerId, ProviderId, Date));
     }
 
     public void CancelLeave(DateTime nowLocal)

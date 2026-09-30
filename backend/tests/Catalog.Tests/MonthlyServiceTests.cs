@@ -227,6 +227,50 @@ public sealed class MonthlyServiceTests : IClassFixture<TestDatabase>
         october.Items.Select(i => i.Date).Should().Equal(new DateOnly(2026, 10, 1), new DateOnly(2026, 10, 8));
     }
 
+    [Fact]
+    public void Customer_and_professional_are_told_about_the_moments_that_matter()
+    {
+        var contract = NewContract(NewPlan(MonthlyServicePlanBasis.Hourly, 2m, null), MonthlyServiceWeekdays.All, new TimeOnly(8, 0));
+        var providerId = Guid.NewGuid();
+        contract.AssignProvider(providerId, DateTime.UtcNow);
+        var assigned = contract.DomainEvents.OfType<Nestly.Domain.Events.MonthlyServiceProviderAssignedEvent>().Single();
+        assigned.IsReplacement.Should().BeFalse();
+        Nestly.Application.Notifications.NotificationIntentPlanner.Plan(assigned)
+            .Should().BeEquivalentTo([NotificationEventType.MonthlyProviderAssigned, NotificationEventType.MonthlyNewClient]);
+
+        contract.AssignProvider(Guid.NewGuid(), DateTime.UtcNow);
+        contract.DomainEvents.OfType<Nestly.Domain.Events.MonthlyServiceProviderAssignedEvent>().Last().IsReplacement.Should().BeTrue();
+
+        var row = NewRow(new DateOnly(2026, 10, 7), new TimeOnly(8, 0));
+        row.MarkLeave(null, new DateTime(2026, 10, 6, 20, 0, 0), DateTime.UtcNow);
+        Nestly.Application.Notifications.NotificationIntentPlanner.Plan(row.DomainEvents.Single())
+            .Should().Equal(NotificationEventType.MonthlyProviderLeave);
+
+        var unassigned = NewContract(NewPlan(MonthlyServicePlanBasis.Hourly, 2m, null), MonthlyServiceWeekdays.All, new TimeOnly(8, 0));
+        unassigned.Cancel(null, DateTime.UtcNow);
+        Nestly.Application.Notifications.NotificationIntentPlanner.Plan(unassigned.DomainEvents.Single())
+            .Should().BeEmpty("nobody was going, so no professional needs telling");
+    }
+
+    [Fact]
+    public void Every_monthly_service_notification_has_sms_email_and_push_templates()
+    {
+        var types = new[]
+        {
+            NotificationEventType.MonthlyProviderAssigned, NotificationEventType.MonthlyNewClient,
+            NotificationEventType.MonthlyProviderLeave, NotificationEventType.MonthlyVisitSkipped,
+            NotificationEventType.MonthlyInvoiceIssued, NotificationEventType.MonthlyServicePaused,
+            NotificationEventType.MonthlyClientCancelled
+        };
+        var seeded = Nestly.Infrastructure.Persistence.Seed.NotificationTemplateSeedData.BuildDefaults();
+        foreach (var type in types)
+        {
+            type.ToString().Length.Should().BeLessThanOrEqualTo(30, "event_type columns are 30 characters");
+            seeded.Where(r => r.EventType == type).Select(r => r.Channel)
+                .Should().BeEquivalentTo([NotificationChannel.Sms, NotificationChannel.Email, NotificationChannel.Push]);
+        }
+    }
+
     // ---- Full lifecycle ----
 
     [Fact]

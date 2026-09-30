@@ -57,7 +57,13 @@ public static class NotificationIntentPlanner
         [nameof(AmcContractPurchasedEvent)] = typeof(AmcContractPurchasedEvent),
         [nameof(AmcVisitRedeemedEvent)] = typeof(AmcVisitRedeemedEvent),
         [nameof(AmcContractExpiringSoonEvent)] = typeof(AmcContractExpiringSoonEvent),
-        [nameof(AmcContractExhaustedEvent)] = typeof(AmcContractExhaustedEvent)
+        [nameof(AmcContractExhaustedEvent)] = typeof(AmcContractExhaustedEvent),
+        [nameof(MonthlyServiceProviderAssignedEvent)] = typeof(MonthlyServiceProviderAssignedEvent),
+        [nameof(MonthlyServiceLeaveMarkedEvent)] = typeof(MonthlyServiceLeaveMarkedEvent),
+        [nameof(MonthlyServiceVisitSkippedEvent)] = typeof(MonthlyServiceVisitSkippedEvent),
+        [nameof(MonthlyServiceInvoiceIssuedEvent)] = typeof(MonthlyServiceInvoiceIssuedEvent),
+        [nameof(MonthlyServicePausedForNonPaymentEvent)] = typeof(MonthlyServicePausedForNonPaymentEvent),
+        [nameof(MonthlyServiceCancelledEvent)] = typeof(MonthlyServiceCancelledEvent)
     };
 
     /// <summary>
@@ -97,6 +103,15 @@ public static class NotificationIntentPlanner
         AmcVisitRedeemedEvent => [NotificationEventType.AmcVisitRedeemed],
         AmcContractExpiringSoonEvent => [NotificationEventType.AmcContractExpiringSoon],
         AmcContractExhaustedEvent => [NotificationEventType.AmcContractExhausted],
+
+        // docs/MONTHLY-SERVICE.md NOTIFICATIONS: an assignment tells both
+        // sides; a cancellation only matters to a professional who was going.
+        MonthlyServiceProviderAssignedEvent => [NotificationEventType.MonthlyProviderAssigned, NotificationEventType.MonthlyNewClient],
+        MonthlyServiceLeaveMarkedEvent => [NotificationEventType.MonthlyProviderLeave],
+        MonthlyServiceVisitSkippedEvent => [NotificationEventType.MonthlyVisitSkipped],
+        MonthlyServiceInvoiceIssuedEvent => [NotificationEventType.MonthlyInvoiceIssued],
+        MonthlyServicePausedForNonPaymentEvent => [NotificationEventType.MonthlyServicePaused],
+        MonthlyServiceCancelledEvent cancelled => cancelled.ProviderId is null ? [] : [NotificationEventType.MonthlyClientCancelled],
 
         _ => []
     };

@@ -231,7 +231,7 @@ export const cancelLeave = (attendanceId: string) =>
   apiFetch<MonthlyAttendanceItem>(`${BASE}/visits/${attendanceId}/cancel-leave`, { method: "POST", authenticated: true });
 
 /** Best-effort device position for the check-in record - never blocks check-in if denied or slow. */
-export function currentPosition(timeoutMs = 4000): Promise<{ latitude: number; longitude: number } | null> {
+export function currentPosition(timeoutMs = 2500): Promise<{ latitude: number; longitude: number } | null> {
   if (typeof navigator === "undefined" || !navigator.geolocation) return Promise.resolve(null);
   return new Promise((resolve) => {
     const timer = setTimeout(() => resolve(null), timeoutMs);
@@ -247,7 +247,7 @@ export function currentPosition(timeoutMs = 4000): Promise<{ latitude: number; l
         clearTimeout(timer);
         resolve(null);
       },
-      { enableHighAccuracy: true, timeout: timeoutMs, maximumAge: 60_000 },
+      { enableHighAccuracy: false, timeout: timeoutMs, maximumAge: 5 * 60_000 },
     );
   });
 }
