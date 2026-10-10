@@ -43,6 +43,14 @@ import { OfferCard } from "./_components/OfferCard";
  * end-to-end (a new server-side notification trigger + payload contract).
  * That is a genuinely separate, larger change and stays deferred, per this
  * row's own fix note.
+ *
+ * What the app adds instead, without that infrastructure: `(provider)/layout.tsx`
+ * polls this same `GET /jobs` data at the shell level and loops a ringtone +
+ * vibration (`useOfferRinging`) for as long as any offer is open, from
+ * anywhere in the app - not only while this specific screen is mounted, so a
+ * provider working a different job elsewhere still notices a new one. Still
+ * bounded by the same push gap above - it cannot reach a provider who has
+ * navigated away from the app/tab entirely or closed it.
  */
 export default function OffersPage() {
   const { offersScreenEnabled } = useFeatureFlags();

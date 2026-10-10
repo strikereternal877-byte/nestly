@@ -24,6 +24,18 @@ public interface ICouponRepository
     /// </summary>
     Task<bool> TryReserveRedemptionAsync(Guid couponId, Guid customerId);
 
+    /// <summary>
+    /// Atomically releases one reservation <see cref="TryReserveRedemptionAsync"/>
+    /// previously granted - the booking it was reserved for never actually
+    /// completed (expired unpaid, or was cancelled before payment ever
+    /// settled), so the usage it would have consumed never really happened.
+    /// Symmetric with the reservation and floor-guarded at zero so this can
+    /// never run either counter negative, mirroring the exact compensation
+    /// <see cref="TryReserveRedemptionAsync"/> itself already performs when
+    /// the global cap loses the race after the per-customer claim succeeded.
+    /// </summary>
+    Task ReleaseRedemptionAsync(Guid couponId, Guid customerId);
+
     // ---- Admin management (SRS 12.12.1, task 118) ----
 
     Task AddAsync(Coupon coupon);

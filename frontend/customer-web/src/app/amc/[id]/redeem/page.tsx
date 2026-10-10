@@ -85,6 +85,8 @@ function RedeemScreen() {
     const match = categoriesQuery.data.find(
       (category) => category.name.toLowerCase() === contractQuery.data.categoryName.toLowerCase(),
     );
+    // Reacting to two async queries arriving, not a render-time prop change.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (match) setSelectedCategorySlug(match.slug);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contractQuery.data, categoriesQuery.data]);
@@ -105,6 +107,8 @@ function RedeemScreen() {
 
   useEffect(() => {
     if (selectedServiceId || services.length === 0) return;
+    // Reacting to the category query arriving, not a render-time prop change.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSelectedServiceId(services[0].id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [services.length]);
@@ -117,6 +121,8 @@ function RedeemScreen() {
   useEffect(() => {
     if (selectedAddressId !== null || !addressesQuery.data) return;
     const preferred = addressesQuery.data.find((a) => a.isDefault) ?? addressesQuery.data[0];
+    // Reacting to the addresses query arriving, not a render-time prop change.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (preferred) setSelectedAddressId(preferred.id);
   }, [addressesQuery.data, selectedAddressId]);
 

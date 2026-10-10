@@ -32,6 +32,8 @@ export interface RescheduleSettings {
   maxReschedulesPerBooking: number;
   lateFeeThresholdHours: number;
   lateRescheduleFeePercentage: number;
+  /** Whether the late fee is actually taken from the customer's wallet, or only recorded on the booking. */
+  collectLateFeeFromWallet: boolean;
 }
 
 export interface TaxSettings {

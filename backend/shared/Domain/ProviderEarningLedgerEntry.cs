@@ -33,7 +33,19 @@ public enum ProviderEarningSourceType
     NestlyCoinsClawback,
 
     /// <summary>Credited when a provider referral qualifies and is disbursed (PROVIDER-REFERRAL.md), mirroring WalletSourceType.ReferralReward. SourceReferenceId is the ProviderReferral's id.</summary>
-    ProviderReferralReward
+    ProviderReferralReward,
+
+    /// <summary>
+    /// Debited to claw back part or all of a <see cref="JobCompletion"/>
+    /// credit when its booking is refunded after already being paid out -
+    /// escrow itself has nothing left to release back at that point (see
+    /// <c>EscrowService.ReleaseForRefundAsync</c>), so without this the
+    /// customer is refunded while the provider keeps the full payout for a
+    /// job the platform is now treating as (partly) unpaid for. Amount is
+    /// proportional to the refund via <see cref="ProviderEarningClawbackCalculator"/>,
+    /// not necessarily the full original credit. SourceReferenceId is the same Booking's id.
+    /// </summary>
+    JobCompletionClawback
 }
 
 /// <summary>

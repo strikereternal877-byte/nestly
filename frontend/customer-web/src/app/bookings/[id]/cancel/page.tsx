@@ -4,7 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import {
@@ -13,13 +13,14 @@ import {
   DetailRow,
   ScreenSkeleton,
   formatInstant,
+  formatLocalDateTime,
   inr,
 } from "@/components/patterns";
 import { PageBanner } from "@/components/PageBanner";
 import { RequireAuth } from "@/components/RequireAuth";
 import { Alert, Badge, Button, Card, PageHeading, Textarea } from "@/components/ui";
 import { API_V1, apiFetch, describeError } from "@/lib/api";
-import { RefundMethod } from "@/lib/types";
+import { RefundMethod, RefundStatus } from "@/lib/types";
 import type { CancellationOutcomeResponse, CancellationPolicyResponse } from "@/lib/types";
 
 /**
@@ -54,6 +55,116 @@ function refundMethodLabel(method: RefundMethod): string {
   return method === RefundMethod.Gateway ? "Original payment method" : "Wallet credit";
 }
 
+function refundStatusLabel(status: RefundStatus): string {
+  switch (status) {
+    case RefundStatus.Initiated:
+      return "Refund started";
+    case RefundStatus.Processing:
+      return "Refund processing";
+    case RefundStatus.Refunded:
+      return "Refunded";
+    case RefundStatus.Failed:
+      return "Refund couldn't be completed - contact support";
+    default:
+      return "Unknown";
+  }
+}
+
+/** The late fee on `basis` at `percentage` percent, to the paisa. */
+function percentageOf(basis: number, percentage: number): number {
+  return Math.round(basis * percentage) / 100;
+}
+
+/**
+ * Says, in words, why a cancellation was or is free, when it stops being free, and what a late one costs - the part
+ * "Within free cancellation window: Yes/No" leaves a customer to guess.
+ *
+ * Used for the preview ("if you cancel now") and the result ("what happened"), with the same facts and the same
+ * sentence shapes, so what the customer was told before is what they are told after. Every number comes from the
+ * API (cut-off time, the amount the fee applies to, any carried-over reschedule charge) rather than being re-derived
+ * here.
+ */
+function CancellationChargesExplainer({
+  mode,
+  withinFreeWindow,
+  freeWindowHours,
+  feePercentage,
+  endsAt,
+  basis,
+  fee,
+  earlierRescheduleCharge,
+  feeBeforeCredit,
+  rescheduleFeeCredited,
+}: {
+  mode: "preview" | "result";
+  withinFreeWindow: boolean;
+  freeWindowHours: number;
+  feePercentage: number;
+  endsAt: string | null;
+  basis: number;
+  fee: number;
+  earlierRescheduleCharge: number;
+  /** The fee the policy sets, before a late-reschedule fee already paid is counted against it. */
+  feeBeforeCredit: number;
+  /** The part of that fee the customer already paid as a late-reschedule fee. */
+  rescheduleFeeCredited: number;
+}) {
+  const cutoff = endsAt ? formatLocalDateTime(endsAt) : null;
+  const lateFeeOnBasis = percentageOf(basis, feePercentage);
+  const carried = earlierRescheduleCharge > 0;
+  const isPreview = mode === "preview";
+  const credited = rescheduleFeeCredited > 0;
+  // The late fee's own line ("20% of the 999 you paid is 199.80") is shown when the clock set the fee; the rule
+  // below then does not repeat the amount.
+  const showsFeeLine = !withinFreeWindow && !carried && basis > 0;
+
+  let headline: string;
+  if (withinFreeWindow) {
+    headline = isPreview
+      ? `Cancelling now is free${cutoff ? ` - free cancellation lasts until ${cutoff}` : ""}.`
+      : `You cancelled in time, so no cancellation fee was charged${cutoff ? ` (free cancellation lasted until ${cutoff})` : ""}.`;
+  } else if (carried) {
+    // With a reschedule fee already paid, what is kept is lower than the charge that set the fee; the credit line below
+    // says how much, so this headline speaks of the charge rather than of what was finally kept.
+    headline = isPreview
+      ? `A ${inr(earlierRescheduleCharge)} charge from an earlier late reschedule of this booking applies, so a fee is charged even though free cancellation${cutoff ? ` lasts until ${cutoff}` : " has not ended"}.`
+      : credited
+        ? `A ${inr(earlierRescheduleCharge)} charge from an earlier late reschedule of this booking was carried over, so a fee applied even though you cancelled${cutoff ? ` before ${cutoff}` : " in time"}.`
+        : `A ${inr(earlierRescheduleCharge)} charge from an earlier late reschedule of this booking was carried over, so ${inr(fee)} was kept even though you cancelled${cutoff ? ` before ${cutoff}` : " in time"}.`;
+  } else {
+    headline = isPreview
+      ? `Free cancellation ended${cutoff ? ` on ${cutoff}` : ""}, so a ${feePercentage}% fee applies if you cancel now.`
+      : `Free cancellation had ended${cutoff ? ` (${cutoff})` : ""}, so a ${feePercentage}% late-cancellation fee was kept.`;
+  }
+
+  return (
+    <div className="flex flex-col gap-2 rounded-xl border border-line bg-surface-2 px-4 py-3 text-sm leading-relaxed text-fg-muted">
+      <p className="font-medium text-fg">{headline}</p>
+      {showsFeeLine ? (
+        <p>
+          {feePercentage}% of the {inr(basis)} you paid is {inr(lateFeeOnBasis)}
+          {isPreview ? " - that is the fee." : fee === lateFeeOnBasis ? " - that is the fee." : "."}
+        </p>
+      ) : null}
+      {credited ? (
+        <p className="font-medium text-fg">
+          You already paid {inr(rescheduleFeeCredited)} as a late reschedule fee on this booking, and it counts toward
+          this fee, so you don&apos;t pay twice.{" "}
+          {fee > 0
+            ? `${inr(fee)} of the ${inr(feeBeforeCredit)} fee is ${isPreview ? "kept from your refund" : "what was kept from your refund"}.`
+            : `It covers the whole ${inr(feeBeforeCredit)} fee, so nothing ${isPreview ? "is" : "was"} kept from your refund.`}
+        </p>
+      ) : null}
+      <p>
+        <span className="font-medium text-fg-muted">The rule:</span> cancelling at least {freeWindowHours} hours
+        before your slot{cutoff ? ` (by ${cutoff})` : ""} is free. After that, {feePercentage}% of the amount you
+        paid is kept as a fee
+        {basis > 0 && !showsFeeLine ? ` - ${inr(lateFeeOnBasis)} on this booking` : ""}; the rest comes back to you.
+      </p>
+    </div>
+  );
+}
+
 function CancelBookingScreen() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -66,6 +177,10 @@ function CancelBookingScreen() {
         authenticated: true,
       }),
   });
+
+  // The policy as the customer saw it when they decided. The query can refetch once the booking is cancelled (a
+  // cancelled booking has no live policy), so the result screen explains against this snapshot, not the live data.
+  const [decidedPolicy, setDecidedPolicy] = useState<CancellationPolicyResponse | null>(null);
 
   const form = useForm<CancelFormValues>({
     resolver: zodResolver(cancelSchema),
@@ -97,9 +212,15 @@ function CancelBookingScreen() {
     },
   });
 
+  // False positive: the rule can't see that react-hook-form's handleSubmit
+  // only *builds* this callback during render - it doesn't call it until a
+  // real submit event fires, well outside render, which is the only place
+  // inFlight.current is ever actually read or written.
+  // eslint-disable-next-line react-hooks/refs
   const submit = form.handleSubmit((values) => {
     if (inFlight.current) return;
     inFlight.current = true;
+    setDecidedPolicy(policyQuery.data ?? null);
     cancelMutation.mutate(values);
   });
 
@@ -135,6 +256,7 @@ function CancelBookingScreen() {
 
   if (cancelMutation.isSuccess) {
     const outcome = cancelMutation.data;
+    const shown = decidedPolicy ?? policy;
     return (
       <main className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 sm:py-12">
         <div className="mb-7 flex animate-rise flex-col items-center gap-3 text-center">
@@ -167,6 +289,21 @@ function CancelBookingScreen() {
             <p className="nums mt-1 text-2xl font-semibold text-fg">{inr(outcome.refundAmount)}</p>
           </div>
 
+          <div className="mb-4">
+            <CancellationChargesExplainer
+              mode="result"
+              withinFreeWindow={outcome.withinFreeCancellationWindow}
+              freeWindowHours={shown.freeCancellationWindowHours}
+              feePercentage={shown.lateCancellationFeePercentage}
+              endsAt={outcome.freeCancellationEndsAt}
+              basis={outcome.feeBasisAmount}
+              fee={outcome.cancellationFeeAmount}
+              earlierRescheduleCharge={outcome.earlierRescheduleCharge}
+              feeBeforeCredit={outcome.cancellationFeeBeforeCredit}
+              rescheduleFeeCredited={outcome.rescheduleFeeCredited}
+            />
+          </div>
+
           <DetailList>
             <DetailRow label="Cancellation fee" numeric>
               {inr(outcome.cancellationFeeAmount)}
@@ -176,6 +313,9 @@ function CancelBookingScreen() {
             </DetailRow>
             {outcome.refundMethod !== null ? (
               <DetailRow label="Refund method">{refundMethodLabel(outcome.refundMethod)}</DetailRow>
+            ) : null}
+            {outcome.refundStatus !== null ? (
+              <DetailRow label="Refund status">{refundStatusLabel(outcome.refundStatus)}</DetailRow>
             ) : null}
             <DetailRow label="Within free cancellation window">
               <Badge tone={outcome.withinFreeCancellationWindow ? "success" : "warning"}>
@@ -244,6 +384,21 @@ function CancelBookingScreen() {
             <Badge tone={policy.withinFreeCancellationWindow ? "success" : "warning"}>
               {policy.withinFreeCancellationWindow ? "Free cancellation" : "Late cancellation"}
             </Badge>
+          </div>
+
+          <div className="mb-4">
+            <CancellationChargesExplainer
+              mode="preview"
+              withinFreeWindow={policy.withinFreeCancellationWindow}
+              freeWindowHours={policy.freeCancellationWindowHours}
+              feePercentage={policy.lateCancellationFeePercentage}
+              endsAt={policy.freeCancellationEndsAt}
+              basis={policy.feeBasisAmount}
+              fee={policy.cancellationFeeAmount}
+              earlierRescheduleCharge={policy.earlierRescheduleCharge}
+              feeBeforeCredit={policy.cancellationFeeBeforeCredit}
+              rescheduleFeeCredited={policy.rescheduleFeeCredited}
+            />
           </div>
 
           <DetailList>

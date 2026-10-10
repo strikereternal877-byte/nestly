@@ -4,10 +4,11 @@ namespace Nestly.Infrastructure.Options;
 
 /// <summary>
 /// Strongly typed binding of the "CancellationPolicy" configuration section
-/// (SRS 11.14.1, task 80a-b). There is no admin auth/UI to manage
-/// cancellation policy yet (that's Phase 6) - the same not-yet-adminable
-/// policy-knob approach this codebase already uses for commission rates
-/// (see <see cref="CommissionOptions"/>) applies here too.
+/// (SRS 11.14.1, task 80a-b). Since admins can edit cancellation policy in
+/// Settings, this is the policy only until an admin saves that group - see
+/// <c>IBookingPolicyProvider</c>, which every engine asks instead of reading this
+/// directly. Commission rates (<see cref="CommissionOptions"/>) are still
+/// configuration-only.
 /// </summary>
 public class CancellationPolicyOptions
 {

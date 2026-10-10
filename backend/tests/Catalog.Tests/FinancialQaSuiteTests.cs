@@ -88,10 +88,17 @@ public sealed class FinancialQaSuiteTests : IClassFixture<TestDatabase>
     private static PaymentWebhookService BuildWebhookService(
         IPaymentTransactionRepository paymentRepository, IBookingRepository bookingRepository,
         Nestly.Infrastructure.Persistence.NestlyDbContext context, IPaymentGateway gateway) =>
-        new(
-            paymentRepository, bookingRepository, new ServiceRepository(context), gateway,
-            new CommissionService(Options.Create(new CommissionOptions())), BuildEscrowService(context),
-            context, new NoOpMetricsService(), NullLogger<PaymentWebhookService>.Instance);
+        new(paymentRepository,
+            new PaymentGroupRepository(context),
+            new RecurringBookingPlanRepository(context),
+            bookingRepository,
+            new ServiceRepository(context),
+            gateway,
+            new CommissionService(Options.Create(new CommissionOptions())),
+            BuildEscrowService(context),
+            context,
+            new NoOpMetricsService(),
+            NullLogger<PaymentWebhookService>.Instance);
 
     private sealed record Fixture(Customer Customer, City City, CustomerAddress Address, Locality Locality, Service Service, Guid BookingId, decimal Total);
 
@@ -160,9 +167,16 @@ public sealed class FinancialQaSuiteTests : IClassFixture<TestDatabase>
             var paymentRepository = new PaymentTransactionRepository(context);
             var bookingRepository = new BookingRepository(context);
             var webhookService = BuildWebhookService(paymentRepository, bookingRepository, context, gateway);
-            var paymentService = new PaymentService(
-                paymentRepository, bookingRepository, gateway, (ISandboxPaymentSimulator)gateway, webhookService,
-                new AlwaysEligibleProviderSearchStub());
+            var paymentService = new PaymentService(paymentRepository,
+            bookingRepository,
+            gateway,
+            (ISandboxPaymentSimulator)gateway,
+            webhookService,
+            new AlwaysEligibleProviderSearchStub(),
+            new PaymentGroupRepository(context),
+            new RecurringBookingPlanRepository(context),
+            new RecurringBookingOccurrenceRepository(context),
+            null!);
 
             var first = await paymentService.CreateOrderAsync(fixture.Customer.Id, new CreatePaymentOrderRequest(fixture.BookingId, null));
             firstOrderId = first.Value.GatewayOrderId;
@@ -279,10 +293,16 @@ public sealed class FinancialQaSuiteTests : IClassFixture<TestDatabase>
         {
             var paymentRepository = new PaymentTransactionRepository(orderContext);
             var bookingRepository = new BookingRepository(orderContext);
-            var paymentService = new PaymentService(
-                paymentRepository, bookingRepository, gateway, (ISandboxPaymentSimulator)gateway,
-                BuildWebhookService(paymentRepository, bookingRepository, orderContext, gateway),
-                new AlwaysEligibleProviderSearchStub());
+            var paymentService = new PaymentService(paymentRepository,
+            bookingRepository,
+            gateway,
+            (ISandboxPaymentSimulator)gateway,
+            BuildWebhookService(paymentRepository, bookingRepository, orderContext, gateway),
+            new AlwaysEligibleProviderSearchStub(),
+            new PaymentGroupRepository(orderContext),
+            new RecurringBookingPlanRepository(orderContext),
+            new RecurringBookingOccurrenceRepository(orderContext),
+            null!);
             var order = await paymentService.CreateOrderAsync(fixture.Customer.Id, new CreatePaymentOrderRequest(fixture.BookingId, null));
             gatewayOrderId = order.Value.GatewayOrderId;
         }
@@ -307,7 +327,9 @@ public sealed class FinancialQaSuiteTests : IClassFixture<TestDatabase>
 
         RefundService BuildRefundService(Nestly.Infrastructure.Persistence.NestlyDbContext context) => new(
             new BookingRepository(context), new PaymentTransactionRepository(context), new RefundTransactionRepository(context),
-            new WalletService(new WalletLedgerRepository(context), context), BuildEscrowService(context), gateway, context);
+            new WalletService(new WalletLedgerRepository(context), context), BuildEscrowService(context),
+            new ProviderEarningLedgerRepository(context), TestServices.ProviderEarningLedgerService(context),
+            gateway, context, NullLogger<RefundService>.Instance);
 
         // 600 via gateway, then an over-ask of 500 (only 400 remains) must be rejected...
         using (var partialGatewayContext = _db.CreateContext())

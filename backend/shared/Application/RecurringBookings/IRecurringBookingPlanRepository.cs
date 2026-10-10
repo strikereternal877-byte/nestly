@@ -21,7 +21,22 @@ public interface IRecurringBookingPlanRepository
     /// runway for a skip-and-notify to reach the customer before the visit
     /// was due.
     /// </summary>
+    /// <remarks>Prepaid plans are never in this set: their bookings are created up front (and renewed by <see cref="ListPrepaidRenewalDueAsync"/>), not trickled in by the daily job.</remarks>
     Task<IReadOnlyList<RecurringBookingPlan>> ListDueAsync(DateOnly onOrBefore);
+
+    /// <summary>
+    /// The prepaid plan whose unpaid cycle is settled from
+    /// <paramref name="leadBookingId"/>'s payment page, or null when that
+    /// booking is not the lead of a pending prepaid cycle. Loaded with add-ons.
+    /// </summary>
+    Task<RecurringBookingPlan?> GetByPendingPrepaymentLeadAsync(Guid leadBookingId);
+
+    /// <summary>
+    /// Active, open-ended prepaid plans that are not already waiting on a payment
+    /// and whose paid cycle ends on or before <paramref name="coveredThroughOnOrBefore"/> -
+    /// the renewal job's work list.
+    /// </summary>
+    Task<IReadOnlyList<RecurringBookingPlan>> ListPrepaidRenewalDueAsync(DateOnly coveredThroughOnOrBefore);
 
     /// <summary>
     /// The cadence of each of these plans, in one round trip (task 300).

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { ReactNode } from "react";
 import { CitySelector } from "@/components/CitySelector";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -131,10 +132,15 @@ export function SiteHeader() {
   }, [authed]);
 
   // A route change means the destination was reached — leaving the drawer open
-  // over the new page is never what the customer wanted.
-  useEffect(() => {
+  // over the new page is never what the customer wanted. "Adjusting state
+  // when a prop changes" (react.dev/learn/you-might-not-need-an-effect),
+  // during render rather than in an effect, tracking pathname itself as the
+  // comparison so this only fires on an actual route change.
+  const [drawerClosedForPathname, setDrawerClosedForPathname] = useState(pathname);
+  if (pathname !== drawerClosedForPathname) {
+    setDrawerClosedForPathname(pathname);
     setDrawerOpen(false);
-  }, [pathname]);
+  }
 
   // Only the home route ever needs this listener (elsewhere `transparent` is
   // always false), but mounting it unconditionally keeps the hook order
@@ -390,9 +396,13 @@ function AccountMenu({
   const containerRef = useRef<HTMLDivElement>(null);
   const accountLinks = useVisibleAccountLinks();
 
-  useEffect(() => {
+  // "Adjusting state when a prop changes", during render rather than in an
+  // effect - see the drawer-close above for the same pattern.
+  const [closedForPathname, setClosedForPathname] = useState(pathname);
+  if (pathname !== closedForPathname) {
+    setClosedForPathname(pathname);
     setOpen(false);
-  }, [pathname]);
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -558,7 +568,15 @@ function MobileDrawer({
     };
   }, [onClose]);
 
-  return (
+  // Portalled to <body> rather than rendered in place: `fixed inset-0` only
+  // covers the actual viewport if every ancestor is un-filtered/untransformed
+  // - a `backdrop-filter`/`filter`/`transform` anywhere up the tree (e.g.
+  // this very drawer's parent, SiteHeader, once its `backdrop-blur-md` kicks
+  // in past the scroll threshold) makes that ancestor the containing block
+  // instead, squashing the drawer into SiteHeader's own 72px-tall box rather
+  // than the viewport - exactly the bug CitySelector's modal had (see Modal's
+  // own doc comment in ui.tsx) before it was portalled. Same fix here.
+  return createPortal(
     <div className="fixed inset-0 z-50 md:hidden">
       <div
         className="absolute inset-0 animate-fade-in bg-overlay/50 backdrop-blur-[2px]"
@@ -649,7 +667,8 @@ function MobileDrawer({
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

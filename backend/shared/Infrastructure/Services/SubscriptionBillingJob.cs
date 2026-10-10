@@ -49,40 +49,59 @@ public class SubscriptionBillingJob : ISubscriptionBillingJob
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            // Reuses the existing sandbox payment gateway interface (task
-            // 68a) rather than a new integration, as PRODUCT-ENHANCEMENTS.md
-            // #1 requires. This is an off-session, server-initiated charge -
-            // there is no customer present to complete a redirect/webhook
-            // round trip the way checkout's IPaymentService does - so the
-            // job creates the order and resolves its outcome synchronously
-            // in one step via ISandboxPaymentSimulator, the same
-            // deterministic outcome function the checkout webhook simulator
-            // (PaymentService.SimulateAsync) already uses. A production
-            // integration would replace this with the vendor's actual
-            // off-session/saved-payment-method charge API behind the same
-            // IPaymentGateway seam.
-            var order = await _paymentGateway.CreateOrderAsync(
-                new GatewayCreateOrderRequest(subscription.Id, subscription.PriceSnapshot, "INR", subscription.Id.ToString("N")),
-                cancellationToken);
-            var outcome = _paymentSimulator.DetermineOutcome(subscription.PriceSnapshot);
-
-            if (outcome.Succeeded)
+            if (_paymentGateway is SandboxPaymentGateway)
             {
-                subscription.RecordSuccessfulRenewal(nowUtc);
-                succeeded++;
+                // Reuses the existing sandbox payment gateway interface (task
+                // 68a) rather than a new integration, as PRODUCT-ENHANCEMENTS.md
+                // #1 requires. This is an off-session, server-initiated charge -
+                // there is no customer present to complete a redirect/webhook
+                // round trip the way checkout's IPaymentService does - so the
+                // job resolves its outcome synchronously via
+                // ISandboxPaymentSimulator, the same deterministic outcome
+                // function the checkout webhook simulator
+                // (PaymentService.SimulateAsync) already uses.
+                await _paymentGateway.CreateOrderAsync(
+                    new GatewayCreateOrderRequest(subscription.Id, subscription.PriceSnapshot, "INR", subscription.Id.ToString("N")),
+                    cancellationToken);
+                var outcome = _paymentSimulator.DetermineOutcome(subscription.PriceSnapshot);
+
+                if (outcome.Succeeded)
+                {
+                    subscription.RecordSuccessfulRenewal(nowUtc);
+                    succeeded++;
+                }
+                else
+                {
+                    subscription.RecordFailedCharge(
+                        nowUtc,
+                        outcome.FailureReason ?? "Payment declined.",
+                        _options.RetryLimit,
+                        TimeSpan.FromDays(_options.RetryBackoffDays));
+                    failed++;
+                }
             }
             else
             {
+                // A real gateway is configured, but off-session/saved-card
+                // recurring charging is not implemented against any real
+                // vendor yet - IPaymentGateway.CreateOrderAsync only produces
+                // a hosted-checkout redirect a customer must complete in a
+                // live browser session, which nobody is present to do here.
+                // Treating this as a real decline - rather than fabricating a
+                // fake outcome via the sandbox simulator, which is the real
+                // production bug this branch replaces - routes it through
+                // the exact same retry/backoff/manual-renewal path a genuine
+                // card decline already takes, instead of silently marking an
+                // uncharged customer as renewed.
                 subscription.RecordFailedCharge(
                     nowUtc,
-                    outcome.FailureReason ?? "Payment declined.",
+                    "Automatic renewal is not yet supported for this payment method - please renew manually.",
                     _options.RetryLimit,
                     TimeSpan.FromDays(_options.RetryBackoffDays));
                 failed++;
             }
 
             await _subscriptionRepository.UpdateAsync(subscription);
-            _ = order; // Gateway order id has no further use once the outcome is resolved synchronously above.
         }
 
         _logger.LogInformation(

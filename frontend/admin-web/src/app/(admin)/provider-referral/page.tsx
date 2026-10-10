@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { DataTable, FilterBar, Pagination, countActiveFilters, formatDate } from "@/components/data-table";
 import type { DataTableColumn } from "@/components/data-table";
 import { Button, Field, PageHeading, Select, Tabs } from "@/components/ui";
+import { useResetOnChange } from "@/hooks/useResetOnChange";
 import { ProviderFraudFlagBadge, ProviderReferralStatusBadge } from "./_components/ProviderReferralStatusBadge";
 import { ProviderReferralTabs } from "./_components/ProviderReferralTabs";
 import { listProviderReferralFraudQueue, searchProviderReferrals } from "./_lib/provider-referral-api";
@@ -54,9 +55,7 @@ export default function ProviderReferralsPage() {
 
   // Any filter change resets to page 1 - staying on a now out-of-range page
   // would just show an empty result (same pattern as customers/page.tsx).
-  useEffect(() => {
-    setPage(1);
-  }, [debouncedProviderSearch, filters.status]);
+  useResetOnChange([debouncedProviderSearch, filters.status], () => setPage(1));
 
   const providerSuggestionsQuery = useQuery({
     queryKey: ["provider-referrals", "provider-suggestions", debouncedProviderSearch] as const,

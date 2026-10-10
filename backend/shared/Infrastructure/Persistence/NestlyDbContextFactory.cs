@@ -15,8 +15,20 @@ namespace Nestly.Infrastructure.Persistence;
 ///
 /// <code>
 /// dotnet ef migrations add &lt;Name&gt; --project backend/shared/Infrastructure \
-///     --startup-project backend/shared/Infrastructure -o database/migrations
+///     --startup-project backend/shared/Infrastructure -o ../../../database/migrations
 /// </code>
+///
+/// <c>-o</c> is resolved relative to <c>--project</c>, not the working
+/// directory (confirmed the hard way, 2026-09-09) - the shorter-looking
+/// <c>-o database/migrations</c> silently lands at
+/// <c>backend/shared/Infrastructure/database/migrations</c> instead of this
+/// repo's actual, already-populated <c>database/migrations</c>, and its
+/// build then fails with a duplicate <c>NestlyDbContextModelSnapshot</c>
+/// once a real one already exists there too. Separately: EF always
+/// regenerates the snapshot at this project's default <c>Migrations/</c>
+/// folder as well, regardless of <c>-o</c> - copy that copy over
+/// <c>database/migrations/NestlyDbContextModelSnapshot.cs</c> and delete the
+/// stray <c>Migrations/</c> folder afterward, every time.
 ///
 /// It is only ever used by the CLI tools - the running APIs configure their
 /// own context through <c>DependencyInjection</c> and never touch this.

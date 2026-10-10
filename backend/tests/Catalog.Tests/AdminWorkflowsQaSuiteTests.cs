@@ -70,12 +70,14 @@ public sealed class AdminWorkflowsQaSuiteTests : IClassFixture<TestDatabase>
     private static AdminLoginService BuildLoginService(NestlyDbContext context) =>
         new(
             new AdminUserRepository(context),
+            new AdminSessionRepository(context),
             new AdminTokenService(Options.Create(new AdminJwtOptions
             {
                 SigningKey = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
                 Issuer = "Nestly",
                 Audience = "Nestly.AdminUsers",
-                AccessTokenMinutes = 10
+                AccessTokenMinutes = 10,
+                RefreshTokenHours = 12
             })),
             new NoOpMfaChallengeProvider(),
             new AdminRolePermissionQueryService(context),
@@ -237,30 +239,38 @@ public sealed class AdminWorkflowsQaSuiteTests : IClassFixture<TestDatabase>
         new RefundTransactionRepository(context),
         new CancellationService(
             new BookingRepository(context), new PaymentTransactionRepository(context), new RefundTransactionRepository(context),
-            new RefundService(
-                new BookingRepository(context), new PaymentTransactionRepository(context), new RefundTransactionRepository(context),
-                new WalletService(new WalletLedgerRepository(context), context), new EscrowService(new PlatformEscrowLedgerRepository(context)),
-                BuildGateway(), context),
-            new BookingCancellationRepository(context), new BookingProviderAssignmentRepository(context), TestServices.SlotAvailability(context), TestServices.Clock(), TimeProvider.System, Options.Create(new CancellationPolicyOptions())),
+            TestServices.RefundService(context, BuildGateway()),
+            new BookingCancellationRepository(context), new BookingProviderAssignmentRepository(context), TestServices.SlotAvailability(context),
+            new CouponService(new CouponRepository(context), new CouponRedemptionRepository(context), new BookingRepository(context), TimeProvider.System),
+            new CustomerSubscriptionRepository(context),
+            new EscrowService(new PlatformEscrowLedgerRepository(context)),
+            TestServices.Clock(), TimeProvider.System, TestServices.Policies(), TestServices.ProviderNotificationPublisher(context), new BookingRescheduleRepository(context)),
         new RescheduleService(
             new BookingRepository(context), new PaymentTransactionRepository(context), new RefundTransactionRepository(context),
             new SlotAvailabilityService(
                 new ServiceabilityRepository(context),
                 new ServiceabilityValidationService(new ServiceabilityRepository(context), new InMemoryCacheService()),
                 new SlotWindowRepository(context), new SlotBlackoutRepository(context), new SlotBookingPolicyRepository(context), new SlotCapacityRepository(context), TestServices.Clock()),
-            new BookingRescheduleRepository(context), new BookingProviderAssignmentRepository(context), new ProviderScheduleConflictService(context, TestServices.Occupancy()), context, TestServices.Clock(), TimeProvider.System, Options.Create(new ReschedulePolicyOptions())),
-        new RefundService(
-            new BookingRepository(context), new PaymentTransactionRepository(context), new RefundTransactionRepository(context),
-            new WalletService(new WalletLedgerRepository(context), context), new EscrowService(new PlatformEscrowLedgerRepository(context)),
-            BuildGateway(), context),
-        new PaymentWebhookService(
-            new PaymentTransactionRepository(context), new BookingRepository(context), new ServiceRepository(context), BuildGateway(),
-            new CommissionService(Options.Create(new CommissionOptions())), new EscrowService(new PlatformEscrowLedgerRepository(context)),
-            context, new NoOpMetricsService(), NullLogger<PaymentWebhookService>.Instance),
+            new BookingRescheduleRepository(context), new BookingProviderAssignmentRepository(context), new ProviderScheduleConflictService(context, TestServices.Occupancy()), context, TestServices.Clock(), TimeProvider.System, TestServices.Policies(), TestServices.ProviderNotificationPublisher(context), TestServices.PlanReservations(context), TestServices.Wallet(context), TestServices.Escrow(context), Microsoft.Extensions.Logging.Abstractions.NullLogger<RescheduleService>.Instance),
+        TestServices.RefundService(context, BuildGateway()),
+        new PaymentWebhookService(new PaymentTransactionRepository(context),
+            new PaymentGroupRepository(context),
+            new RecurringBookingPlanRepository(context),
+            new BookingRepository(context),
+            new ServiceRepository(context),
+            BuildGateway(),
+            new CommissionService(Options.Create(new CommissionOptions())),
+            new EscrowService(new PlatformEscrowLedgerRepository(context)),
+            context,
+            new NoOpMetricsService(),
+            NullLogger<PaymentWebhookService>.Instance),
         new AuditLogWriter(context, new StubAuditContextProvider(AuditActorType.AdminUser, Guid.NewGuid())),
         context,
         new BookingCompletionProofRepository(context),
-        new ProviderRepository(context));
+        new ProviderRepository(context),
+        new NotUnderTestAutoChargeJobStub(),
+        new RecurringBookingPlanRepository(context),
+        Options.Create(new RecurringBookingOptions()));
 
     private static SandboxPaymentGateway BuildGateway() =>
         new(Options.Create(new SandboxGatewayOptions { WebhookSigningSecret = "unit-test-signing-secret-value" }));
@@ -364,31 +374,7 @@ public sealed class AdminWorkflowsQaSuiteTests : IClassFixture<TestDatabase>
     }
 
     [Fact]
-    public async Task UpdateStatusAsync_rejects_Completed_without_a_completion_proof_on_file()
-    {
-        var (_, bookingId, _, _) = await SeedConfirmedBookingAsync();
-
-        using (var context = _db.CreateContext())
-        {
-            var bookingRepository = new BookingRepository(context);
-            var booking = await bookingRepository.GetByIdAsync(bookingId);
-            booking!.TransitionTo(BookingStatus.AwaitingFulfilment);
-            booking.TransitionTo(BookingStatus.Assigned);
-            booking.TransitionTo(BookingStatus.InProgress);
-            await bookingRepository.UpdateAsync(booking);
-        }
-
-        using var context2 = _db.CreateContext();
-        var service = BuildBookingManagementService(context2);
-        var result = await service.UpdateStatusAsync(
-            bookingId, Guid.NewGuid(), new AdminBookingStatusUpdateRequest(BookingStatus.Completed, "Marking complete"));
-
-        result.IsFailure.Should().BeTrue();
-        result.Error.Code.Should().Be("Booking.CompletionProofRequired");
-    }
-
-    [Fact]
-    public async Task UpdateStatusAsync_accepts_Completed_once_a_completion_proof_exists()
+    public async Task UpdateStatusAsync_rejects_Completed_via_the_generic_endpoint_even_with_a_completion_proof_on_file()
     {
         var (_, bookingId, _, _) = await SeedConfirmedBookingAsync();
 
@@ -410,8 +396,105 @@ public sealed class AdminWorkflowsQaSuiteTests : IClassFixture<TestDatabase>
         var result = await service.UpdateStatusAsync(
             bookingId, Guid.NewGuid(), new AdminBookingStatusUpdateRequest(BookingStatus.Completed, "Marking complete"));
 
-        result.IsSuccess.Should().BeTrue(because: result.IsFailure ? result.Error.Code : "Completed should succeed once a proof is on file");
+        // Completed is only reachable via ApproveCompletionProofAsync now - see
+        // DisallowedGenericTransitionTargets's doc comment - regardless of
+        // whether a proof happens to be on file.
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be("Booking.UseDedicatedAction");
+    }
+
+    [Fact]
+    public async Task ApproveCompletionProofAsync_transitions_the_booking_to_Completed_once_a_pending_proof_exists()
+    {
+        var (_, bookingId, _, _) = await SeedConfirmedBookingAsync();
+
+        using (var context = _db.CreateContext())
+        {
+            var bookingRepository = new BookingRepository(context);
+            var booking = await bookingRepository.GetByIdAsync(bookingId);
+            booking!.TransitionTo(BookingStatus.AwaitingFulfilment);
+            booking.TransitionTo(BookingStatus.Assigned);
+            booking.TransitionTo(BookingStatus.InProgress);
+            await bookingRepository.UpdateAsync(booking);
+
+            var proof = new BookingCompletionProof(Guid.NewGuid(), bookingId, Guid.NewGuid(), ["s3://proofs/photo.jpg"], []);
+            await new BookingCompletionProofRepository(context).AddAsync(proof);
+        }
+
+        using var context2 = _db.CreateContext();
+        var service = BuildBookingManagementService(context2);
+        var result = await service.ApproveCompletionProofAsync(bookingId, Guid.NewGuid());
+
+        result.IsSuccess.Should().BeTrue(because: result.IsFailure ? result.Error.Code : "Completed should succeed once a pending proof is on file");
         result.Value.Status.Should().Be(BookingStatus.Completed);
+    }
+
+    [Fact]
+    public async Task RejectCompletionProofAsync_leaves_the_booking_InProgress_for_the_provider_to_resubmit()
+    {
+        var (_, bookingId, _, _) = await SeedConfirmedBookingAsync();
+
+        using (var context = _db.CreateContext())
+        {
+            var bookingRepository = new BookingRepository(context);
+            var booking = await bookingRepository.GetByIdAsync(bookingId);
+            booking!.TransitionTo(BookingStatus.AwaitingFulfilment);
+            booking.TransitionTo(BookingStatus.Assigned);
+            booking.TransitionTo(BookingStatus.InProgress);
+            await bookingRepository.UpdateAsync(booking);
+
+            var proof = new BookingCompletionProof(Guid.NewGuid(), bookingId, Guid.NewGuid(), ["s3://proofs/photo.jpg"], []);
+            await new BookingCompletionProofRepository(context).AddAsync(proof);
+        }
+
+        using var context2 = _db.CreateContext();
+        var service = BuildBookingManagementService(context2);
+        var result = await service.RejectCompletionProofAsync(
+            bookingId, Guid.NewGuid(), new RejectCompletionProofRequest("Photo doesn't show the completed work"));
+
+        result.IsSuccess.Should().BeTrue(because: result.IsFailure ? result.Error.Code : "Reject should succeed for a pending proof");
+        result.Value.Status.Should().Be(BookingStatus.InProgress);
+    }
+
+    [Fact]
+    public async Task ListPendingCompletionProofsAsync_returns_only_pending_proofs_oldest_first_with_booking_and_provider_details()
+    {
+        var (_, pendingBookingId, _, _) = await SeedConfirmedBookingAsync();
+        var (_, reviewedBookingId, _, _) = await SeedConfirmedBookingAsync();
+        var provider = new Provider(Guid.NewGuid(), "Ravi Kumar", "Ravi's Repairs", ProviderType.Individual, "+9198" + Guid.NewGuid().ToString("N")[..8]);
+
+        using (var context = _db.CreateContext())
+        {
+            context.Add(provider);
+            context.SaveChanges();
+
+            var bookingRepository = new BookingRepository(context);
+            foreach (var bookingId in new[] { pendingBookingId, reviewedBookingId })
+            {
+                var booking = await bookingRepository.GetByIdAsync(bookingId);
+                booking!.TransitionTo(BookingStatus.AwaitingFulfilment);
+                booking.TransitionTo(BookingStatus.Assigned);
+                booking.TransitionTo(BookingStatus.InProgress);
+                await bookingRepository.UpdateAsync(booking);
+            }
+
+            var proofRepository = new BookingCompletionProofRepository(context);
+            await proofRepository.AddAsync(new BookingCompletionProof(Guid.NewGuid(), pendingBookingId, provider.Id, ["s3://proofs/pending.jpg"], []));
+
+            var reviewedProof = new BookingCompletionProof(Guid.NewGuid(), reviewedBookingId, provider.Id, ["s3://proofs/reviewed.jpg"], []);
+            reviewedProof.Approve(Guid.NewGuid());
+            await proofRepository.AddAsync(reviewedProof);
+        }
+
+        using var queryContext = _db.CreateContext();
+        var queue = await BuildBookingManagementService(queryContext).ListPendingCompletionProofsAsync();
+
+        queue.Should().ContainSingle();
+        var item = queue.Single();
+        item.BookingId.Should().Be(pendingBookingId);
+        item.ProviderId.Should().Be(provider.Id);
+        item.ProviderDisplayName.Should().Be(provider.DisplayName);
+        item.PhotoRefs.Should().ContainSingle().Which.Should().Be("s3://proofs/pending.jpg");
     }
 
     /// <summary>

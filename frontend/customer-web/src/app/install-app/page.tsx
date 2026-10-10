@@ -72,6 +72,11 @@ function InstallScreen() {
   const [origin, setOrigin] = useState("");
 
   useEffect(() => {
+    // One-time mount bootstrap alongside the redirect decision and the
+    // event listener below - not a continuously-synced external value, so
+    // this deliberately stays an effect rather than a lazy initializer
+    // (Next's SSR prerendering has no `window` to read from).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setOrigin(window.location.origin);
     const detected = detectPlatform();
     const alreadySeen = window.localStorage.getItem(SEEN_KEY) === "1";

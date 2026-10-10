@@ -23,6 +23,16 @@ public class ProviderPayoutConfiguration : IEntityTypeConfiguration<ProviderPayo
         builder.Property(x => x.Status).IsRequired().HasConversion<string>().HasMaxLength(20);
         builder.Property(x => x.PayoutReference).HasMaxLength(100);
         builder.Property(x => x.Notes).HasMaxLength(500);
+        // Real PayU Payouts integration: which of the two always-available
+        // paths (manual bank transfer vs. automated "Pay via PayU") drove
+        // this payout's Pending -> Processing move - see ProviderPayoutChannel's
+        // doc comment. HasDefaultValue so the migration backfills every
+        // existing row as Manual, matching the domain property's own default.
+        builder.Property(x => x.ProcessedVia)
+            .IsRequired()
+            .HasConversion<string>()
+            .HasMaxLength(20)
+            .HasDefaultValue(ProviderPayoutChannel.Manual);
         builder.Property(x => x.CreatedAt).IsRequired();
         builder.Property(x => x.UpdatedAt).IsRequired();
 

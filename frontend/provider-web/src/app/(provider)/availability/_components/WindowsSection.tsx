@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { ErrorState } from "@/components/states";
 import { Alert, Button, Card, IconButton, Skeleton, cx, useToast } from "@/components/ui";
 import { getAvailability, updateAvailabilityWindows } from "@/lib/availability-api";
@@ -54,7 +54,10 @@ export function WindowsSection() {
 
   const query = useQuery({ queryKey: ["provider-availability"], queryFn: getAvailability });
 
-  useEffect(() => {
+  // Adjusting state when a prop changes (react.dev/learn/you-might-not-need-an-effect).
+  const [seededFor, setSeededFor] = useState({ data: query.data, isDirty });
+  if (seededFor.data !== query.data || seededFor.isDirty !== isDirty) {
+    setSeededFor({ data: query.data, isDirty });
     if (query.data && !isDirty) {
       setRows(
         query.data.windows.map((w) => ({
@@ -64,7 +67,7 @@ export function WindowsSection() {
         })),
       );
     }
-  }, [query.data, isDirty]);
+  }
 
   const mutation = useMutation({
     mutationFn: (windows: AvailabilityWindowInput[]) => updateAvailabilityWindows({ windows }),

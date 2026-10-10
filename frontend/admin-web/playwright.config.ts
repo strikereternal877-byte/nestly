@@ -14,7 +14,12 @@ export default defineConfig({
   testDir: "./e2e",
   globalSetup: "./e2e/setup/global-setup.ts",
   fullyParallel: false,
-  retries: 0,
+  // 2 retries in CI only: the ci.yml `e2e` job runs 3 .NET APIs + Next.js +
+  // Chromium together on one small runner, so a single request occasionally
+  // loses a race against cold JIT/EF-query-compilation on first hit and
+  // times out - not a flaky assertion, a flaky *environment*. Local runs get
+  // the immediate, no-retry failure a real bug should produce.
+  retries: process.env.CI ? 2 : 0,
   workers: 1,
   reporter: [["list"]],
   use: {

@@ -27,9 +27,10 @@ import ServiceDetailClient from "./ServiceDetailClient";
 export async function generateMetadata({
   params,
 }: {
-  params: { slug: string };
+  params: Promise<{ slug: string }>;
 }): Promise<Metadata> {
-  const service = await serverJson<ServiceDetail>(`/services/${params.slug}`);
+  const { slug } = await params;
+  const service = await serverJson<ServiceDetail>(`/services/${slug}`);
   if (!service) return {};
 
   return {
@@ -48,9 +49,10 @@ export async function generateMetadata({
 export default async function ServiceDetailPage({
   params,
 }: {
-  params: { slug: string };
+  params: Promise<{ slug: string }>;
 }) {
-  const service = await serverJson<ServiceDetail>(`/services/${params.slug}`);
+  const { slug } = await params;
+  const service = await serverJson<ServiceDetail>(`/services/${slug}`);
 
   return (
     <main className="flex w-full flex-col animate-rise">
@@ -77,7 +79,7 @@ export default async function ServiceDetailPage({
         />
       ) : null}
 
-      <ServiceDetailClient initialService={service} slug={params.slug} />
+      <ServiceDetailClient initialService={service} slug={slug} />
     </main>
   );
 }

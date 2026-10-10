@@ -32,4 +32,36 @@ public class LocalDiskFileStorageService : IFileStorageService
 
         return $"{_requestPath}/{fileName}";
     }
+
+    public Task DeleteAsync(string fileReference, CancellationToken cancellationToken = default)
+    {
+        // SaveAsync itself returns a bare "{_requestPath}/{fileName}" reference,
+        // but callers (e.g. ProviderProfileService.SubmitPhoto via
+        // FileReferenceUrl.ToAbsolute) routinely turn that into an absolute
+        // "http://host/uploads/xxx.jpg" URL before persisting it - the same
+        // shape a real Provider.PhotoUrl/ProviderKycDocument.FileRef has in
+        // this environment. Resolving through Uri first, rather than a plain
+        // StartsWith on the raw string, is what makes both shapes match the
+        // same file instead of only the relative one SaveAsync itself
+        // returns (which nothing actually persists as-is).
+        var path = Uri.TryCreate(fileReference, UriKind.Absolute, out var absoluteUri) ? absoluteUri.AbsolutePath : fileReference;
+
+        // Inverse of SaveAsync's return value - see SupabaseFileStorageService.DeleteAsync
+        // for why an unrecognized shape (a Supabase public URL) is a silent no-op here.
+        var prefix = $"{_requestPath}/";
+        if (!path.StartsWith(prefix, StringComparison.Ordinal))
+        {
+            return Task.CompletedTask;
+        }
+
+        var fileName = path[prefix.Length..];
+        var fullPath = Path.Combine(_uploadsDirectory, fileName);
+
+        if (File.Exists(fullPath))
+        {
+            File.Delete(fullPath);
+        }
+
+        return Task.CompletedTask;
+    }
 }

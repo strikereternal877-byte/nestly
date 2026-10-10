@@ -113,8 +113,15 @@ test.describe("Provider job lifecycle", () => {
 
       await expect(statusBadge(page, "Completed")).toBeVisible({ timeout: 15_000 });
       await expect(page.getByRole("button", { name: "Mark complete" })).toHaveCount(0);
-      // Bidirectional reviews open only once the job is done.
-      await expect(page.getByText("Rate the customer")).toBeVisible({ timeout: 15_000 });
+      // Not asserting "Rate the customer" here: CompleteAsync (ProviderJobService)
+      // deliberately leaves the underlying Booking at InProgress - only an
+      // admin approving the completion proof (BookingManagementService.
+      // ApproveCompletionProofAsync) moves it to Completed, which is what
+      // CustomerRatingService's eligibility check actually requires. The
+      // provider's own "Mark complete" (tested above via the Assigned
+      // badge/list-card status) never unlocks rating by itself. This test is
+      // scoped to the provider's own button-driven walk (see its own doc
+      // comment) and has no admin-api dependency to drive that separate step.
     });
 
     await test.step("Completed: the list agrees with the detail screen", async () => {

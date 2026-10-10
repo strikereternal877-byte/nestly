@@ -101,6 +101,19 @@ export enum ProviderPayoutStatus {
   Failed = 3,
 }
 
+/** Mirrors Nestly.Domain.ProviderBankAccountVerificationStatus's declaration order exactly. */
+export enum ProviderBankAccountVerificationStatus {
+  Pending = 0,
+  Verified = 1,
+  Rejected = 2,
+}
+
+/** Mirrors Nestly.Domain.ProviderPayoutChannel's declaration order exactly (real PayU Payouts integration). */
+export enum ProviderPayoutChannel {
+  Manual = 0,
+  PayUAutomated = 1,
+}
+
 // ---- CRUD (task 150a) ----
 
 export interface ProviderSummary {
@@ -178,6 +191,10 @@ export interface SuspendProviderRequest {
   reason: string;
 }
 
+export interface DeleteProviderRequest {
+  reason: string;
+}
+
 export interface ProviderKycDocument {
   id: string;
   docType: ProviderKycDocumentType;
@@ -186,6 +203,19 @@ export interface ProviderKycDocument {
   verificationStatus: ProviderKycVerificationStatus;
   verifiedBy: string | null;
   verifiedAt: string | null;
+  submittedAt: string;
+  /** Why an admin rejected this document - null except when verificationStatus is Rejected. Shown back to the provider, so it must be shown here too. */
+  rejectionReason: string | null;
+}
+
+/** One row of the admin KYC verification queue (Provider Management UX pass) - a pending document plus enough provider identity to tell one queue row from another. */
+export interface ProviderKycQueueItem {
+  id: string;
+  providerId: string;
+  providerDisplayName: string;
+  docType: ProviderKycDocumentType;
+  docNumber: string | null;
+  fileRef: string;
   submittedAt: string;
 }
 
@@ -236,6 +266,66 @@ export interface ProviderDetail {
   backgroundChecks: ProviderBackgroundCheck[];
   /** Task 293. Appended last, matching the C# positional record's own append-only rule. */
   photo: ProviderPhoto;
+  /** Append-only status change log (Provider Management UX pass), most recent first. */
+  statusHistory: ProviderStatusHistoryEntry[];
+  /** Structured bank account details for payouts (docs/PROVIDER.md OPEN DECISIONS #3). Appended last, same rule as `photo` above. Null when the provider has not submitted one yet. */
+  bankAccount: ProviderBankAccount | null;
+}
+
+// ---- Bank account (structured payout details, OPEN DECISIONS #3) ----
+
+/** Full bank account detail - what an admin sees on the provider detail page and the approve/reject view. */
+export interface ProviderBankAccount {
+  id: string;
+  providerId: string;
+  accountHolderName: string;
+  accountNumber: string;
+  ifscCode: string;
+  bankName: string;
+  verificationStatus: ProviderBankAccountVerificationStatus;
+  verifiedBy: string | null;
+  verifiedAt: string | null;
+  rejectionReason: string | null;
+  updatedAt: string;
+}
+
+/** One row of the admin bank-account verification queue - `maskedAccountNumber` deliberately shows only the last 4 digits (see the matching C# doc comment on `ProviderBankAccountQueueItemResponse`). */
+export interface ProviderBankAccountQueueItem {
+  id: string;
+  providerId: string;
+  providerDisplayName: string;
+  accountHolderName: string;
+  maskedAccountNumber: string;
+  ifscCode: string;
+  bankName: string;
+  updatedAt: string;
+}
+
+export interface RejectProviderBankAccountRequest {
+  reason: string;
+}
+
+/**
+ * A provider's current bank account as surfaced on the payout screen
+ * (product decision - visible there so an admin processing a transfer does
+ * not have to navigate away). Full account number, unlike the queue row
+ * above - an admin about to process a real payout needs the real number.
+ */
+export interface ProviderPayoutBankAccountSummary {
+  accountHolderName: string;
+  accountNumber: string;
+  ifscCode: string;
+  bankName: string;
+  verificationStatus: ProviderBankAccountVerificationStatus;
+}
+
+/** One entry of a provider's append-only status change log (mirrors the booking status timeline). */
+export interface ProviderStatusHistoryEntry {
+  id: string;
+  fromStatus: ProviderStatus | null;
+  toStatus: ProviderStatus;
+  reason: string | null;
+  changedAtUtc: string;
 }
 
 // ---- Capacity limits (task 245 built enforcement; task 308 adds this write path) ----
@@ -399,6 +489,12 @@ export interface ProviderPayout {
   notes: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Product decision: visible "on the payout screen" - null when the provider has not submitted bank account details yet. Appended last, matching the C# record's own convention. */
+  bankAccount: ProviderPayoutBankAccountSummary | null;
+  /** Real PayU Payouts integration: which of the two always-available paths moved this payout into Processing. Appended last, mirroring `bankAccount` above. */
+  processedVia: ProviderPayoutChannel;
+  /** Whether PayU Payouts is configured server-side right now - gates the "Pay via PayU" button. Appended last. */
+  isGatewayConfigured: boolean;
 }
 
 export interface ProviderPayoutSearchResponse {

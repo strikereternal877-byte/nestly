@@ -127,6 +127,7 @@ public sealed class BookingNotificationTriggerHandler :
 
     private readonly IBookingRepository _bookingRepository;
     private readonly IPaymentTransactionRepository _paymentRepository;
+    private readonly IPaymentGroupRepository _groupRepository;
     private readonly ICancellationRepository _cancellationRepository;
     private readonly IRefundTransactionRepository _refundRepository;
     private readonly IProviderRepository _providerRepository;
@@ -138,6 +139,7 @@ public sealed class BookingNotificationTriggerHandler :
     public BookingNotificationTriggerHandler(
         IBookingRepository bookingRepository,
         IPaymentTransactionRepository paymentRepository,
+        IPaymentGroupRepository groupRepository,
         ICancellationRepository cancellationRepository,
         IRefundTransactionRepository refundRepository,
         IProviderRepository providerRepository,
@@ -148,6 +150,7 @@ public sealed class BookingNotificationTriggerHandler :
     {
         _bookingRepository = bookingRepository;
         _paymentRepository = paymentRepository;
+        _groupRepository = groupRepository;
         _cancellationRepository = cancellationRepository;
         _refundRepository = refundRepository;
         _providerRepository = providerRepository;
@@ -235,6 +238,24 @@ public sealed class BookingNotificationTriggerHandler :
             return;
         }
 
+        // A prepaid plan settles many bookings with one payment. Each of them reaches
+        // Confirmed, but the customer paid once and wants to hear it once: the group's
+        // lead booking carries the confirmation (with the whole amount), every other
+        // member's pair of messages is withheld. Resolved as Skipped, not dropped, so
+        // the intent trail still shows they were owed and deliberately not sent.
+        PaymentGroup? prepaidGroup = null;
+        if (domainEvent.ToStatus == BookingStatus.Confirmed)
+        {
+            prepaidGroup = await FindPrepaidGroupAsync(booking);
+            if (prepaidGroup is not null && prepaidGroup.LeadBookingId != booking.Id)
+            {
+                await SkipAllAsync(
+                    domainEvent, enabled,
+                    "Bundled into a prepaid checkout; the lead booking carries the confirmation.", cancellationToken);
+                return;
+            }
+        }
+
         var recipient = await ResolveCustomerRecipientAsync(booking, cancellationToken);
 
         foreach (var eventType in enabled)
@@ -245,10 +266,29 @@ public sealed class BookingNotificationTriggerHandler :
                 async ct =>
                 {
                     var variables = await BuildVariablesAsync(eventType, booking, ct);
+                    if (eventType == NotificationEventType.PaymentSuccess && prepaidGroup is not null)
+                    {
+                        // What the customer actually paid: the whole checkout, not this one visit.
+                        variables["Amount"] = prepaidGroup.TotalAmount.ToString("0.00");
+                    }
+
                     await _notificationDispatchService.DispatchAsync(booking.CustomerId, eventType, recipient, variables, bookingId: booking.Id, cancellationToken: ct);
                 },
                 cancellationToken);
         }
+    }
+
+    /// <summary>The prepaid checkout that paid for this booking, or null when it was paid on its own.</summary>
+    private async Task<PaymentGroup?> FindPrepaidGroupAsync(Booking booking)
+    {
+        var transaction = await _paymentRepository.GetByBookingIdAsync(booking.Id);
+        var groupId = transaction?.Attempts
+            .Where(a => a.PaymentGroupId != null)
+            .OrderByDescending(a => a.AttemptNumber)
+            .Select(a => a.PaymentGroupId)
+            .FirstOrDefault();
+
+        return groupId is { } id ? await _groupRepository.GetByIdAsync(id) : null;
     }
 
     private async Task SkipAllAsync(
@@ -401,7 +441,11 @@ public sealed class BookingNotificationTriggerHandler :
     private static Dictionary<string, string> BuildBaseVariables(Booking booking) => new()
     {
         ["CustomerName"] = booking.CustomerNameSnapshot,
-        ["BookingId"] = booking.Id.ToString(),
+        // The short code the customer sees in the app ("GLX-261001-H9G87"), not the 36-character internal id: a text
+        // message that names a GUID cannot be matched to anything on screen. The variable keeps its name so every
+        // template - including admin-edited ones - picks this up unchanged. A row from before references existed
+        // falls back to the id rather than printing nothing.
+        ["BookingId"] = string.IsNullOrWhiteSpace(booking.BookingReference) ? booking.Id.ToString() : booking.BookingReference,
         ["ServiceName"] = booking.Items.Count > 0 ? booking.Items[0].NameSnapshot : string.Empty,
         ["SlotDate"] = booking.SlotDate.ToString("yyyy-MM-dd"),
         ["SlotWindow"] = booking.SlotWindowNameSnapshot,

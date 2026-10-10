@@ -1,6 +1,7 @@
 using Nestly.Application;
 using Nestly.Application.Abstractions.Time;
 using Nestly.Application.Serviceability;
+using Nestly.Application.Settings;
 using Nestly.Application.Slots;
 using Nestly.BuildingBlocks.Results;
 using Nestly.Domain;
@@ -18,6 +19,16 @@ namespace Nestly.Infrastructure.Services;
 /// directly: stored slot times are business wall-clock values, and comparing
 /// them against a UTC instant made the configured cutoff lenient by the
 /// business timezone's offset.
+///
+/// <para>
+/// <b>Platform rules.</b> Once an admin has saved the Booking and/or Slot groups in Settings (<see cref="IPlatformRules"/>),
+/// they sit underneath a city's own <see cref="SlotBookingPolicy"/> as a floor: the booking window is the <i>shortest</i>
+/// of the city's and the platform's, and the lead time the <i>longest</i>. Limits only tighten here, never loosen what a city
+/// sets. Booking <c>MinLeadTimeHours</c> and <c>MaxAdvanceBookingDays</c>, Slot <c>SameDayCutoffHours</c> (same-day slots
+/// only) and <c>MaxAdvanceBookingDays</c>, Booking <c>AllowSameDayBooking</c> and Slot <c>AllowOverbooking</c> are applied;
+/// Slot <c>DefaultSlotDurationMinutes</c> / <c>DefaultSlotCapacity</c> are defaults for creating windows, which this engine
+/// never does, so they are not read here. A group nobody has saved changes nothing.
+/// </para>
 /// </summary>
 public class SlotAvailabilityService : ISlotAvailabilityService
 {
@@ -28,6 +39,7 @@ public class SlotAvailabilityService : ISlotAvailabilityService
     private readonly ISlotBookingPolicyRepository _policyRepository;
     private readonly ISlotCapacityRepository _slotCapacityRepository;
     private readonly IBusinessClock _businessClock;
+    private readonly IPlatformRules _platformRules;
 
     public SlotAvailabilityService(
         IServiceabilityRepository serviceabilityRepository,
@@ -36,7 +48,8 @@ public class SlotAvailabilityService : ISlotAvailabilityService
         ISlotBlackoutRepository blackoutRepository,
         ISlotBookingPolicyRepository policyRepository,
         ISlotCapacityRepository slotCapacityRepository,
-        IBusinessClock businessClock)
+        IBusinessClock businessClock,
+        IPlatformRules? platformRules = null)
     {
         _serviceabilityRepository = serviceabilityRepository;
         _serviceabilityValidationService = serviceabilityValidationService;
@@ -45,6 +58,7 @@ public class SlotAvailabilityService : ISlotAvailabilityService
         _policyRepository = policyRepository;
         _slotCapacityRepository = slotCapacityRepository;
         _businessClock = businessClock;
+        _platformRules = platformRules ?? NoPlatformRules.Instance;
     }
 
     public async Task<Result<SlotAvailabilityResponse>> GetAvailableSlotsAsync(Guid serviceId, Guid localityId, DateOnly date)
@@ -76,10 +90,32 @@ public class SlotAvailabilityService : ISlotAvailabilityService
         DateOnly today = _businessClock.Today;
 
         var policy = await _policyRepository.GetByCityAsync(cityId);
+        var bookingRules = await _platformRules.GetBookingAsync();
+        var slotRules = await _platformRules.GetSlotAsync();
+
+        // The city's own policy first, then the platform's rules as a floor underneath it: the window is the shortest of
+        // them and the lead time the longest, so nothing here can loosen what a city already sets.
         int maxAdvanceDays = policy?.MaxAdvanceDays ?? int.MaxValue;
         int cutoffMinutes = policy?.CutoffMinutes ?? 0;
+        if (bookingRules is not null)
+        {
+            maxAdvanceDays = Math.Min(maxAdvanceDays, bookingRules.MaxAdvanceBookingDays);
+            cutoffMinutes = Math.Max(cutoffMinutes, bookingRules.MinLeadTimeHours * 60);
+        }
 
-        if (date < today || (maxAdvanceDays != int.MaxValue && date > today.AddDays(maxAdvanceDays)))
+        if (slotRules is not null)
+        {
+            maxAdvanceDays = Math.Min(maxAdvanceDays, slotRules.MaxAdvanceBookingDays);
+            if (date == today)
+            {
+                cutoffMinutes = Math.Max(cutoffMinutes, slotRules.SameDayCutoffHours * 60);
+            }
+        }
+
+        // Same-day booking switched off: today is simply outside what can be booked.
+        bool sameDayNotAllowed = bookingRules is { AllowSameDayBooking: false } && date == today;
+
+        if (date < today || sameDayNotAllowed || (maxAdvanceDays != int.MaxValue && date > today.AddDays(maxAdvanceDays)))
         {
             return new SlotAvailabilityResponse(IsServiceable: true, Slots: [], SlotUnavailabilityReason.DateOutOfBookableRange);
         }
@@ -112,7 +148,10 @@ public class SlotAvailabilityService : ISlotAvailabilityService
         // stayed selectable through the picker and through RevalidateSlotAsync
         // below, and only failed on the customer's final click, when
         // ReserveSlotAsync returned Booking.SlotCapacityReached.
-        var slots = await FilterOutFullWindowsAsync(openWindows, date);
+        // Overbooking allowed: a window's seat limit is a target, not a wall, so a full window stays on offer.
+        var slots = slotRules is { AllowOverbooking: true }
+            ? openWindows.Select(ToOption).ToList()
+            : await FilterOutFullWindowsAsync(openWindows, date);
 
         return slots.Count == 0
             ? new SlotAvailabilityResponse(IsServiceable: true, Slots: [], SlotUnavailabilityReason.FullyBooked)
@@ -242,7 +281,11 @@ public class SlotAvailabilityService : ISlotAvailabilityService
             return Result.Success();
         }
 
-        bool reserved = await _slotCapacityRepository.TryReserveAsync(slotWindowId, date, window.MaxBookingsPerSlot.Value);
+        // Overbooking allowed: the seat is still counted - so a cancellation's release stays symmetric and the counter stays
+        // true if overbooking is switched off again - it just is never refused for being the seat past the limit.
+        var slotRules = await _platformRules.GetSlotAsync();
+        int limit = slotRules is { AllowOverbooking: true } ? int.MaxValue : window.MaxBookingsPerSlot.Value;
+        bool reserved = await _slotCapacityRepository.TryReserveAsync(slotWindowId, date, limit);
         return reserved
             ? Result.Success()
             : Result.Failure(Error.Conflict(

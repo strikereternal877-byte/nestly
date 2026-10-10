@@ -88,13 +88,28 @@ public sealed class CheckoutPerformanceTests : IClassFixture<PerfTestDatabase>
         var paymentRepository = new PaymentTransactionRepository(context);
         var bookingRepository = new BookingRepository(context);
         var simulator = (ISandboxPaymentSimulator)gateway;
-        var webhookService = new PaymentWebhookService(
-            paymentRepository, bookingRepository, new ServiceRepository(context), gateway,
-            new CommissionService(Options.Create(new CommissionOptions())), new EscrowService(new PlatformEscrowLedgerRepository(context)),
-            context, new NoOpMetricsService(), NullLogger<PaymentWebhookService>.Instance);
+        var webhookService = new PaymentWebhookService(paymentRepository,
+            new PaymentGroupRepository(context),
+            new RecurringBookingPlanRepository(context),
+            bookingRepository,
+            new ServiceRepository(context),
+            gateway,
+            new CommissionService(Options.Create(new CommissionOptions())),
+            new EscrowService(new PlatformEscrowLedgerRepository(context)),
+            context,
+            new NoOpMetricsService(),
+            NullLogger<PaymentWebhookService>.Instance);
 
-        return new PaymentService(
-            paymentRepository, bookingRepository, gateway, simulator, webhookService, new AlwaysEligibleProviderSearchStub());
+        return new PaymentService(paymentRepository,
+            bookingRepository,
+            gateway,
+            simulator,
+            webhookService,
+            new AlwaysEligibleProviderSearchStub(),
+            new PaymentGroupRepository(context),
+            new RecurringBookingPlanRepository(context),
+            new RecurringBookingOccurrenceRepository(context),
+            null!);
     }
 
     /// <summary>

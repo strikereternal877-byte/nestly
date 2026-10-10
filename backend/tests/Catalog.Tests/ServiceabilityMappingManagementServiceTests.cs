@@ -543,7 +543,7 @@ public sealed class ServiceabilityMappingManagementServiceTests : IClassFixture<
 
         var suspended = context.Set<Provider>().Single(p => p.Id == provider.Id);
         suspended.ChangeStatus(ProviderStatus.Suspended);
-        context.SaveChanges();
+        await context.SaveChangesAsync();
 
         (await service.AutoDisableUnservedMappingsAsync(provider.Id)).Should().Be(0, "the grace period has not elapsed yet");
         var mappingId = (await service.ListServicePincodeMappingsAsync(catalogService.Id, pincode.Id)).Single().Id;
@@ -568,7 +568,7 @@ public sealed class ServiceabilityMappingManagementServiceTests : IClassFixture<
 
         var suspended = context.Set<Provider>().Single(p => p.Id == provider.Id);
         suspended.ChangeStatus(ProviderStatus.Suspended);
-        context.SaveChanges();
+        await context.SaveChangesAsync();
 
         (await service.AutoDisableUnservedMappingsAsync(provider.Id)).Should().Be(0, "the grace period has not elapsed yet");
         var mappingId = (await service.ListServicePincodeMappingsAsync(catalogService.Id, pincode.Id)).Single().Id;

@@ -29,7 +29,7 @@ public class ReschedulesController : ControllerBase
         _rescheduleValidator = rescheduleValidator;
     }
 
-    /// <summary>Whether this booking can be rescheduled right now - status, window, and count-limit checks (SRS 11.15.1).</summary>
+    /// <summary>Whether this booking can be rescheduled right now - status, window, and count-limit checks (SRS 11.15.1) - plus the rules in numbers: when rescheduling stops being free, the last moment it is allowed, and, when a reschedule now would be late, the late fee and - when late-fee collection is switched on (it ships off) - whether the customer's wallet covers it (the fee is then debited from the wallet).</summary>
     [HttpGet("eligibility")]
     [ProducesResponseType(typeof(RescheduleEligibilityResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -56,7 +56,7 @@ public class ReschedulesController : ControllerBase
         return result.IsSuccess ? Ok(result.Value) : result.ToProblemResult();
     }
 
-    /// <summary>Confirms the reschedule and updates the booking's slot immediately (SRS 11.15.3, 24.6).</summary>
+    /// <summary>Confirms the reschedule and updates the booking's slot immediately (SRS 11.15.3, 24.6). When late-fee collection is switched on (it ships off; otherwise the fee is only recorded), a late reschedule's fee is debited from the customer's wallet in the same step and booked as platform revenue; when the wallet cannot cover it the response is 422 <c>Reschedule.LateFeeWalletShort</c> (naming the amount to add) and nothing moves. A professional already on the booking is kept when the new time works for them, otherwise replaced, and is told either way.</summary>
     [HttpPost]
     [ProducesResponseType(typeof(RescheduleOutcomeResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]

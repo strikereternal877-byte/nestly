@@ -5,36 +5,40 @@ name: CD - Production
 # Trigger: every push to `main` (docs/DEVOPS.md CD PIPELINE §3: "Deploy to
 # Production from main with manual approval").
 #
+# Actual app deployment is handled by Render, which is connected directly to
+# this repo and builds/deploys the three API Dockerfiles itself on every push
+# to main - this workflow does NOT build, push, or deploy container images
+# (there is no GHCR step and no self-hosted VM). Its only remaining job is
+# the one thing Render's own pipeline cannot do: apply EF Core migrations to
+# the production database (Neon) as an explicit, ordered step (docs/
+# DEVOPS.md CD PIPELINE §4 / DATABASE OPERATIONS: "Migrations run as a
+# separate deployment step, not implicitly at app startup in Production").
+#
+# Known ordering gap: Render deploys independently and in parallel with this
+# workflow - both are triggered by the same push, neither waits on the
+# other - so there is no hard guarantee migrations finish before Render's
+# new app instances start serving traffic. If that ever causes a real
+# problem, the mitigation already exists and is off by default:
+# Migrations:ApplyOnStartup (see backend/shared/Infrastructure/Persistence/
+# Migrations/StartupMigrationExtensions.cs) - a heavier hammer (needs a
+# restart, unsafe with more than one replica racing) and intentionally not
+# the default.
+#
 # Manual approval is a GitHub Environment *protection rule*, not something
-# expressible purely in workflow YAML. The `deploy` (and `migrate`) jobs
-# below use `environment: production`, which is what makes GitHub honor that
+# expressible purely in workflow YAML. The `migrate` job below uses
+# `environment: production`, which is what makes GitHub honor that
 # protection rule once it exists - but the rule itself must be configured in
 # the repo UI/API:
 #   Settings > Environments > production > Required reviewers > (add the
 #   approver(s)). Until that is configured, `environment: production` has no
-#   gating effect by itself - this is expected and documented here rather
-#   than faked with a workflow-level manual-approval hack (e.g. an
-#   `issue_ops`-style approval-via-comment workaround), since GitHub's own
-#   environment protection is the standard, conventional mechanism for this
-#   and this repo already targets GitHub as its CI/CD platform.
+#   gating effect by itself.
 #
-# Everything else mirrors cd-staging.yml (see that file's header for the
-# fuller rationale on the self-contained build/test gate, GHCR as the
-# registry-of-choice, and the SSH+docker-compose deploy shape) - only the
-# branch, environment name, image tag prefix and secret names differ.
-#
-# Required setup before the first real run:
+# Required setup:
 #   1. Create a GitHub Environment named `production` (Settings > Environments).
 #   2. Under that environment, add Required reviewers (manual approval gate).
-#   3. Add these secrets on that environment:
-#        PRODUCTION_DATABASE_CONNECTION_STRING
-#        PRODUCTION_REDIS_CONNECTION_STRING
-#        PRODUCTION_SSH_HOST
-#        PRODUCTION_SSH_USER
-#        PRODUCTION_SSH_PRIVATE_KEY
-#   4. Ensure <PRODUCTION_SSH_HOST>:/opt/nestly exists, is writable by
-#      PRODUCTION_SSH_USER, and has a provisioned .env with runtime secrets
-#      (same convention as staging - see deploy/docker-compose.deploy.yml).
+#   3. Add this secret on that environment:
+#        PRODUCTION_DATABASE_CONNECTION_STRING   Npgsql connection string for
+#                                                 the production Neon database.
 
 on:
   push:
@@ -44,9 +48,6 @@ on:
 concurrency:
   group: cd-production
   cancel-in-progress: false
-
-env:
-  IMAGE_TAG: production-${{ github.sha }}
 
 jobs:
   test:
@@ -94,56 +95,24 @@ jobs:
       - name: Test
         env:
           ConnectionStrings__Database: Host=localhost;Port=5432;Database=nestly_test;Username=nestly;Password=nestly_test
-        run: dotnet test Nestly.sln --no-build --configuration Release --verbosity normal
-
-  build-and-push:
-    name: Build & push images
-    needs: test
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    strategy:
-      matrix:
-        include:
-          - service: consumer-api
-            dockerfile: backend/consumer-api/ConsumerApi/Dockerfile
-          - service: admin-api
-            dockerfile: backend/admin-api/AdminApi/Dockerfile
-          - service: provider-api
-            dockerfile: backend/provider-api/ProviderApi/Dockerfile
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push ${{ matrix.service }}
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ${{ matrix.dockerfile }}
-          push: true
-          tags: |
-            ghcr.io/${{ github.repository }}/${{ matrix.service }}:${{ env.IMAGE_TAG }}
-            ghcr.io/${{ github.repository }}/${{ matrix.service }}:production-latest
-          cache-from: type=gha,scope=${{ matrix.service }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+        # ConcurrentSlotBookingLoadTests needs its own dedicated Postgres
+        # service (nestly_loadtest/nestly_loadtest - see ci.yml's `load-test`
+        # job), not this job's nestly_test one, so PostgresPerfTestDatabase's
+        # connection fails authentication here every time. ci.yml's `backend`
+        # job already excludes it for exactly this reason; this job was
+        # missing the same filter, which is what has been failing this gate
+        # on every run regardless of what changed in the pushed commit.
+        run: |
+          dotnet test Nestly.sln --no-build --configuration Release --verbosity normal \
+            --filter "FullyQualifiedName!~ConcurrentSlotBookingLoadTests"
 
   migrate:
     name: Apply database migrations (production)
-    needs: build-and-push
+    needs: test
     runs-on: ubuntu-latest
     # environment: production gates this job on Required reviewers too (once
     # configured) - migrations are a production-impacting change in their
-    # own right and must not run unapproved, independent of the deploy job.
+    # own right and must not run unapproved.
     environment: production
     steps:
       - uses: actions/checkout@v4
@@ -153,45 +122,13 @@ jobs:
         with:
           global-json-file: global.json
 
-      - name: Install dotnet-ef
-        run: dotnet tool install --global dotnet-ef --version 8.*
+      - name: Restore dotnet-ef (local tool)
+        # The repo pins dotnet-ef as a *local* tool (.config/dotnet-tools.json),
+        # so a global install is ignored - `dotnet ef` still refuses to run
+        # ("Run 'dotnet tool restore'...") until the manifest is restored.
+        run: dotnet tool restore
 
       - name: Apply EF Core migrations to production
-        # Explicit, ordered deployment step, run before the app deploy step
-        # below so new code never starts against an old schema (docs/
-        # DEVOPS.md CD PIPELINE §4 / DATABASE OPERATIONS). Same script as
-        # staging and local dev - see database/scripts/apply-migrations.sh.
+        # Same script as staging and local dev - see
+        # database/scripts/apply-migrations.sh.
         run: bash database/scripts/apply-migrations.sh "${{ secrets.PRODUCTION_DATABASE_CONNECTION_STRING }}"
-
-  deploy:
-    name: Deploy to production
-    needs: migrate
-    runs-on: ubuntu-latest
-    environment: production
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Configure SSH
-        run: |
-          mkdir -p ~/.ssh
-          printf '%s\n' "${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H "${{ secrets.PRODUCTION_SSH_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
-
-      - name: Ship deploy manifest to production host
-        run: |
-          scp -i ~/.ssh/deploy_key deploy/docker-compose.deploy.yml \
-            "${{ secrets.PRODUCTION_SSH_USER }}@${{ secrets.PRODUCTION_SSH_HOST }}:/opt/nestly/docker-compose.yml"
-
-      - name: Pull and recreate containers
-        run: |
-          ssh -i ~/.ssh/deploy_key "${{ secrets.PRODUCTION_SSH_USER }}@${{ secrets.PRODUCTION_SSH_HOST }}" bash -s <<EOF
-            set -euo pipefail
-            cd /opt/nestly
-            export CONSUMER_API_IMAGE=ghcr.io/${{ github.repository }}/consumer-api:${{ env.IMAGE_TAG }}
-            export ADMIN_API_IMAGE=ghcr.io/${{ github.repository }}/admin-api:${{ env.IMAGE_TAG }}
-            export PROVIDER_API_IMAGE=ghcr.io/${{ github.repository }}/provider-api:${{ env.IMAGE_TAG }}
-            docker compose pull
-            docker compose up -d --remove-orphans
-            docker image prune -f
-          EOF

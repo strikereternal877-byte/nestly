@@ -151,6 +151,8 @@ public sealed class RecurringBookingSchedulerServiceTests : IClassFixture<TestDa
                     new SandboxRouteEstimateProvider(Options.Create(new SandboxRouteEstimateOptions())),
                     Options.Create(new AutoAssignmentOptions())),
                 BuildEligibilityService(context)),
+            new WalletService(new WalletLedgerRepository(context), context),
+            new NotificationEventRepository(context),
             Options.Create(new RecurringBookingOptions { LeadTimeDays = leadTimeDays }),
             NullLogger<RecurringBookingSchedulerService>.Instance);
     }
@@ -176,7 +178,7 @@ public sealed class RecurringBookingSchedulerServiceTests : IClassFixture<TestDa
         new BookingProviderAssignmentService(
             new BookingRepository(context), new ProviderRepository(context), new ServiceRepository(context),
             new BookingProviderAssignmentRepository(context), new ProviderScheduleConflictService(context, TestServices.Occupancy()),
-            Options.Create(new AutoAssignmentOptions()), context),
+            Options.Create(new AutoAssignmentOptions()), TestServices.ProviderNotificationPublisher(context), context),
         new BookingProviderAssignmentRepository(context),
         new BookingRepository(context),
         new RecurringPlanProviderContinuityService(new BookingRepository(context)),
@@ -290,6 +292,88 @@ public sealed class RecurringBookingSchedulerServiceTests : IClassFixture<TestDa
 
         var bookings = await new BookingRepository(assertContext).ListByCustomerAsync(fixture.Customer.Id, Enum.GetValues<BookingStatus>());
         bookings.Should().ContainSingle(b => b.Id == history[0].BookingId);
+    }
+
+    /// <summary>
+    /// The sweep runs once a day, so a daily plan must be booked out to the lead-time
+    /// horizon in one pass - one date per sweep would only ever book the visit for the
+    /// day the sweep runs. Outcome-agnostic on purpose: a skipped date also advances the
+    /// pointer, so this pins the looping, not slot availability.
+    /// </summary>
+    [Fact]
+    public async Task ProcessDueOccurrencesAsync_books_a_daily_plan_out_to_the_lead_time_horizon_in_one_sweep()
+    {
+        Fixture fixture;
+        using (var seedContext = _db.CreateContext())
+        {
+            fixture = Seed(seedContext);
+        }
+
+        var start = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(1));
+        RecurringBookingPlan plan;
+        using (var planContext = _db.CreateContext())
+        {
+            plan = new RecurringBookingPlan(
+                Guid.NewGuid(), fixture.Customer.Id, fixture.Service.Id, fixture.City.Id, fixture.Locality.Id,
+                fixture.Address.Id, fixture.Window.Id, quantity: 1, RecurringBookingRecurrenceFrequency.Daily,
+                recurrenceDayOfWeek: null, recurrenceDayOfMonth: null, startDate: start, endDate: null, occurrenceCount: null);
+            await new RecurringBookingPlanRepository(planContext).AddAsync(plan);
+        }
+
+        using var runContext = _db.CreateContext();
+        await BuildScheduler(runContext, leadTimeDays: 5).ProcessDueOccurrencesAsync(CancellationToken.None);
+
+        using var assertContext = _db.CreateContext();
+        var reloaded = await new RecurringBookingPlanRepository(assertContext).GetByIdAsync(plan.Id);
+        var history = await new RecurringBookingOccurrenceRepository(assertContext).ListByPlanAsync(plan.Id);
+
+        // Horizon is today + 5; the plan starts tomorrow, so tomorrow..today+5 = 5 dates.
+        history.Should().HaveCount(5);
+        reloaded!.NextOccurrenceDate.Should().Be(start.AddDays(5));
+        reloaded.Status.Should().Be(RecurringBookingPlanStatus.Active);
+    }
+
+    /// <summary>
+    /// Task (recurring payment-timing fix): the occurrence booked above has
+    /// something payable (the fixture's service is not free, and nothing here
+    /// applies a wallet/subscription/AMC credit), so it lands in
+    /// PaymentPending, not Confirmed. Before this fix the customer was told
+    /// "your visit is confirmed" regardless - a lie for exactly this, the most
+    /// common, case. The notification owed is
+    /// <see cref="NotificationEventType.RecurringBookingPaymentDue"/>, never
+    /// the "confirmed" <see cref="NotificationEventType.RecurringBookingUpcoming"/>.
+    /// </summary>
+    [Fact]
+    public async Task ProcessDueOccurrencesAsync_notifies_payment_due_when_the_booked_occurrence_still_needs_payment()
+    {
+        Fixture fixture;
+        using (var seedContext = _db.CreateContext())
+        {
+            fixture = Seed(seedContext);
+        }
+
+        RecurringBookingPlan plan;
+        using (var planContext = _db.CreateContext())
+        {
+            plan = new RecurringBookingPlan(
+                Guid.NewGuid(), fixture.Customer.Id, fixture.Service.Id, fixture.City.Id, fixture.Locality.Id,
+                fixture.Address.Id, fixture.Window.Id, quantity: 1, RecurringBookingRecurrenceFrequency.Weekly,
+                DateOnly.FromDateTime(DateTime.UtcNow.AddDays(3)).DayOfWeek, recurrenceDayOfMonth: null,
+                startDate: DateOnly.FromDateTime(DateTime.UtcNow.AddDays(3)), endDate: null, occurrenceCount: 4);
+            await new RecurringBookingPlanRepository(planContext).AddAsync(plan);
+        }
+
+        using var runContext = _db.CreateContext();
+        await BuildScheduler(runContext).ProcessDueOccurrencesAsync(CancellationToken.None);
+
+        using var assertContext = _db.CreateContext();
+        var history = await new RecurringBookingOccurrenceRepository(assertContext).ListByPlanAsync(plan.Id);
+        var booking = await new BookingRepository(assertContext).GetByIdAsync(history[0].BookingId!.Value);
+        booking!.Status.Should().Be(BookingStatus.PaymentPending, "the fixture's service is paid and nothing here funds it for free");
+
+        var notifications = await new NotificationEventRepository(assertContext).ListByCustomerAsync(fixture.Customer.Id);
+        notifications.Should().Contain(n => n.EventType == NotificationEventType.RecurringBookingPaymentDue);
+        notifications.Should().NotContain(n => n.EventType == NotificationEventType.RecurringBookingUpcoming);
     }
 
     [Fact]

@@ -32,6 +32,7 @@ public class BookingRescheduleConfiguration : IEntityTypeConfiguration<BookingRe
 
         builder.Property(x => x.IsLate).IsRequired();
         builder.Property(x => x.FeeAmount).IsRequired().HasPrecision(12, 2);
+        builder.Property(x => x.FeeCollectedAmount).IsRequired().HasPrecision(12, 2).HasDefaultValue(0m);
         builder.Property(x => x.CreatedAtUtc).IsRequired();
 
         builder.HasIndex(x => x.BookingId);

@@ -1,8 +1,12 @@
+using Microsoft.Extensions.Logging;
 using Nestly.Application;
 using Nestly.Application.Bookings;
+using Nestly.Application.Notifications;
+using Nestly.Application.Payments;
 using Nestly.Application.ProviderManagement;
 using Nestly.Application.Reviews;
 using Nestly.Application.Serviceability;
+using Nestly.Application.Storage;
 using Nestly.BuildingBlocks.Results;
 using Nestly.Domain;
 using Nestly.Infrastructure.Persistence;
@@ -15,6 +19,7 @@ public class ProviderManagementService : IProviderManagementService
     private readonly IProviderRepository _providerRepository;
     private readonly IProviderKycDocumentRepository _kycDocumentRepository;
     private readonly IProviderBackgroundCheckRepository _backgroundCheckRepository;
+    private readonly IProviderBankAccountRepository _bankAccountRepository;
     private readonly IBookingRepository _bookingRepository;
     private readonly IBookingProviderAssignmentRepository _assignmentRepository;
     private readonly IProviderEarningLedgerRepository _earningLedgerRepository;
@@ -24,11 +29,16 @@ public class ProviderManagementService : IProviderManagementService
     private readonly IServiceabilityMappingManagementService _serviceabilityMappingManagementService;
     private readonly IProviderAvailabilityWindowRepository _availabilityWindowRepository;
     private readonly IReviewRepository _reviewRepository;
+    private readonly IProviderStatusHistoryRepository _statusHistoryRepository;
+    private readonly IProviderNotificationPublisher _notificationPublisher;
+    private readonly IFileStorageService _fileStorageService;
+    private readonly ILogger<ProviderManagementService> _logger;
 
     public ProviderManagementService(
         IProviderRepository providerRepository,
         IProviderKycDocumentRepository kycDocumentRepository,
         IProviderBackgroundCheckRepository backgroundCheckRepository,
+        IProviderBankAccountRepository bankAccountRepository,
         IBookingRepository bookingRepository,
         IBookingProviderAssignmentRepository assignmentRepository,
         IProviderEarningLedgerRepository earningLedgerRepository,
@@ -37,11 +47,16 @@ public class ProviderManagementService : IProviderManagementService
         IProviderSessionRepository sessionRepository,
         IServiceabilityMappingManagementService serviceabilityMappingManagementService,
         IProviderAvailabilityWindowRepository availabilityWindowRepository,
-        IReviewRepository reviewRepository)
+        IReviewRepository reviewRepository,
+        IProviderStatusHistoryRepository statusHistoryRepository,
+        IProviderNotificationPublisher notificationPublisher,
+        IFileStorageService fileStorageService,
+        ILogger<ProviderManagementService> logger)
     {
         _providerRepository = providerRepository;
         _kycDocumentRepository = kycDocumentRepository;
         _backgroundCheckRepository = backgroundCheckRepository;
+        _bankAccountRepository = bankAccountRepository;
         _bookingRepository = bookingRepository;
         _assignmentRepository = assignmentRepository;
         _earningLedgerRepository = earningLedgerRepository;
@@ -51,6 +66,10 @@ public class ProviderManagementService : IProviderManagementService
         _serviceabilityMappingManagementService = serviceabilityMappingManagementService;
         _availabilityWindowRepository = availabilityWindowRepository;
         _reviewRepository = reviewRepository;
+        _statusHistoryRepository = statusHistoryRepository;
+        _notificationPublisher = notificationPublisher;
+        _fileStorageService = fileStorageService;
+        _logger = logger;
     }
 
     public async Task<Result<ProviderSearchResponse>> SearchAsync(ProviderSearchRequest request)
@@ -146,7 +165,7 @@ public class ProviderManagementService : IProviderManagementService
             return Error.Business("Provider.AlreadySuspended", "This provider is already suspended.");
         }
 
-        provider.ChangeStatus(ProviderStatus.Suspended);
+        provider.ChangeStatus(ProviderStatus.Suspended, request.Reason);
         await _providerRepository.UpdateAsync(provider);
 
         // Bug 3 auto-disable: mirror of ReactivateAsync's auto-enable below -
@@ -155,6 +174,13 @@ public class ProviderManagementService : IProviderManagementService
         // is needed - AutoDisableUnservedMappingsAsync reads current
         // coverage itself.
         await _serviceabilityMappingManagementService.AutoDisableUnservedMappingsAsync(providerId);
+
+        await _notificationPublisher.NotifyAsync(
+            providerId,
+            ProviderNotificationType.Suspended,
+            "Account suspended",
+            $"Your account has been suspended: {request.Reason}",
+            deepLinkPath: "/profile");
 
         return await BuildDetailAsync(provider);
     }
@@ -183,7 +209,7 @@ public class ProviderManagementService : IProviderManagementService
         return await BuildDetailAsync(provider);
     }
 
-    public async Task<Result<ProviderDetailResponse>> DeleteAsync(Guid providerId)
+    public async Task<Result<ProviderDetailResponse>> DeleteAsync(Guid providerId, DeleteProviderRequest request)
     {
         var provider = await _providerRepository.GetByIdAsync(providerId);
         if (provider is null)
@@ -196,15 +222,63 @@ public class ProviderManagementService : IProviderManagementService
             return Error.Business("Provider.AlreadyDeleted", "This provider's account has already been deleted.");
         }
 
-        provider.SoftDelete();
+        // Captured before SoftDelete, which nulls PhotoUrl as part of its own
+        // anonymization (Provider.RemovePhoto) - by then the reference to purge
+        // from storage would already be gone from this in-memory instance.
+        var photoToPurge = provider.PhotoUrl;
+        var kycDocuments = await _kycDocumentRepository.GetByProviderAsync(providerId);
+
+        provider.SoftDelete(request.Reason);
         await _providerRepository.UpdateAsync(provider);
         await _sessionRepository.RevokeAllForProviderAsync(providerId);
+
+        // Right-to-erasure (see Provider.SoftDelete's own doc comment): the DB
+        // fields are already anonymized above, but an uploaded photo or KYC
+        // document is a real file still sitting in storage - leaving it there
+        // after "deleting" the account is a name change, not an erasure. Runs
+        // after the DB changes are already persisted, and every failure here
+        // is caught and logged rather than thrown: a storage hiccup is
+        // supplementary cleanup, and must never roll back or fail an erasure
+        // that has already correctly happened in the database.
+        if (photoToPurge is not null)
+        {
+            await TryPurgeFileAsync(photoToPurge);
+        }
+
+        foreach (var document in kycDocuments)
+        {
+            await TryPurgeFileAsync(document.FileRef);
+            document.PurgeFile();
+            await _kycDocumentRepository.UpdateAsync(document);
+        }
+
+        // Same erasure reasoning as the KYC documents just above: a bank
+        // account/IFSC is live financial PII, not something a "deleted"
+        // account should leave sitting around intact.
+        var bankAccount = await _bankAccountRepository.GetByProviderIdAsync(providerId);
+        if (bankAccount is not null)
+        {
+            bankAccount.Erase();
+            await _bankAccountRepository.UpdateAsync(bankAccount);
+        }
 
         // Bug 3 auto-disable: same as SuspendAsync - a deleted provider's
         // coverage no longer counts.
         await _serviceabilityMappingManagementService.AutoDisableUnservedMappingsAsync(providerId);
 
         return await BuildDetailAsync(provider);
+    }
+
+    private async Task TryPurgeFileAsync(string fileReference)
+    {
+        try
+        {
+            await _fileStorageService.DeleteAsync(fileReference);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to purge a storage file during provider right-to-erasure deletion.");
+        }
     }
 
     public async Task<Result<ProviderPerformanceResponse>> GetPerformanceAsync(Guid providerId)
@@ -413,8 +487,10 @@ public class ProviderManagementService : IProviderManagementService
     {
         var documents = await _kycDocumentRepository.GetByProviderAsync(provider.Id);
         var backgroundChecks = await _backgroundCheckRepository.ListByProviderAsync(provider.Id);
+        var statusHistory = await _statusHistoryRepository.ListByProviderAsync(provider.Id);
+        var bankAccount = await _bankAccountRepository.GetByProviderIdAsync(provider.Id);
 
-        return ProviderDetailMapper.ToDetailResponse(provider, documents, backgroundChecks);
+        return ProviderDetailMapper.ToDetailResponse(provider, documents, backgroundChecks, statusHistory, bankAccount);
     }
 
     /// <inheritdoc/>

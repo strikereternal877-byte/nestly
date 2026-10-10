@@ -29,7 +29,10 @@ public class ReferralRepository : IReferralRepository
             .ToListAsync();
 
     public Task<int> CountRewardedByReferrerAsync(Guid referrerCustomerId) =>
-        _context.Referrals.CountAsync(r => r.ReferrerCustomerId == referrerCustomerId && r.Status == ReferralStatus.Rewarded);
+        _context.Referrals.CountAsync(r =>
+            r.ReferrerCustomerId == referrerCustomerId
+            && r.Status == ReferralStatus.Rewarded
+            && !_context.Bookings.Any(b => b.Id == r.QualifyingBookingId && b.Status == BookingStatus.Refunded));
 
     public async Task<IReadOnlyList<Referral>> ListExpiredAsync(DateTime asOfUtc) =>
         await _context.Referrals
@@ -107,5 +110,18 @@ public class ReferralRepository : IReferralRepository
     {
         _context.Referrals.Update(referral);
         await _context.SaveChangesAsync();
+    }
+
+    public async Task<bool> TryMarkQualifiedAsync(Guid referralId, Guid qualifyingBookingId)
+    {
+        var nowUtc = DateTime.UtcNow;
+        int affected = await _context.Referrals
+            .Where(r => r.Id == referralId && r.Status == ReferralStatus.Registered)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(r => r.Status, ReferralStatus.Qualified)
+                .SetProperty(r => r.QualifyingBookingId, qualifyingBookingId)
+                .SetProperty(r => r.QualifiedAtUtc, nowUtc));
+
+        return affected == 1;
     }
 }

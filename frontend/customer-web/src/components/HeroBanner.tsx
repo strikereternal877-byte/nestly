@@ -61,9 +61,11 @@ export function HeroBanner() {
 
   // Guard the index against a shrinking list (e.g. a banner unpublished
   // between loads) so it never points past the end.
-  useEffect(() => {
+  const [priorBannersLength, setPriorBannersLength] = useState(banners.length);
+  if (banners.length !== priorBannersLength) {
+    setPriorBannersLength(banners.length);
     if (index > banners.length - 1) setIndex(0);
-  }, [banners.length, index]);
+  }
 
   useEffect(() => {
     if (paused || banners.length <= 1) return;
@@ -132,8 +134,19 @@ export function HeroBanner() {
           <TrustBadge />
 
           {/* Keyed on index so the title/subtitle re-enter on every slide
-              change, in sync with the crossfading image behind them. */}
-          <AnimatePresence mode="wait">
+              change, in sync with the crossfading image behind them.
+              `initial={false}` on the AnimatePresence itself - mirroring the
+              image/video AnimatePresence above - skips the word-by-word
+              entrance only for whichever slide is showing when this first
+              mounts; a real slide change still animates in normally. The
+              headline is this page's actual LCP content, and Framer Motion
+              renders `variants.hidden` (opacity: 0) for a component's first
+              paint by default - without this, the headline was invisible
+              until its full mount + staggered-children animation completed,
+              so Lighthouse recorded the largest *paint* as the smaller,
+              unanimated trust-badge text above instead, with ~92% of LCP
+              spent waiting on a delay this fix removes entirely. */}
+          <AnimatePresence mode="wait" initial={false}>
             <motion.div
               key={active.id}
               className="flex flex-col items-center gap-6"

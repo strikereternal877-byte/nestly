@@ -43,5 +43,24 @@ public enum WalletSourceType
     /// effect of fully refunding the payment, which could not say WHICH of a
     /// booking's refunds handed the balance back).
     /// </summary>
-    BookingWalletCreditReversal
+    BookingWalletCreditReversal,
+
+    /// <summary>
+    /// Credited because the customer added their own money through the payment gateway (<see cref="WalletTopUp"/>).
+    /// SourceReferenceId is the WalletTopUp's id. Unlike the promotional and referral credits this is the
+    /// customer's own cash: it never expires.
+    /// </summary>
+    TopUp,
+
+    /// <summary>
+    /// Debited as the late-reschedule fee when a customer moves a booking inside the late-reschedule window
+    /// (<see cref="BookingReschedule.FeeCollectedAmount"/>). SourceReferenceId is the <see cref="BookingReschedule"/>'s id.
+    /// </summary>
+    RescheduleFee,
+
+    /// <summary>
+    /// Credited back when a late-reschedule fee was taken but the reschedule then failed to be saved, so the customer is
+    /// not charged for a move that never happened. SourceReferenceId is the id the fee debit carried.
+    /// </summary>
+    RescheduleFeeReversal
 }

@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Nestly.Application;
 using Nestly.Application.Bookings;
+using Nestly.Application.Notifications;
 using Nestly.Application.ProviderManagement;
 using Nestly.BuildingBlocks.Results;
 using Nestly.Domain;
@@ -44,6 +45,7 @@ public class BookingProviderAssignmentService : IBookingProviderAssignmentServic
     private readonly IBookingProviderAssignmentRepository _assignmentRepository;
     private readonly IProviderScheduleConflictService _scheduleConflictService;
     private readonly IOptions<AutoAssignmentOptions> _autoAssignmentOptions;
+    private readonly IProviderNotificationPublisher _notificationPublisher;
     // Matching candidates for GetEligibleProvidersAsync spans Provider,
     // ProviderServiceArea, ProviderSkillMapping, ProviderCapacity and Pincode
     // in one read - no single existing repository owns that join, so this
@@ -58,6 +60,7 @@ public class BookingProviderAssignmentService : IBookingProviderAssignmentServic
         IBookingProviderAssignmentRepository assignmentRepository,
         IProviderScheduleConflictService scheduleConflictService,
         IOptions<AutoAssignmentOptions> autoAssignmentOptions,
+        IProviderNotificationPublisher notificationPublisher,
         NestlyDbContext context)
     {
         _bookingRepository = bookingRepository;
@@ -66,6 +69,7 @@ public class BookingProviderAssignmentService : IBookingProviderAssignmentServic
         _assignmentRepository = assignmentRepository;
         _scheduleConflictService = scheduleConflictService;
         _autoAssignmentOptions = autoAssignmentOptions;
+        _notificationPublisher = notificationPublisher;
         _context = context;
     }
 
@@ -194,6 +198,18 @@ public class BookingProviderAssignmentService : IBookingProviderAssignmentServic
             await _bookingRepository.UpdateAsync(booking);
 
             await dbTransaction.CommitAsync();
+
+            // Best-effort, after commit - see IProviderNotificationPublisher's
+            // doc comment for why a failure here never rolls back or fails
+            // the assignment itself. The single most time-sensitive thing a
+            // provider can miss, so it fires for both admin and system
+            // (auto-assignment) callers alike.
+            await _notificationPublisher.NotifyAsync(
+                providerId,
+                ProviderNotificationType.JobOffered,
+                "New job offer",
+                $"You have a new job on {booking.SlotDate:d MMM} at {booking.SlotStartTimeSnapshot:hh\\:mm}. Respond before it expires.",
+                deepLinkPath: $"/jobs/{booking.Id}");
 
             return ToResponse(assignment, provider.DisplayName, provider.OnboardingStatus);
         }

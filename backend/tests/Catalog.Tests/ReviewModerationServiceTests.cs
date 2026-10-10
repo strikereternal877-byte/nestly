@@ -242,6 +242,12 @@ public sealed class ReviewModerationServiceTests : IClassFixture<TestDatabase>
         byService.Value.Items[0].CategoryName.Should().Be(fixture.Category.Name);
         byService.Value.Items[0].ServiceName.Should().Be(fixture.Service.Name);
         byService.Value.Items[0].CustomerName.Should().Be(fixture.Customer.Name);
+
+        // Customer 360 view's "Reviews written" link (Customer Management UX
+        // pass) - each SeedReview call creates its own distinct customer, so
+        // filtering by fixture.Customer.Id must return only that one review.
+        var byCustomer = await searchService.SearchAsync(new ReviewModerationSearchRequest(Status: null, IsFlagged: null, MinRating: null, MaxRating: null, FromUtc: null, ToUtc: null, ServiceId: null, CategoryId: null, CustomerId: fixture.Customer.Id));
+        byCustomer.Value.Items.Should().ContainSingle(x => x.Id == visibleHighRating.Id);
     }
 
     [Fact]

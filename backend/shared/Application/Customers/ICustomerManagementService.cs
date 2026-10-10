@@ -32,6 +32,16 @@ public interface ICustomerManagementService
     Task<Result<CustomerDetailResponse>> DeleteAsync(Guid customerId, Guid adminUserId, string reason);
 
     /// <summary>
+    /// Manual wallet credit/debit (SRS 12.4.3 gap: the wallet tab was
+    /// read-only with no way to issue a goodwill credit or a correction).
+    /// Delegates to <see cref="Nestly.Application.Wallet.IWalletService"/> for
+    /// the actual ledger write, so the same balance/FIFO-consumption
+    /// guarantees apply as every system-driven wallet credit/debit.
+    /// <paramref name="adminUserId"/> is the acting admin, for audit.
+    /// </summary>
+    Task<Result<CustomerDetailResponse>> AdjustWalletAsync(Guid customerId, Guid adminUserId, AdjustCustomerWalletRequest request);
+
+    /// <summary>
     /// The Customer Analytics dashboard's KPI counts and registration-trend
     /// series (Admin Web new page, customer counterpart to the Provider
     /// Onboarding Overview/Performance dashboards) - see

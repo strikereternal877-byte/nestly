@@ -7,6 +7,13 @@ using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Nestly.Application.ProviderIdentity;
 using Nestly.Application.ProviderProfile;
 using Nestly.Application.Storage;
+// Not a blanket `using Nestly.Application.ProviderManagement;` - that
+// namespace has its own ProviderKycDocumentResponse, which collides with
+// ProviderIdentity's above (this controller's existing KYC actions). The
+// bank account types this controller needs are aliased individually instead.
+using IProviderBankAccountService = Nestly.Application.ProviderManagement.IProviderBankAccountService;
+using ProviderBankAccountResponse = Nestly.Application.ProviderManagement.ProviderBankAccountResponse;
+using SubmitProviderBankAccountRequest = Nestly.Application.ProviderManagement.SubmitProviderBankAccountRequest;
 using Nestly.BuildingBlocks.Extensions;
 using Nestly.Infrastructure;
 
@@ -27,31 +34,37 @@ public class ProfileController : ControllerBase
 {
     private readonly IProviderProfileService _profileService;
     private readonly IProviderKycService _kycService;
+    private readonly IProviderBankAccountService _bankAccountService;
     private readonly IFileStorageService _fileStorageService;
     private readonly IValidator<UpdateProviderProfileRequest> _updateProfileValidator;
     private readonly IValidator<UpdateProviderPhotoRequest> _updatePhotoValidator;
     private readonly IValidator<SubmitProviderKycDocumentRequest> _kycDocumentValidator;
     private readonly IValidator<UpdateProviderServiceAreasRequest> _serviceAreasValidator;
     private readonly IValidator<UpdateProviderSkillsRequest> _skillsValidator;
+    private readonly IValidator<SubmitProviderBankAccountRequest> _bankAccountValidator;
 
     public ProfileController(
         IProviderProfileService profileService,
         IProviderKycService kycService,
+        IProviderBankAccountService bankAccountService,
         IFileStorageService fileStorageService,
         IValidator<UpdateProviderProfileRequest> updateProfileValidator,
         IValidator<UpdateProviderPhotoRequest> updatePhotoValidator,
         IValidator<SubmitProviderKycDocumentRequest> kycDocumentValidator,
         IValidator<UpdateProviderServiceAreasRequest> serviceAreasValidator,
-        IValidator<UpdateProviderSkillsRequest> skillsValidator)
+        IValidator<UpdateProviderSkillsRequest> skillsValidator,
+        IValidator<SubmitProviderBankAccountRequest> bankAccountValidator)
     {
         _profileService = profileService;
         _kycService = kycService;
+        _bankAccountService = bankAccountService;
         _fileStorageService = fileStorageService;
         _updateProfileValidator = updateProfileValidator;
         _updatePhotoValidator = updatePhotoValidator;
         _kycDocumentValidator = kycDocumentValidator;
         _serviceAreasValidator = serviceAreasValidator;
         _skillsValidator = skillsValidator;
+        _bankAccountValidator = bankAccountValidator;
     }
 
     /// <summary>View profile.</summary>
@@ -230,6 +243,51 @@ public class ProfileController : ControllerBase
         "application/pdf",
     };
 
+    /// <summary>
+    /// The caller's own structured bank account details for payouts (docs/PROVIDER.md
+    /// OPEN DECISIONS #3). Sits alongside the <see cref="SubmitKycDocument"/>
+    /// <c>BankAccountProof</c> upload - that photo remains supporting
+    /// evidence; this structured record is what is actually used
+    /// operationally by an admin processing a payout.
+    /// </summary>
+    [HttpGet("bank-account")]
+    [ProducesResponseType(typeof(ProviderBankAccountResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetBankAccount()
+    {
+        var result = await _bankAccountService.GetAsync(CurrentProviderId());
+        return result.IsSuccess ? Ok(result.Value) : result.ToProblemResult();
+    }
+
+    /// <summary>
+    /// Submits or edits the caller's bank account details - an upsert, not an
+    /// append (one row per provider, unlike KYC documents): editing already-
+    /// verified details always resets verification back to Pending. The
+    /// caller's provider id comes from the JWT, never from the body (SRS 28.3
+    /// IDOR) - same pattern as <see cref="SubmitKycDocument"/>.
+    /// </summary>
+    [HttpPut("bank-account")]
+    [ProducesResponseType(typeof(ProviderBankAccountResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> SubmitBankAccount([FromBody] SubmitProviderBankAccountBody body)
+    {
+        var request = new SubmitProviderBankAccountRequest(
+            CurrentProviderId(),
+            body.AccountHolderName,
+            body.AccountNumber?.Trim() ?? string.Empty,
+            body.IfscCode?.Trim().ToUpperInvariant() ?? string.Empty,
+            body.BankName);
+
+        var validation = await _bankAccountValidator.ValidateAsync(request);
+        if (!validation.IsValid)
+        {
+            return ValidationProblem(ToModelState(validation));
+        }
+
+        var result = await _bankAccountService.SubmitAsync(request);
+        return result.IsSuccess ? Ok(result.Value) : result.ToProblemResult();
+    }
+
     /// <summary>List the provider's declared geography coverage.</summary>
     [HttpGet("service-areas")]
     [ProducesResponseType(typeof(IReadOnlyList<ProviderServiceAreaResponse>), StatusCodes.Status200OK)]
@@ -339,3 +397,11 @@ public class ProfileController : ControllerBase
 /// which is already a string for the same reason.
 /// </summary>
 public record SubmitProviderKycDocumentBody(string DocType, string FileRef, string? DocNumber);
+
+/// <summary>
+/// Request body for <see cref="ProfileController.SubmitBankAccount"/> — the
+/// provider id is deliberately excluded here (unlike
+/// <see cref="SubmitProviderBankAccountRequest"/>) and taken from the JWT
+/// instead, same IDOR-safe shape as <see cref="SubmitProviderKycDocumentBody"/>.
+/// </summary>
+public record SubmitProviderBankAccountBody(string AccountHolderName, string AccountNumber, string IfscCode, string BankName);

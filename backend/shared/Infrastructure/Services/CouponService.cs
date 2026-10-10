@@ -1,5 +1,6 @@
 using Nestly.Application.Bookings;
 using Nestly.Application.Coupons;
+using Nestly.Application.Settings;
 using Nestly.BuildingBlocks.Results;
 using Nestly.Domain;
 
@@ -11,6 +12,14 @@ namespace Nestly.Infrastructure.Services;
 /// <see cref="Coupon"/> itself; everything here is the I/O-dependent half -
 /// reading usage counts and booking history from other aggregates - that a
 /// domain entity has no business doing.
+///
+/// <para>
+/// Once an admin has saved the Coupon group in Settings (<see cref="IPlatformRules"/>), two of its rules apply here: switching
+/// coupons off refuses every code with <c>Coupon.Disabled</c>, and a cap on different coupons held across live bookings
+/// refuses a further one with <c>Coupon.ActiveLimitReached</c>. (The cap is checked where the code is validated - which booking
+/// creation re-runs - so two bookings placed at the same instant can exceed it by one.) The maximum percentage guards coupon
+/// creation, in <c>CouponManagementService</c>; stacking is not applicable, since a booking takes one coupon.
+/// </para>
 /// </summary>
 public class CouponService : ICouponService
 {
@@ -18,21 +27,30 @@ public class CouponService : ICouponService
     private readonly ICouponRedemptionRepository _redemptionRepository;
     private readonly IBookingRepository _bookingRepository;
     private readonly TimeProvider _timeProvider;
+    private readonly IPlatformRules _platformRules;
 
     public CouponService(
         ICouponRepository couponRepository,
         ICouponRedemptionRepository redemptionRepository,
         IBookingRepository bookingRepository,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        IPlatformRules? platformRules = null)
     {
         _couponRepository = couponRepository;
         _redemptionRepository = redemptionRepository;
         _bookingRepository = bookingRepository;
         _timeProvider = timeProvider;
+        _platformRules = platformRules ?? NoPlatformRules.Instance;
     }
 
     public async Task<Result<CouponSummaryResponse>> ValidateAsync(Guid customerId, string code, Guid categoryId, decimal orderAmount)
     {
+        var couponRules = await _platformRules.GetCouponAsync();
+        if (couponRules is { CouponsEnabled: false })
+        {
+            return Error.Business("Coupon.Disabled", "Coupons aren't available right now.");
+        }
+
         var coupon = await _couponRepository.GetByCodeAsync(code);
         if (coupon is null)
         {
@@ -92,6 +110,15 @@ public class CouponService : ICouponService
             }
         }
 
+        if (couponRules?.MaxActiveCouponsPerCustomer is { } maxActive
+            && await _redemptionRepository.CountDistinctOnLiveBookingsAsync(customerId, coupon.Id) >= maxActive)
+        {
+            return Error.Business(
+                "Coupon.ActiveLimitReached",
+                $"You can use up to {maxActive} different coupon{(maxActive == 1 ? "" : "s")} across your upcoming bookings. " +
+                "Once one of those is done or cancelled you can apply another.");
+        }
+
         if (!coupon.TryCalculateDiscount(orderAmount, out decimal discountAmount))
         {
             return Error.Validation("Coupon.MinOrderAmountNotMet", $"This coupon requires a minimum order amount of {coupon.MinOrderAmount}.");
@@ -110,6 +137,18 @@ public class CouponService : ICouponService
 
     public Task CreateRedemptionRecordAsync(Guid couponId, Guid customerId, Guid bookingId, decimal discountAmount) =>
         _redemptionRepository.AddAsync(new CouponRedemption(Guid.NewGuid(), couponId, customerId, bookingId, discountAmount));
+
+    public async Task ReleaseAsync(Guid bookingId)
+    {
+        var redemption = await _redemptionRepository.GetByBookingIdAsync(bookingId);
+        if (redemption is null)
+        {
+            return;
+        }
+
+        await _couponRepository.ReleaseRedemptionAsync(redemption.CouponId, redemption.CustomerId);
+        await _redemptionRepository.DeleteByBookingIdAsync(bookingId);
+    }
 
     /// <summary>
     /// "First booking" (SRS 11.10.2) is defined as: no prior booking ever

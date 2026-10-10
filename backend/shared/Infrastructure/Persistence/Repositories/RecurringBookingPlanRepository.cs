@@ -62,7 +62,23 @@ public class RecurringBookingPlanRepository : IRecurringBookingPlanRepository
     public async Task<IReadOnlyList<RecurringBookingPlan>> ListDueAsync(DateOnly onOrBefore) =>
         await _context.RecurringBookingPlans
             .Include(p => p.AddOns)
-            .Where(p => p.Status == RecurringBookingPlanStatus.Active && p.NextOccurrenceDate <= onOrBefore)
+            .Where(p => p.Status == RecurringBookingPlanStatus.Active && !p.PrepaidUpfront && p.NextOccurrenceDate <= onOrBefore)
             .OrderBy(p => p.NextOccurrenceDate)
+            .ToListAsync();
+
+    public Task<RecurringBookingPlan?> GetByPendingPrepaymentLeadAsync(Guid leadBookingId) =>
+        _context.RecurringBookingPlans
+            .Include(p => p.AddOns)
+            .FirstOrDefaultAsync(p => p.PrepaidUpfront && p.PendingPrepaymentLeadBookingId == leadBookingId);
+
+    public async Task<IReadOnlyList<RecurringBookingPlan>> ListPrepaidRenewalDueAsync(DateOnly coveredThroughOnOrBefore) =>
+        await _context.RecurringBookingPlans
+            .Include(p => p.AddOns)
+            .Where(p => p.Status == RecurringBookingPlanStatus.Active
+                && p.PrepaidUpfront
+                && p.PendingPrepaymentLeadBookingId == null
+                && p.EndDate == null && p.OccurrenceCount == null
+                && p.PrepaidThroughDate != null && p.PrepaidThroughDate <= coveredThroughOnOrBefore)
+            .OrderBy(p => p.PrepaidThroughDate)
             .ToListAsync();
 }

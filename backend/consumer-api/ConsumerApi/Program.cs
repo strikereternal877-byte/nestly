@@ -6,6 +6,7 @@ using Nestly.Application;
 using Nestly.BuildingBlocks.Middleware;
 using Nestly.Infrastructure;
 using Nestly.Infrastructure.Options;
+using Nestly.Infrastructure.Persistence.Migrations;
 using Nestly.Infrastructure.Persistence.Readiness;
 using Nestly.Infrastructure.Realtime;
 using Serilog;
@@ -105,6 +106,12 @@ builder.Services.AddRateLimiter(options =>
 });
 
 var app = builder.Build();
+
+// Opt-in schema catch-up (Migrations:ApplyOnStartup) - off unless an
+// operator has explicitly switched it on for this run; see
+// StartupMigrationExtensions for why this runs before every other startup
+// step below, including the bookability report right after it.
+app.ApplyPendingMigrationsIfConfigured();
 
 // Task 389 (PRODUCTION-READINESS.md 5.1, QA-REPORT-2026-08-18 Phase 1): says
 // out loud whether this database can serve a booking at all. A deployment

@@ -85,17 +85,24 @@ public sealed class NotificationTriggerWiringTests : IClassFixture<TestDatabase>
     private static PaymentWebhookService BuildWebhookService(
         IPaymentTransactionRepository paymentRepository, IBookingRepository bookingRepository,
         Nestly.Infrastructure.Persistence.NestlyDbContext context, IPaymentGateway gateway) =>
-        new(
-            paymentRepository, bookingRepository, new ServiceRepository(context), gateway,
-            new CommissionService(Options.Create(new CommissionOptions())), new EscrowService(new PlatformEscrowLedgerRepository(context)),
-            context, new NoOpMetricsService(), NullLogger<PaymentWebhookService>.Instance);
+        new(paymentRepository,
+            new PaymentGroupRepository(context),
+            new RecurringBookingPlanRepository(context),
+            bookingRepository,
+            new ServiceRepository(context),
+            gateway,
+            new CommissionService(Options.Create(new CommissionOptions())),
+            new EscrowService(new PlatformEscrowLedgerRepository(context)),
+            context,
+            new NoOpMetricsService(),
+            NullLogger<PaymentWebhookService>.Instance);
 
     private static BookingNotificationTriggerHandler BuildBookingHandler(
         Nestly.Infrastructure.Persistence.NestlyDbContext context,
         IOptionsMonitor<FulfilmentNotificationOptions>? fulfilmentOptions = null) =>
-        new(
-            new BookingRepository(context),
+        new(new BookingRepository(context),
             new PaymentTransactionRepository(context),
+            new PaymentGroupRepository(context),
             new BookingCancellationRepository(context),
             new RefundTransactionRepository(context),
             new ProviderRepository(context),
@@ -112,7 +119,7 @@ public sealed class NotificationTriggerWiringTests : IClassFixture<TestDatabase>
 
     private static NotificationDispatchService BuildDispatchService(Nestly.Infrastructure.Persistence.NestlyDbContext context) =>
         new(
-            new NotificationTemplateRenderer(new FakeNotificationTemplateRepository(), new MemoryCache(new MemoryCacheOptions())), new SandboxNotificationProvider(NullLogger<SandboxNotificationProvider>.Instance),
+            new NotificationTemplateRenderer(new FakeNotificationTemplateRepository(), new MemoryCache(new MemoryCacheOptions())), new SandboxNotificationProvider(NullLogger<SandboxNotificationProvider>.Instance, new FakeHostEnvironment()),
             new SandboxPushNotificationProvider(NullLogger<SandboxPushNotificationProvider>.Instance), new NotificationEventRepository(context),
             new DeviceTokenRepository(context), new CustomerRepository(context), new ProviderRepository(context),
             new NoOpMetricsService(), NullLogger<NotificationDispatchService>.Instance);
@@ -170,10 +177,16 @@ public sealed class NotificationTriggerWiringTests : IClassFixture<TestDatabase>
         {
             var paymentRepository = new PaymentTransactionRepository(orderContext);
             var bookingRepository = new BookingRepository(orderContext);
-            var paymentService = new PaymentService(
-                paymentRepository, bookingRepository, gateway, (ISandboxPaymentSimulator)gateway,
-                BuildWebhookService(paymentRepository, bookingRepository, orderContext, gateway),
-                new AlwaysEligibleProviderSearchStub());
+            var paymentService = new PaymentService(paymentRepository,
+            bookingRepository,
+            gateway,
+            (ISandboxPaymentSimulator)gateway,
+            BuildWebhookService(paymentRepository, bookingRepository, orderContext, gateway),
+            new AlwaysEligibleProviderSearchStub(),
+            new PaymentGroupRepository(orderContext),
+            new RecurringBookingPlanRepository(orderContext),
+            new RecurringBookingOccurrenceRepository(orderContext),
+            null!);
             var order = await paymentService.CreateOrderAsync(customer.Id, new CreatePaymentOrderRequest(bookingId, null));
             gatewayOrderId = order.Value.GatewayOrderId;
         }
@@ -388,6 +401,55 @@ public sealed class NotificationTriggerWiringTests : IClassFixture<TestDatabase>
         using var readContext = _db.CreateContext();
         var notifications = await new NotificationEventRepository(readContext).ListByCustomerAsync(customerId);
         notifications.Should().ContainSingle(n => n.EventType == NotificationEventType.BookingCancelled);
+    }
+
+    [Fact]
+    public async Task Reschedule_dispatches_BookingRescheduled_naming_the_new_slot_and_the_short_booking_reference()
+    {
+        Guid customerId;
+        Guid bookingId;
+        string reference;
+        using (var context = _db.CreateContext())
+        {
+            var category = new Category(Guid.NewGuid(), "Cleaning", "cleaning-" + Guid.NewGuid(), "desc");
+            var service = new Service(Guid.NewGuid(), category.Id, "Deep Clean", "deep-clean-" + Guid.NewGuid(), "desc", 999m);
+            var customer = new Customer(Guid.NewGuid(), "9" + Guid.NewGuid().ToString("N")[..9], "Asha Rao", CustomerStatus.Active);
+            var booking = new Booking(
+                Guid.NewGuid(), customer.Id, new CustomerSnapshot(customer.Name, customer.Mobile), null,
+                new AddressSnapshot("Home", "221B", null, null, "560001", "Bengaluru", "Karnataka", 12.9m, 77.5m, "Asha Rao", "9876543210"),
+                new SlotSnapshot(Guid.NewGuid(), DateOnly.FromDateTime(DateTime.UtcNow.AddDays(5)), "Evening", TimeSpan.FromHours(17), TimeSpan.FromHours(20)),
+                new PriceSnapshot(999m, 1, 999m, 0, 0, 999m, 0, 0, 0, 999m));
+            booking.AddItem(Guid.NewGuid(), service.Id, service.Name, service.Slug, 999m, 1);
+            booking.TransitionTo(BookingStatus.PaymentPending);
+            booking.TransitionTo(BookingStatus.Confirmed);
+
+            context.Add(customer);
+            context.Add(category);
+            context.Add(service);
+            context.Add(booking);
+            context.SaveChanges();
+            customerId = customer.Id;
+            bookingId = booking.Id;
+            reference = booking.BookingReference;
+        }
+
+        using (var handlerContext = _db.CreateContext())
+        {
+            var handler = BuildBookingHandler(handlerContext);
+            await handler.Handle(new DomainEventNotification<BookingStatusChangedEvent>(
+                new BookingStatusChangedEvent(bookingId, BookingStatus.Confirmed, BookingStatus.Rescheduled)), CancellationToken.None);
+        }
+
+        using var readContext = _db.CreateContext();
+        var sent = (await new NotificationEventRepository(readContext).ListByCustomerAsync(customerId))
+            .Where(n => n.EventType == NotificationEventType.BookingRescheduled)
+            .ToList();
+
+        sent.Should().NotBeEmpty();
+        sent.Should().OnlyContain(n => n.TemplateKey != "no_template");
+        sent.Should().OnlyContain(n => n.PayloadJson!.Contains(reference), "the customer sees this code in the app");
+        sent.Should().OnlyContain(n => !n.PayloadJson!.Contains(bookingId.ToString()), "a text message must not name the 36-character internal id");
+        sent.Should().OnlyContain(n => n.PayloadJson!.Contains("Evening"));
     }
 
     [Fact]

@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Nestly.Application.Abstractions.Auditing;
 using Nestly.Application.Abstractions.Time;
+using Nestly.Application.Notifications;
 using Nestly.Application.ProviderManagement;
 using Nestly.Application.Settings;
 using Nestly.Infrastructure.Auditing;
@@ -53,6 +54,14 @@ internal static class TestServices
 
     public static ISystemSettingsService SystemSettings(NestlyDbContext context) =>
         new SystemSettingsService(new SystemSettingRepository(context), AuditLogWriter(context), SystemAuditContextProvider.Instance);
+
+    /// <summary>Real <see cref="IProviderNotificationPublisher"/> over the test database with the sandbox push provider - mirrors <c>Nestly.Catalog.Tests.TestServices</c>'s own equivalent.</summary>
+    public static IProviderNotificationPublisher ProviderNotificationPublisher(NestlyDbContext context) =>
+        new ProviderNotificationPublisher(
+            new ProviderNotificationRepository(context),
+            new DeviceTokenRepository(context),
+            new SandboxPushNotificationProvider(NullLogger<SandboxPushNotificationProvider>.Instance),
+            NullLogger<Nestly.Infrastructure.Services.ProviderNotificationPublisher>.Instance);
 
     private sealed class SystemAuditContextProvider : IAuditContextProvider
     {

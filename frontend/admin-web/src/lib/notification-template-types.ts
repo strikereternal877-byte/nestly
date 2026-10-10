@@ -19,6 +19,13 @@
  * the create form could not offer them. The ordinals below are not a choice:
  * every value's number is fixed by its position in the C# enum, which is why
  * that enum is only ever appended to.
+ *
+ * This mirror had drifted again: it stopped at ProviderChanged = 22 while the
+ * C# enum grew through the Phase 20 AMC module (23-26) and the recurring-
+ * booking payment-timing fix (27), leaving five more event types' templates
+ * unreachable from the admin screens. Fixed alongside adding
+ * RecurringBookingPaymentDue so the two never fell out of sync while being
+ * edited in the same change.
  */
 export enum NotificationEventType {
   Welcome = 0,
@@ -44,6 +51,16 @@ export enum NotificationEventType {
   JobStarted = 20,
   JobCompleted = 21,
   ProviderChanged = 22,
+  AmcContractPurchased = 23,
+  AmcVisitRedeemed = 24,
+  AmcContractExpiringSoon = 25,
+  AmcContractExhausted = 26,
+  RecurringBookingPaymentDue = 27,
+  RecurringAutoChargeScheduled = 28,
+  RecurringPlanPaused = 29,
+  WalletLowBalance = 30,
+  RecurringPlanChanged = 31,
+  RecurringWalletShortfall = 32,
 }
 
 /** Mirrors Nestly.Domain.NotificationChannel's declaration order exactly. */
@@ -77,6 +94,16 @@ export const NOTIFICATION_EVENT_TYPE_LABELS: Record<NotificationEventType, strin
   [NotificationEventType.JobStarted]: "Job started",
   [NotificationEventType.JobCompleted]: "Job completed",
   [NotificationEventType.ProviderChanged]: "Professional changed",
+  [NotificationEventType.AmcContractPurchased]: "AMC contract purchased",
+  [NotificationEventType.AmcVisitRedeemed]: "AMC visit redeemed",
+  [NotificationEventType.AmcContractExpiringSoon]: "AMC contract expiring soon",
+  [NotificationEventType.AmcContractExhausted]: "AMC contract exhausted",
+  [NotificationEventType.RecurringBookingPaymentDue]: "Recurring booking payment due",
+  [NotificationEventType.RecurringAutoChargeScheduled]: "Recurring booking auto-charge scheduled",
+  [NotificationEventType.RecurringPlanPaused]: "Recurring plan paused (unpaid visits)",
+  [NotificationEventType.WalletLowBalance]: "Wallet balance low for recurring plan",
+  [NotificationEventType.RecurringPlanChanged]: "Recurring plan changed by the customer",
+  [NotificationEventType.RecurringWalletShortfall]: "Wallet couldn't cover a recurring visit",
 };
 
 export const NOTIFICATION_CHANNEL_LABELS: Record<NotificationChannel, string> = {

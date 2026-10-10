@@ -4,7 +4,8 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { Spinner } from "@/components/ui";
-import { isAuthenticated, subscribeToAuthChanges } from "@/lib/auth";
+import { refreshAccessToken } from "@/lib/api";
+import { getRefreshToken, isAuthenticated, subscribeToAuthChanges } from "@/lib/auth";
 
 /**
  * Client-side guard for the authenticated admin shell (task 98d, SRS 25.2).
@@ -34,7 +35,27 @@ export function RequireAdminAuth({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     hasClientRendered = true;
-    const sync = () => setAuthed(isAuthenticated());
+
+    // If the access token has already expired at mount time (routine after
+    // any break away from the tab) but a refresh token is still stored, try
+    // one silent refresh before treating this as a real sign-out - matches
+    // what lib/api.ts's performFetch already does mid-session on a 401. Only
+    // a genuinely missing refresh token, or a refresh call that itself fails
+    // (expired/revoked), should bounce to /login. Mirrors
+    // customer-web/src/components/RequireAuth.tsx's sync logic.
+    const sync = () => {
+      if (isAuthenticated()) {
+        setAuthed(true);
+        return;
+      }
+      if (!getRefreshToken()) {
+        setAuthed(false);
+        return;
+      }
+      void refreshAccessToken().then((refreshed) => {
+        setAuthed(refreshed);
+      });
+    };
     sync();
     return subscribeToAuthChanges(sync);
   }, []);

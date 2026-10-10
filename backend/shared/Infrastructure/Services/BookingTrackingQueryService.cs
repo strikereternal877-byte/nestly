@@ -89,7 +89,26 @@ public sealed class BookingTrackingQueryService : IBookingTrackingQueryService
                 "Live tracking is not available for this booking.");
         }
 
-        return Result.Success(await BuildSnapshotAsync(booking));
+        // booking.Status alone no longer captures "is the job still live":
+        // it stays InProgress through the admin-review window after the
+        // provider completes (BookingManagementService.ApproveCompletionProofAsync),
+        // so a finished job needs its own check. GetCurrentByBookingAsync,
+        // not GetActiveByBookingAsync: this is a read path, so a booking that
+        // (by data anomaly) never had a real assignment recorded must keep
+        // reading as "trackable, provider unknown" exactly as before - only
+        // an assignment that is itself Completed means this job is actually
+        // over. BookingTrackingAuthorizer.CanCustomerTrackAsync applies the
+        // same check, so the hub and this REST read keep giving the same
+        // answer per this class's own doc comment.
+        var assignment = await _assignmentRepository.GetCurrentByBookingAsync(booking.Id);
+        if (assignment is { Status: BookingProviderAssignmentStatus.Completed })
+        {
+            return Error.NotFound(
+                "Booking.TrackingUnavailable",
+                "Live tracking is not available for this booking.");
+        }
+
+        return Result.Success(await BuildSnapshotAsync(booking, assignment));
     }
 
     public async Task<Result<BookingTrackingResponse>> GetForAdminAsync(Guid bookingId)
@@ -107,22 +126,27 @@ public sealed class BookingTrackingQueryService : IBookingTrackingQueryService
                 "Live tracking is not available for this booking.");
         }
 
-        return Result.Success(await BuildSnapshotAsync(booking));
+        // See the matching comment in GetForCustomerAsync.
+        var assignment = await _assignmentRepository.GetCurrentByBookingAsync(booking.Id);
+        if (assignment is { Status: BookingProviderAssignmentStatus.Completed })
+        {
+            return Error.NotFound(
+                "Booking.TrackingUnavailable",
+                "Live tracking is not available for this booking.");
+        }
+
+        return Result.Success(await BuildSnapshotAsync(booking, assignment));
     }
 
     /// <summary>
     /// The part <see cref="GetForCustomerAsync"/> and <see cref="GetForAdminAsync"/>
     /// actually share - everything after the two callers' different access
-    /// checks have already passed. Takes the booking, not just its id, so
-    /// neither caller re-fetches it a second time.
+    /// checks have already passed. Takes the booking and its already-resolved
+    /// current assignment (possibly null - see the callers), not just their
+    /// ids, so neither caller re-fetches them a second time.
     /// </summary>
-    private async Task<BookingTrackingResponse> BuildSnapshotAsync(Booking booking)
+    private async Task<BookingTrackingResponse> BuildSnapshotAsync(Booking booking, BookingProviderAssignment? assignment)
     {
-        // The live assignment, so a provider who rejected or was reassigned
-        // off the job stops appearing here immediately - same rule as the
-        // booking detail's provider summary and as the hub's provider-side
-        // check.
-        var assignment = await _assignmentRepository.GetActiveByBookingAsync(booking.Id);
         var provider = assignment is null
             ? null
             : await _providerRepository.GetByIdAsync(assignment.ProviderId);

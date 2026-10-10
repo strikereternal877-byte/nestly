@@ -1,14 +1,17 @@
 using System.Text.Json;
+using Microsoft.Extensions.Options;
 using Nestly.Application;
 using Nestly.Application.Abstractions.Auditing;
 using Nestly.Application.BookingManagement;
 using Nestly.Application.Bookings;
 using Nestly.Application.Cancellations;
 using Nestly.Application.Payments;
+using Nestly.Application.RecurringBookings;
 using Nestly.Application.Refunds;
 using Nestly.Application.Reschedules;
 using Nestly.BuildingBlocks.Results;
 using Nestly.Domain;
+using Nestly.Infrastructure.Options;
 using Nestly.Infrastructure.Persistence;
 
 namespace Nestly.Infrastructure.Services;
@@ -51,6 +54,14 @@ public class BookingManagementService : IBookingManagementService
         BookingStatus.Rescheduled,
         BookingStatus.RefundPending,
         BookingStatus.Refunded,
+        // Completed now requires the admin to have approved the provider's
+        // completion proof (ApproveCompletionProofAsync) - the same reasoning
+        // as every other entry here: a transition with real side effects
+        // (escrow release, provider earning credit) is too consequential for
+        // a bare generic dropdown. Reaching it this way used to only require
+        // proof to exist, not to have been reviewed - see this method's git
+        // history for that older, narrower guard.
+        BookingStatus.Completed,
     };
 
     /// <summary>
@@ -90,6 +101,9 @@ public class BookingManagementService : IBookingManagementService
     private readonly NestlyDbContext _dbContext;
     private readonly IBookingCompletionProofRepository _completionProofRepository;
     private readonly IProviderRepository _providerRepository;
+    private readonly IRecurringOccurrenceAutoChargeJob _autoChargeJob;
+    private readonly IRecurringBookingPlanRepository _recurringPlanRepository;
+    private readonly RecurringBookingOptions _recurringBookingOptions;
 
     public BookingManagementService(
         IBookingRepository bookingRepository,
@@ -104,7 +118,10 @@ public class BookingManagementService : IBookingManagementService
         IAuditLogWriter auditLogWriter,
         NestlyDbContext dbContext,
         IBookingCompletionProofRepository completionProofRepository,
-        IProviderRepository providerRepository)
+        IProviderRepository providerRepository,
+        IRecurringOccurrenceAutoChargeJob autoChargeJob,
+        IRecurringBookingPlanRepository recurringPlanRepository,
+        IOptions<RecurringBookingOptions> recurringBookingOptions)
     {
         _bookingRepository = bookingRepository;
         _paymentRepository = paymentRepository;
@@ -117,6 +134,9 @@ public class BookingManagementService : IBookingManagementService
         _paymentWebhookService = paymentWebhookService;
         _auditLogWriter = auditLogWriter;
         _dbContext = dbContext;
+        _autoChargeJob = autoChargeJob;
+        _recurringPlanRepository = recurringPlanRepository;
+        _recurringBookingOptions = recurringBookingOptions.Value;
         _completionProofRepository = completionProofRepository;
         _providerRepository = providerRepository;
     }
@@ -169,7 +189,7 @@ public class BookingManagementService : IBookingManagementService
         {
             return Error.Validation(
                 "Booking.UseDedicatedAction",
-                $"'{request.NewStatus}' must be set via the dedicated cancel/reschedule/refund action, not a generic status update.");
+                $"'{request.NewStatus}' must be set via the dedicated cancel/reschedule/refund/complete action, not a generic status update.");
         }
 
         if (!BookingLifecycle.IsValidTransition(booking.Status, request.NewStatus))
@@ -184,15 +204,6 @@ public class BookingManagementService : IBookingManagementService
             return Error.Business(
                 "Booking.NoProviderAssigned",
                 $"'{request.NewStatus}' requires a provider already assigned to this booking. Use the assign-provider action first.");
-        }
-
-        if (request.NewStatus == BookingStatus.Completed)
-        {
-            var proofError = await _completionProofRepository.EnsureCompletionProofExistsAsync(bookingId);
-            if (proofError is not null)
-            {
-                return proofError;
-            }
         }
 
         var previousStatus = booking.Status;
@@ -325,6 +336,126 @@ public class BookingManagementService : IBookingManagementService
             : await BuildDetailAsync(booking);
     }
 
+    public async Task<IReadOnlyList<BookingCompletionProofQueueItemResponse>> ListPendingCompletionProofsAsync(CancellationToken cancellationToken = default)
+    {
+        var proofs = await _completionProofRepository.ListPendingAsync(cancellationToken);
+        if (proofs.Count == 0)
+        {
+            return [];
+        }
+
+        var bookings = await _bookingRepository.ListSummariesByIdsAsync(proofs.Select(p => p.BookingId).Distinct().ToList());
+        var bookingsById = bookings.ToDictionary(b => b.Id);
+        var providerNames = await _providerRepository.GetDisplayNamesByIdsAsync(
+            proofs.Select(p => p.SubmittedByProviderId).Distinct().ToList());
+
+        return proofs
+            .Where(p => bookingsById.ContainsKey(p.BookingId))
+            .Select(p =>
+            {
+                var booking = bookingsById[p.BookingId];
+                return new BookingCompletionProofQueueItemResponse(
+                    p.BookingId,
+                    booking.BookingReference,
+                    booking.CustomerNameSnapshot,
+                    p.SubmittedByProviderId,
+                    providerNames.TryGetValue(p.SubmittedByProviderId, out var name) ? name : "(deleted provider)",
+                    p.PhotoRefs,
+                    p.ChecklistAnswers.Select(a => new CompletionChecklistAnswerResponse(a.Item, a.Completed, a.Notes)).ToList(),
+                    p.SubmittedAtUtc);
+            })
+            .ToList();
+    }
+
+    /// <summary>Approves the provider's submitted completion proof and, as the direct consequence, transitions the booking to Completed - the one path Completed is now reachable by, see <see cref="DisallowedGenericTransitionTargets"/>.</summary>
+    public async Task<Result<AdminBookingDetailResponse>> ApproveCompletionProofAsync(Guid bookingId, Guid adminUserId)
+    {
+        var (booking, proof, error) = await LoadPendingCompletionProofAsync(bookingId);
+        if (error is not null)
+        {
+            return error;
+        }
+
+        proof!.Approve(adminUserId);
+        await _completionProofRepository.UpdateAsync(proof);
+
+        try
+        {
+            // Raises BookingStatusChangedEvent -> EscrowReleaseOnCompletionHandler,
+            // which releases escrow to the provider and credits their earning
+            // ledger (task 148) once this save commits - the same mechanism
+            // ProviderJobService.CompleteAsync used to trigger directly.
+            booking!.TransitionTo(BookingStatus.Completed, "Admin approved the completion proof.");
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Error.Business("Booking.InvalidTransition", ex.Message);
+        }
+
+        await _bookingRepository.UpdateAsync(booking);
+
+        await _auditLogWriter.WriteAsync(new AuditEntry(
+            "Booking", bookingId.ToString(), "AdminApproveCompletionProof",
+            JsonSerializer.Serialize(new { proof.ReviewStatus, Status = BookingStatus.InProgress.ToString() }),
+            JsonSerializer.Serialize(new { ReviewStatus = CompletionProofReviewStatus.Approved, Status = BookingStatus.Completed.ToString() })));
+        await _dbContext.SaveChangesAsync();
+
+        return await BuildDetailAsync(booking);
+    }
+
+    /// <summary>Rejects the provider's submitted completion proof. The booking is deliberately left exactly where it is (InProgress, the only status a pending proof can exist under) rather than transitioned anywhere - the provider is notified with <paramref name="request"/>'s reason and expected to finish the job and resubmit, not treated as though the booking regressed through some other state.</summary>
+    public async Task<Result<AdminBookingDetailResponse>> RejectCompletionProofAsync(Guid bookingId, Guid adminUserId, RejectCompletionProofRequest request)
+    {
+        var (booking, proof, error) = await LoadPendingCompletionProofAsync(bookingId);
+        if (error is not null)
+        {
+            return error;
+        }
+
+        proof!.Reject(adminUserId, request.Reason);
+        await _completionProofRepository.UpdateAsync(proof);
+
+        await _auditLogWriter.WriteAsync(new AuditEntry(
+            "Booking", bookingId.ToString(), "AdminRejectCompletionProof",
+            JsonSerializer.Serialize(new { proof.ReviewStatus }),
+            JsonSerializer.Serialize(new { ReviewStatus = CompletionProofReviewStatus.Rejected, request.Reason })));
+        await _dbContext.SaveChangesAsync();
+
+        return await BuildDetailAsync(booking!);
+    }
+
+    /// <summary>Shared preconditions for both completion-proof review actions: the booking must exist and still be InProgress (the only status a provider-submitted, not-yet-reviewed proof implies - see BookingCompletionProof's doc comment), and that proof must exist and still be Pending (not already reviewed, and not resubmitted since - a stale approve/reject click on a page an admin left open, not a legitimate second review).</summary>
+    private async Task<(Booking? Booking, BookingCompletionProof? Proof, Error? Error)> LoadPendingCompletionProofAsync(Guid bookingId)
+    {
+        var booking = await _bookingRepository.GetByIdAsync(bookingId);
+        if (booking is null)
+        {
+            return (null, null, Error.NotFound("Booking.NotFound", "The specified booking does not exist."));
+        }
+
+        if (booking.Status != BookingStatus.InProgress)
+        {
+            return (null, null, Error.Business(
+                "Booking.NotAwaitingCompletionReview",
+                $"A booking in status '{booking.Status}' has no completion proof awaiting review."));
+        }
+
+        var proof = await _completionProofRepository.GetByBookingIdAsync(bookingId);
+        if (proof is null)
+        {
+            return (null, null, Error.NotFound("Booking.CompletionProofNotFound", "This booking has no completion proof submitted yet."));
+        }
+
+        if (proof.ReviewStatus != CompletionProofReviewStatus.Pending)
+        {
+            return (null, null, Error.Business(
+                "Booking.CompletionProofAlreadyReviewed",
+                $"This completion proof was already {proof.ReviewStatus}."));
+        }
+
+        return (booking, proof, null);
+    }
+
     private async Task<AdminBookingDetailResponse> BuildDetailAsync(Booking booking)
     {
         var payment = await _paymentRepository.GetByBookingIdAsync(booking.Id);
@@ -361,7 +492,7 @@ public class BookingManagementService : IBookingManagementService
                 cancellation.CancellationFeeAmount, cancellation.RefundAmount, cancellation.RefundMethod, cancellation.RefundTransactionId,
                 cancellation.InternalNotes, cancellation.CreatedAtUtc),
             reschedules.Select(r => new AdminBookingRescheduleResponse(
-                r.Id, r.Actor, r.Reason, r.FromSlotDate, r.FromSlotStartTime, r.ToSlotDate, r.ToSlotStartTime, r.IsLate, r.FeeAmount, r.CreatedAtUtc)).ToList(),
+                r.Id, r.Actor, r.Reason, r.FromSlotDate, r.FromSlotStartTime, r.ToSlotDate, r.ToSlotStartTime, r.IsLate, r.FeeAmount, r.CreatedAtUtc, r.FeeCollectedAmount)).ToList(),
             refunds.Select(r => new AdminBookingRefundResponse(
                 r.Id, r.FundingSource, r.Type, r.Method, r.Amount, r.Status, r.GatewayRefundRef, r.Reason, r.CreatedAtUtc, r.ProcessedAtUtc)).ToList(),
             booking.CreatedAtUtc,
@@ -407,6 +538,89 @@ public class BookingManagementService : IBookingManagementService
 
         var items = rows.Select(booking => ToFulfilmentBoardItem(booking, providerNames)).ToList();
         return new AdminFulfilmentBoardResponse(date, items);
+    }
+
+    public async Task<Result<IReadOnlyList<AdminAutoChargeCandidateResponse>>> ListAutoChargeCandidatesAsync(CancellationToken cancellationToken = default)
+    {
+        var candidates = await _bookingRepository.ListRecurringPaymentPendingAsync();
+        if (candidates.Count == 0)
+        {
+            return Result.Success<IReadOnlyList<AdminAutoChargeCandidateResponse>>([]);
+        }
+
+        var planIds = candidates.Select(b => b.RecurringBookingPlanId!.Value).Distinct().ToList();
+        var plansById = new Dictionary<Guid, bool>();
+        foreach (var planId in planIds)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var plan = await _recurringPlanRepository.GetByIdAsync(planId);
+            plansById[planId] = plan?.AutoChargeEnabled ?? false;
+        }
+
+        var items = candidates
+            .OrderBy(b => b.CreatedAtUtc)
+            .Select(booking => new AdminAutoChargeCandidateResponse(
+                booking.Id,
+                booking.BookingReference,
+                booking.CustomerNameSnapshot,
+                booking.TotalPayableSnapshot,
+                booking.Status,
+                plansById.GetValueOrDefault(booking.RecurringBookingPlanId!.Value),
+                booking.AutoChargeCancelledByAdmin,
+                booking.AutoChargeAttemptCount,
+                _recurringBookingOptions.AutoChargeRetryLimit,
+                booking.LastAutoChargeAttemptAtUtc,
+                RecurringOccurrenceAutoChargeJob.NextAttemptDueAtUtc(booking, _recurringBookingOptions)))
+            .ToList();
+
+        return Result.Success<IReadOnlyList<AdminAutoChargeCandidateResponse>>(items);
+    }
+
+    public async Task<Result<AdminBookingDetailResponse>> ForceAutoChargeRetryAsync(Guid bookingId, Guid adminUserId)
+    {
+        var outcome = await _autoChargeJob.ForceAttemptAsync(bookingId);
+        if (outcome.IsFailure)
+        {
+            return outcome.Error;
+        }
+
+        await _auditLogWriter.WriteAsync(new AuditEntry(
+            "Booking", bookingId.ToString(), "AdminForceAutoChargeRetry",
+            null,
+            JsonSerializer.Serialize(new { Outcome = outcome.Value.ToString() })));
+        await _dbContext.SaveChangesAsync();
+
+        var booking = await _bookingRepository.GetByIdAsync(bookingId);
+        return booking is null
+            ? Error.NotFound("Booking.NotFound", "The specified booking does not exist.")
+            : await BuildDetailAsync(booking);
+    }
+
+    public async Task<Result<AdminBookingDetailResponse>> CancelAutoChargeRetriesAsync(Guid bookingId, Guid adminUserId)
+    {
+        var booking = await _bookingRepository.GetByIdAsync(bookingId);
+        if (booking is null)
+        {
+            return Error.NotFound("Booking.NotFound", "The specified booking does not exist.");
+        }
+
+        try
+        {
+            booking.CancelAutoChargeRetries();
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Error.Business("RecurringAutoCharge.CannotCancel", ex.Message);
+        }
+
+        await _bookingRepository.UpdateAsync(booking);
+        await _autoChargeJob.NotifyRetriesCancelledAsync(bookingId);
+
+        await _auditLogWriter.WriteAsync(new AuditEntry(
+            "Booking", bookingId.ToString(), "AdminCancelAutoChargeRetries", null, null));
+        await _dbContext.SaveChangesAsync();
+
+        return await BuildDetailAsync(booking);
     }
 
     private static AdminFulfilmentBoardBookingResponse ToFulfilmentBoardItem(

@@ -145,6 +145,45 @@ public sealed class ReferralFraudReviewTests : IClassFixture<TestDatabase>
         updated.FraudReviewedByAdminUserId.Should().BeNull("this is a system-detected signal, not an admin action");
     }
 
+    /// <summary>
+    /// Regression coverage for the referral clawback gap: the handler used
+    /// to only ever listen for CancelledByCustomer/CancelledByAdmin, but
+    /// BookingLifecycle allows a Completed booking (which is the only status
+    /// ReferralQualifyingBookingHandler ever disburses a reward against)
+    /// exactly one way out - Completed -> RefundPending -> Refunded, never
+    /// back to either Cancelled status. That made the one signal this
+    /// handler exists to raise structurally unreachable for a dispute or
+    /// admin refund reversing an already-rewarded referral's qualifying
+    /// order - exactly the case REFERRAL.md's fraud section describes.
+    /// </summary>
+    [Fact]
+    public async Task CancellationSignalHandler_auto_flags_a_referral_whose_qualifying_booking_is_refunded_after_completion()
+    {
+        using var context = _db.CreateContext();
+        var config = SeedConfig(context);
+        var referrer = SeedCustomer(context, "Referrer");
+        var referee = SeedCustomer(context, "Referee");
+        var bookingId = Guid.NewGuid();
+        var referral = SeedRewardedReferral(context, referrer, referee, config, bookingId);
+
+        var handler = new ReferralCancellationFraudSignalHandler(
+            new ReferralRepository(context), BuildFraudService(context), TimeProvider.System,
+            NullLogger<ReferralCancellationFraudSignalHandler>.Instance);
+
+        // The real transition pair RefundService.InitiateAsync produces when
+        // a full refund drains a Completed booking's remaining balance (see
+        // CommissionAndEscrowTests' own coverage of that transition) -
+        // Completed -> RefundPending happens first, then this one.
+        await handler.Handle(
+            new DomainEventNotification<BookingStatusChangedEvent>(
+                new BookingStatusChangedEvent(bookingId, BookingStatus.RefundPending, BookingStatus.Refunded)),
+            CancellationToken.None);
+
+        var updated = context.Referrals.Single(r => r.Id == referral.Id);
+        updated.IsFraudFlagged.Should().BeTrue();
+        updated.FraudReviewedByAdminUserId.Should().BeNull("this is a system-detected signal, not an admin action");
+    }
+
     [Fact]
     public async Task CancellationSignalHandler_ignores_a_booking_that_is_not_a_referrals_qualifying_booking()
     {

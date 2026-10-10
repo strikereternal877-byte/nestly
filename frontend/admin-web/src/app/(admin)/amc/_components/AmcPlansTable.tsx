@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { ReactNode } from "react";
 import { Button } from "@/components/ui";
 import { ActiveBadge, ConfirmDialog, DataTable, formatCurrency, formatDate } from "@/components/data-table";
@@ -46,11 +46,21 @@ export function AmcPlansTable({
 
   const isDeactivating = pendingDeactivate !== null && togglingId === pendingDeactivate.id;
 
-  useEffect(() => {
-    if (!confirmed || isDeactivating) return;
-    setConfirmed(false);
-    if (!toggleError) setPendingDeactivate(null);
-  }, [confirmed, isDeactivating, toggleError]);
+  // "Adjusting state when a prop changes" (react.dev/learn/you-might-not-
+  // need-an-effect), not an effect: shouldSettle is true for exactly one
+  // render (a confirmed toggle that has just stopped being pending), and
+  // comparing against its own last-seen value during render is what fires
+  // the close-out exactly once per settle rather than on every render where
+  // both conditions still hold.
+  const shouldSettle = confirmed && !isDeactivating;
+  const [wasSettling, setWasSettling] = useState(false);
+  if (shouldSettle !== wasSettling) {
+    setWasSettling(shouldSettle);
+    if (shouldSettle) {
+      setConfirmed(false);
+      if (!toggleError) setPendingDeactivate(null);
+    }
+  }
 
   const columns: DataTableColumn<AmcPlanAdminResponse>[] = [
     {

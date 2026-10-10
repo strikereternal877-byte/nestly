@@ -25,6 +25,13 @@ public class NotificationEventRepository : INotificationEventRepository
         await _context.SaveChangesAsync();
     }
 
+    public async Task<DateTime?> GetLatestCreatedAtUtcAsync(Guid customerId, NotificationEventType eventType) =>
+        await _context.NotificationEvents
+            .Where(n => n.CustomerId == customerId && n.EventType == eventType)
+            .OrderByDescending(n => n.CreatedAtUtc)
+            .Select(n => (DateTime?)n.CreatedAtUtc)
+            .FirstOrDefaultAsync();
+
     public async Task<IReadOnlyList<NotificationEvent>> ListByCustomerAsync(Guid customerId) =>
         await _context.NotificationEvents
             .Where(n => n.CustomerId == customerId)

@@ -12,12 +12,14 @@ import {
   FormGrid,
   Pagination,
   countActiveFilters,
+  exportRowsToCsv,
   formatDate,
 } from "@/components/data-table";
 import type { CsvColumn, DataTableColumn } from "@/components/data-table";
 import { todayIsoDate } from "@/lib/date";
 import { endOfLocalDayUtc, startOfLocalDayUtc } from "@/lib/day-range";
 import { ProviderStatusBadge } from "@/components/status-badges";
+import { useResetOnChange } from "@/hooks/useResetOnChange";
 import { describeError } from "@/lib/api";
 import { createProvider, searchProviders } from "@/lib/providers-api";
 import { ProviderOnboardingStatus, ProviderStatus } from "@/lib/providers-types";
@@ -150,6 +152,15 @@ function ProvidersPageContent() {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [createForm, setCreateForm] = useState<CreateProviderRequest>(EMPTY_CREATE);
   const [createError, setCreateError] = useState<string | null>(null);
+  // Row-select plus "Export selected" (task: premium UX audit) - the same
+  // scope bookings/page.tsx's own bulk-action doc comment settled on: export
+  // is unambiguously safe, while a bulk status change (suspend, activate)
+  // would touch live provider accounts and belongs behind the same
+  // per-provider review (a suspension reason, the KYC/background-check gate)
+  // the detail page already requires one at a time. Keyed by provider id,
+  // valued with the row itself so a selection survives paging - DataTable
+  // only ever holds the current page's rows.
+  const [selectedProviders, setSelectedProviders] = useState<Map<string, ProviderSummary>>(new Map());
 
   const citiesQuery = useQuery({ queryKey: ["cities"], queryFn: () => listCities() });
 
@@ -173,12 +184,18 @@ function ProvidersPageContent() {
     return () => window.clearTimeout(handle);
   }, [filters.phone]);
 
-  // Any filter change resets to page 1 - staying on page 3 of a now-smaller
-  // result set would just show an empty page (same pattern as
-  // payments/reconciliation/page.tsx).
-  useEffect(() => {
-    setPage(1);
-  }, [debouncedName, debouncedPhone, filters.status, filters.onboardingStatus, filters.cityId, filters.createdFrom, filters.createdTo]);
+  // Any filter change resets to page 1 and drops the row selection - staying
+  // on page 3 of a now-smaller result set would just show an empty page (same
+  // pattern as payments/reconciliation/page.tsx), and a selection made under
+  // the old filters would be confusing carried over into a different result
+  // set (same reasoning as bookings/page.tsx's own reset).
+  useResetOnChange(
+    [debouncedName, debouncedPhone, filters.status, filters.onboardingStatus, filters.cityId, filters.createdFrom, filters.createdTo],
+    () => {
+      setPage(1);
+      setSelectedProviders(new Map());
+    },
+  );
 
   // Live typeahead for Name - reuses the same server-side search this page
   // already calls (searchProviders), same pattern as bookings/page.tsx's
@@ -244,6 +261,31 @@ function ProvidersPageContent() {
     setDebouncedName("");
     setDebouncedPhone("");
     setPage(1);
+    setSelectedProviders(new Map());
+  };
+
+  const toggleSelection = (keys: Set<string>) => {
+    const rows = query.data?.items ?? [];
+    setSelectedProviders((current) => {
+      const next = new Map(current);
+      // A key present in `keys` but missing from `next` is a fresh selection
+      // on the currently loaded page - look up its row there. A key already
+      // in `next` that stays in `keys` is untouched. A key removed from
+      // `keys` is deselected. Mirrors bookings/page.tsx's own toggleSelection.
+      keys.forEach((key) => {
+        if (next.has(key)) return;
+        const row = rows.find((provider) => provider.id === key);
+        if (row) next.set(key, row);
+      });
+      Array.from(next.keys()).forEach((key) => {
+        if (!keys.has(key)) next.delete(key);
+      });
+      return next;
+    });
+  };
+
+  const onExportSelected = () => {
+    exportRowsToCsv(Array.from(selectedProviders.values()), PROVIDER_CSV_COLUMNS, `providers-export-${todayIsoDate()}.csv`);
   };
 
   /**
@@ -387,14 +429,28 @@ function ProvidersPageContent() {
       <div className="mt-6">
         <DataTable
           title="Results"
-          // Server-paged (task 221 pattern), so this exports the current
-          // page — same rows DataTable is already rendering.
+          // Server-paged (task 221 pattern), so the default export is the
+          // current page - same rows DataTable is already rendering. Once
+          // rows are picked, "Export selected" takes over (only that
+          // selection, which can span multiple pages visited).
           actions={
-            <ExportCsvButton
-              rows={query.data?.items}
-              columns={PROVIDER_CSV_COLUMNS}
-              fileName={`providers-export-${todayIsoDate()}.csv`}
-            />
+            selectedProviders.size > 0 ? (
+              <>
+                <span className="text-xs text-fg-subtle">{selectedProviders.size} selected</span>
+                <Button size="sm" variant="secondary" onClick={onExportSelected}>
+                  Export selected
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setSelectedProviders(new Map())}>
+                  Clear selection
+                </Button>
+              </>
+            ) : (
+              <ExportCsvButton
+                rows={query.data?.items}
+                columns={PROVIDER_CSV_COLUMNS}
+                fileName={`providers-export-${todayIsoDate()}.csv`}
+              />
+            )
           }
           columns={columns}
           rows={query.data?.items}
@@ -413,6 +469,10 @@ function ProvidersPageContent() {
               Clear filters
             </Button>
           }
+          selection={{
+            selectedKeys: new Set(selectedProviders.keys()),
+            onSelectionChange: toggleSelection,
+          }}
           footer={
             query.data ? (
               <Pagination

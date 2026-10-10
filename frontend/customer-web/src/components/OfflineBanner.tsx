@@ -1,7 +1,25 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { Alert, IconButton } from "@/components/ui";
+
+function subscribeToOnlineStatus(onChange: () => void): () => void {
+  window.addEventListener("online", onChange);
+  window.addEventListener("offline", onChange);
+  return () => {
+    window.removeEventListener("online", onChange);
+    window.removeEventListener("offline", onChange);
+  };
+}
+
+function getClientOnlineStatus(): boolean {
+  return navigator.onLine;
+}
+
+/** Defaults to online during SSR/hydration - `navigator` doesn't exist on the server, and a false "offline" flash on every load would be worse than a brief miss on an actually-offline first paint. */
+function getServerOnlineStatus(): boolean {
+  return true;
+}
 
 /**
  * Explicit offline state (task #355). Before this, a customer who lost
@@ -21,31 +39,23 @@ import { Alert, IconButton } from "@/components/ui";
  * the alarming one.
  */
 export function OfflineBanner() {
-  // Starts `false` rather than reading `navigator.onLine` at first render:
-  // this mounts in the server-rendered root layout, where `navigator` doesn't
-  // exist, and seeding from it would desync server/client markup. The effect
-  // below corrects this on mount, before the customer can act on anything.
-  const [offline, setOffline] = useState(false);
+  const isOnline = useSyncExternalStore(subscribeToOnlineStatus, getClientOnlineStatus, getServerOnlineStatus);
   const [dismissed, setDismissed] = useState(false);
 
-  useEffect(() => {
-    setOffline(!navigator.onLine);
+  // "Adjusting state when a prop changes", not an effect (react.dev/learn/
+  // you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes):
+  // setState during render, guarded by comparing against the last-seen
+  // value, is what reacts to reconnecting-then-dropping-again without
+  // running on every render - a fresh drop deserves a fresh banner even if
+  // the last one was dismissed, but this must not immediately undo a
+  // dismissal for the *same* outage.
+  const [prevIsOnline, setPrevIsOnline] = useState(isOnline);
+  if (isOnline !== prevIsOnline) {
+    setPrevIsOnline(isOnline);
+    if (!isOnline) setDismissed(false);
+  }
 
-    const onOffline = () => {
-      setOffline(true);
-      setDismissed(false); // a fresh drop deserves a fresh banner, even if the last one was dismissed
-    };
-    const onOnline = () => setOffline(false);
-
-    window.addEventListener("offline", onOffline);
-    window.addEventListener("online", onOnline);
-    return () => {
-      window.removeEventListener("offline", onOffline);
-      window.removeEventListener("online", onOnline);
-    };
-  }, []);
-
-  if (!offline || dismissed) return null;
+  if (isOnline || dismissed) return null;
 
   return (
     // Task #351: `top-[4.5rem]` tracked `SiteHeader`'s fixed height so this

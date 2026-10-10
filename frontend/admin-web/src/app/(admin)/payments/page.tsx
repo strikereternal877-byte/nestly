@@ -5,17 +5,20 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Badge, Field, PageHeading, Select } from "@/components/ui";
 import type { BadgeTone } from "@/components/ui";
+import { useResetOnChange } from "@/hooks/useResetOnChange";
 import {
   DataTable,
+  ExportCsvButton,
   FilterBar,
   Pagination,
   countActiveFilters,
   formatCurrency,
   formatDateTime,
 } from "@/components/data-table";
-import type { DataTableColumn } from "@/components/data-table";
+import type { CsvColumn, DataTableColumn } from "@/components/data-table";
 import { PaymentsTabs } from "@/components/PaymentsTabs";
 import { searchBookings } from "@/lib/bookings-api";
+import { todayIsoDate } from "@/lib/date";
 import { searchPaymentTransactions } from "@/lib/payments-api";
 import { PaymentTransactionStatus } from "@/lib/payments-types";
 import type { AdminPaymentTransactionListItem } from "@/lib/payments-types";
@@ -49,6 +52,17 @@ interface FilterFormState {
 }
 
 const EMPTY_FILTERS: FilterFormState = { bookingId: "", status: "", fromDate: "", toDate: "" };
+
+const TRANSACTION_CSV_COLUMNS: readonly CsvColumn<AdminPaymentTransactionListItem>[] = [
+  { header: "Transaction ID", value: (t) => t.id },
+  { header: "Booking ID", value: (t) => t.bookingId },
+  { header: "Status", value: (t) => STATUS_LABELS[t.status] },
+  { header: "Amount", value: (t) => t.amount },
+  { header: "Currency", value: (t) => t.currency },
+  { header: "Gateway reference", value: (t) => t.latestGatewayPaymentRef ?? t.latestGatewayOrderId ?? "" },
+  { header: "Created", value: (t) => t.createdAtUtc },
+  { header: "Updated", value: (t) => t.updatedAtUtc },
+];
 
 /**
  * Admin payment transaction view (SRS 12.13.1, task 311): a filterable,
@@ -93,9 +107,10 @@ export default function PaymentsPage() {
   });
 
   // Any filter change resets to page 1 - same pattern as customers/page.tsx.
-  useEffect(() => {
-    setPage(1);
-  }, [debouncedBookingSearch, filters.status, filters.fromDate, filters.toDate]);
+  useResetOnChange(
+    [debouncedBookingSearch, filters.status, filters.fromDate, filters.toDate],
+    () => setPage(1),
+  );
 
   const query = useQuery({
     queryKey: ["admin-payments", debouncedBookingSearch, filters.status, filters.fromDate, filters.toDate, page],
@@ -225,6 +240,13 @@ export default function PaymentsPage() {
       <div className="mt-6">
         <DataTable
           title="Transactions"
+          actions={
+            <ExportCsvButton
+              rows={query.data?.items}
+              columns={TRANSACTION_CSV_COLUMNS}
+              fileName={`payments-export-${todayIsoDate()}.csv`}
+            />
+          }
           columns={columns}
           rows={query.data?.items}
           rowKey={(transaction) => transaction.id}

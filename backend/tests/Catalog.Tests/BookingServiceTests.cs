@@ -1,3 +1,4 @@
+using Nestly.Application.Settings;
 using FluentAssertions;
 using Microsoft.Extensions.Options;
 using Nestly.Application;
@@ -19,13 +20,13 @@ public sealed class BookingServiceTests : IClassFixture<TestDatabase>
 
     public BookingServiceTests(TestDatabase db) => _db = db;
 
-    private BookingService BuildService(Nestly.Infrastructure.Persistence.NestlyDbContext context)
+    private BookingService BuildService(Nestly.Infrastructure.Persistence.NestlyDbContext context, IPlatformRules? rules = null)
     {
         var couponService = new CouponService(
             new CouponRepository(context),
             new CouponRedemptionRepository(context),
             new BookingRepository(context),
-            TimeProvider.System);
+            TimeProvider.System, rules);
 
         var summaryService = new BookingSummaryService(
             new ServiceRepository(context),
@@ -39,18 +40,18 @@ public sealed class BookingServiceTests : IClassFixture<TestDatabase>
                 new SlotBlackoutRepository(context),
                 new SlotBookingPolicyRepository(context),
                 new SlotCapacityRepository(context),
-                TestServices.Clock()),
+                TestServices.Clock(), rules),
             new PriceCalculationService(
                 new ServiceRepository(context),
                 new ServiceAddOnRepository(context),
                 new ServiceabilityRepository(context),
                 new ServiceCityPriceRepository(context),
-                new CityPricingPolicyRepository(context), new ServiceVariantRepository(context), new ServiceAddOnGroupRepository(context), new InMemoryCacheService()),
+                new CityPricingPolicyRepository(context), new ServiceVariantRepository(context), new ServiceAddOnGroupRepository(context), new InMemoryCacheService(), rules),
             couponService,
             new SubscriptionBenefitService(new CustomerSubscriptionRepository(context)),
             new WalletService(new WalletLedgerRepository(context), context),
         new ServiceabilityRepository(context),
-        TestServices.BookingOptions());
+        TestServices.BookingOptions(), rules);
 
         return new BookingService(
             summaryService,
@@ -64,7 +65,7 @@ public sealed class BookingServiceTests : IClassFixture<TestDatabase>
                 new SlotBlackoutRepository(context),
                 new SlotBookingPolicyRepository(context),
                 new SlotCapacityRepository(context),
-                TestServices.Clock()),
+                TestServices.Clock(), rules),
             new NoOpMetricsService(),
             new BookingProviderAssignmentRepository(context),
             new ProviderRepository(context),
@@ -72,7 +73,7 @@ public sealed class BookingServiceTests : IClassFixture<TestDatabase>
             new CustomerSubscriptionRepository(context),
             new WalletService(new WalletLedgerRepository(context), context),
             new AlwaysEligibleProviderSearchStub(),
-            context);
+            context, rules);
     }
 
     /// <summary>
@@ -542,7 +543,7 @@ public sealed class BookingServiceTests : IClassFixture<TestDatabase>
             var assignmentService = new BookingProviderAssignmentService(
                 new BookingRepository(setupContext), new ProviderRepository(setupContext), new ServiceRepository(setupContext),
                 new BookingProviderAssignmentRepository(setupContext), new ProviderScheduleConflictService(setupContext, TestServices.Occupancy()),
-                Options.Create(new AutoAssignmentOptions()), setupContext);
+                Options.Create(new AutoAssignmentOptions()), TestServices.ProviderNotificationPublisher(setupContext), setupContext);
             var assignResult = await assignmentService.AssignAsync(bookingId, adminUserId, new AssignProviderRequest(providerId, ResponseDeadline: null));
             assignResult.IsSuccess.Should().BeTrue();
         }
@@ -556,7 +557,7 @@ public sealed class BookingServiceTests : IClassFixture<TestDatabase>
             var assignmentService = new BookingProviderAssignmentService(
                 new BookingRepository(acceptContext), new ProviderRepository(acceptContext), new ServiceRepository(acceptContext),
                 new BookingProviderAssignmentRepository(acceptContext), new ProviderScheduleConflictService(acceptContext, TestServices.Occupancy()),
-                Options.Create(new AutoAssignmentOptions()), acceptContext);
+                Options.Create(new AutoAssignmentOptions()), TestServices.ProviderNotificationPublisher(acceptContext), acceptContext);
             var acceptResult = await assignmentService.AcceptAsync(bookingId, providerId);
             acceptResult.IsSuccess.Should().BeTrue();
         }
@@ -747,7 +748,7 @@ public sealed class BookingServiceTests : IClassFixture<TestDatabase>
             var assignmentService = new BookingProviderAssignmentService(
                 new BookingRepository(setupContext), new ProviderRepository(setupContext), new ServiceRepository(setupContext),
                 new BookingProviderAssignmentRepository(setupContext), new ProviderScheduleConflictService(setupContext, TestServices.Occupancy()),
-                Options.Create(new AutoAssignmentOptions()), setupContext);
+                Options.Create(new AutoAssignmentOptions()), TestServices.ProviderNotificationPublisher(setupContext), setupContext);
             var assignResult = await assignmentService.AssignAsync(bookingId, Guid.NewGuid(), new AssignProviderRequest(provider.Id, ResponseDeadline: null));
             assignResult.IsSuccess.Should().BeTrue();
         }
@@ -803,7 +804,7 @@ public sealed class BookingServiceTests : IClassFixture<TestDatabase>
             var assignmentService = new BookingProviderAssignmentService(
                 new BookingRepository(setupContext), new ProviderRepository(setupContext), new ServiceRepository(setupContext),
                 new BookingProviderAssignmentRepository(setupContext), new ProviderScheduleConflictService(setupContext, TestServices.Occupancy()),
-                Options.Create(new AutoAssignmentOptions()), setupContext);
+                Options.Create(new AutoAssignmentOptions()), TestServices.ProviderNotificationPublisher(setupContext), setupContext);
             await assignmentService.AssignAsync(bookingId, Guid.NewGuid(), new AssignProviderRequest(providerId, ResponseDeadline: null));
         }
 
@@ -815,7 +816,7 @@ public sealed class BookingServiceTests : IClassFixture<TestDatabase>
             var assignmentService = new BookingProviderAssignmentService(
                 new BookingRepository(rejectContext), new ProviderRepository(rejectContext), new ServiceRepository(rejectContext),
                 new BookingProviderAssignmentRepository(rejectContext), new ProviderScheduleConflictService(rejectContext, TestServices.Occupancy()),
-                Options.Create(new AutoAssignmentOptions()), rejectContext);
+                Options.Create(new AutoAssignmentOptions()), TestServices.ProviderNotificationPublisher(rejectContext), rejectContext);
             var rejectResult = await assignmentService.RejectAsync(bookingId, new RejectAssignmentRequest("Unavailable"));
             rejectResult.IsSuccess.Should().BeTrue();
         }
@@ -824,5 +825,151 @@ public sealed class BookingServiceTests : IClassFixture<TestDatabase>
 
         afterReject.Value.ProviderAssignmentStatus.Should().BeNull();
         afterReject.Value.Provider.Should().BeNull("the summary is keyed off the LIVE assignment, not the booking's assignment history");
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Booking rules (Settings -> Booking): the cap on active bookings per customer.
+    // ---------------------------------------------------------------------------------------------------------------
+
+    private static IPlatformRules ActiveCap(int? cap) => TestServices.Rules(booking: new BookingSettings(0, 365, cap, true));
+
+    /// <summary>Places a booking and takes it to Confirmed (paid), the state a cap counts.</summary>
+    private async Task<Guid> PlaceCommittedBookingAsync(Fixture fixture)
+    {
+        Guid id;
+        using (var context = _db.CreateContext())
+        {
+            var created = await BuildService(context).CreateAsync(fixture.Customer.Id, RequestFor(fixture));
+            created.IsSuccess.Should().BeTrue();
+            id = created.Value.Id;
+        }
+
+        using (var context = _db.CreateContext())
+        {
+            var booking = (await new BookingRepository(context).GetByIdAsync(id))!;
+            booking.TransitionTo(BookingStatus.Confirmed);
+            await new BookingRepository(context).UpdateAsync(booking);
+        }
+
+        return id;
+    }
+
+    [Fact]
+    public async Task A_customer_at_the_saved_active_booking_cap_cannot_place_another()
+    {
+        Fixture fixture;
+        using (var context = _db.CreateContext())
+        {
+            fixture = Seed(context);
+        }
+
+        await PlaceCommittedBookingAsync(fixture);
+
+        using var createContext = _db.CreateContext();
+        var second = await BuildService(createContext, ActiveCap(1)).CreateAsync(fixture.Customer.Id, RequestFor(fixture));
+
+        second.IsFailure.Should().BeTrue();
+        second.Error.Code.Should().Be("Booking.ActiveBookingLimitReached");
+        second.Error.Message.Should().Contain("1 active booking ");
+    }
+
+    [Fact]
+    public async Task A_customer_under_the_saved_cap_can_still_book()
+    {
+        Fixture fixture;
+        using (var context = _db.CreateContext())
+        {
+            fixture = Seed(context);
+        }
+
+        await PlaceCommittedBookingAsync(fixture);
+
+        using var createContext = _db.CreateContext();
+        (await BuildService(createContext, ActiveCap(2)).CreateAsync(fixture.Customer.Id, RequestFor(fixture))).IsSuccess.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task With_no_cap_saved_any_number_of_bookings_is_allowed()
+    {
+        Fixture fixture;
+        using (var context = _db.CreateContext())
+        {
+            fixture = Seed(context);
+        }
+
+        await PlaceCommittedBookingAsync(fixture);
+        await PlaceCommittedBookingAsync(fixture);
+
+        using var createContext = _db.CreateContext();
+        (await BuildService(createContext, ActiveCap(null)).CreateAsync(fixture.Customer.Id, RequestFor(fixture))).IsSuccess.Should().BeTrue();
+        using var createContext2 = _db.CreateContext();
+        (await BuildService(createContext2).CreateAsync(fixture.Customer.Id, RequestFor(fixture))).IsSuccess.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task An_unpaid_booking_does_not_count_toward_the_cap()
+    {
+        Fixture fixture;
+        using (var context = _db.CreateContext())
+        {
+            fixture = Seed(context);
+        }
+
+        // Left in PaymentPending: placed, never paid. Abandoned checkouts expire on their own.
+        using (var context = _db.CreateContext())
+        {
+            (await BuildService(context).CreateAsync(fixture.Customer.Id, RequestFor(fixture))).IsSuccess.Should().BeTrue();
+        }
+
+        using var createContext = _db.CreateContext();
+        (await BuildService(createContext, ActiveCap(1)).CreateAsync(fixture.Customer.Id, RequestFor(fixture))).IsSuccess.Should().BeTrue(
+            "walking away from a checkout must not lock the customer out of trying again");
+    }
+
+    [Fact]
+    public async Task A_recurring_plans_visits_neither_count_toward_the_cap_nor_are_blocked_by_it()
+    {
+        var recurring = RecurringFixtures.Seed(_db);
+        var date = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(3));
+        var plan = new RecurringBookingPlan(
+            Guid.NewGuid(), recurring.Customer.Id, recurring.Service.Id, recurring.City.Id, recurring.Locality.Id,
+            recurring.Address.Id, recurring.Morning.Id, 1, RecurringBookingRecurrenceFrequency.Daily, null, null, date, null, occurrenceCount: null);
+        using (var context = _db.CreateContext())
+        {
+            await new RecurringBookingPlanRepository(context).AddAsync(plan);
+        }
+
+        // Two committed visits of the plan: if they counted, a cap of 1 would already be exceeded.
+        RecurringFixtures.AddBooking(_db, recurring, date.AddDays(1), recurring.Morning, BookingStatus.Confirmed, plan);
+        RecurringFixtures.AddBooking(_db, recurring, date.AddDays(2), recurring.Morning, BookingStatus.Confirmed, plan);
+        var request = new BookingSummaryRequest(
+            recurring.Service.Id, recurring.City.Id, recurring.Address.Id, recurring.Locality.Id, recurring.Morning.Id, date, Quantity: 1, []);
+
+        using (var context = _db.CreateContext())
+        {
+            (await BuildService(context, ActiveCap(1)).CreateAsync(recurring.Customer.Id, request)).IsSuccess.Should().BeTrue(
+                "the plan's visits are not one-off bookings, so a customer with a plan can still place their first");
+        }
+
+        // And that one-off booking, once committed, is what the cap counts - but it never blocks the plan from creating its next visit.
+        using (var context = _db.CreateContext())
+        {
+            var oneOffId = context.Bookings.Single(b => b.CustomerId == recurring.Customer.Id && b.RecurringBookingPlanId == null).Id;
+            var oneOff = (await new BookingRepository(context).GetByIdAsync(oneOffId))!;
+            oneOff.TransitionTo(BookingStatus.Confirmed);
+            await new BookingRepository(context).UpdateAsync(oneOff);
+        }
+
+        using (var context = _db.CreateContext())
+        {
+            (await BuildService(context, ActiveCap(1)).CreateAsync(recurring.Customer.Id, request)).Error.Code
+                .Should().Be("Booking.ActiveBookingLimitReached", "the one-off booking now fills the cap");
+        }
+
+        using (var context = _db.CreateContext())
+        {
+            (await BuildService(context, ActiveCap(1)).CreateAsync(recurring.Customer.Id, request, recurringBookingPlanId: plan.Id)).IsSuccess.Should().BeTrue(
+                "a plan generating its own visit is not a customer placing a booking, so the cap does not apply to it");
+        }
     }
 }

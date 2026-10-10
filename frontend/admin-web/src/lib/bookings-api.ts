@@ -7,6 +7,7 @@
  */
 import { API_V1, apiFetch } from "./api";
 import type {
+  AdminAutoChargeCandidate,
   AdminBookingDetail,
   AdminBookingSearchParams,
   AdminBookingSearchResponse,
@@ -18,7 +19,9 @@ import type {
   AdminRefundRequest,
   AdminRescheduleBookingRequest,
   AdminUnassignedAtRiskBookingSearchResponse,
+  BookingCompletionProofQueueItem,
   BookingCompletionProofResponse,
+  RejectCompletionProofRequest,
   RescheduleCity,
   RescheduleLocality,
   RescheduleSlotAvailability,
@@ -116,6 +119,37 @@ export const getBookingCompletionProof = async (
   );
   return result ?? null;
 };
+
+/** Approves the completion proof; the booking moves to Completed as the direct consequence. */
+export const approveCompletionProof = (bookingId: string) =>
+  apiFetch<AdminBookingDetail>(`${BOOKINGS_BASE}/${bookingId}/completion-proof/approve`, {
+    method: "POST",
+    authenticated: true,
+  });
+
+/** Rejects the completion proof with a required reason; the booking stays InProgress for the provider to finish and resubmit. */
+export const rejectCompletionProof = (bookingId: string, request: RejectCompletionProofRequest) =>
+  apiFetch<AdminBookingDetail>(`${BOOKINGS_BASE}/${bookingId}/completion-proof/reject`, {
+    method: "POST",
+    authenticated: true,
+    body: JSON.stringify(request),
+  });
+
+/** The completion-proof review queue: every proof still awaiting a verdict, across every booking, oldest submission first. */
+export const listPendingCompletionProofs = () =>
+  apiFetch<BookingCompletionProofQueueItem[]>(`${BOOKINGS_BASE}/completion-proofs/pending`, { authenticated: true });
+
+/** The admin auto-charge queue: every recurring occurrence still awaiting its off-session charge (Payment Management UX pass - previously zero admin visibility into RecurringOccurrenceAutoChargeJob at all). */
+export const listAutoChargeCandidates = () =>
+  apiFetch<AdminAutoChargeCandidate[]>(`${BOOKINGS_BASE}/auto-charge/pending`, { authenticated: true });
+
+/** Forces an immediate off-session charge attempt for one occurrence, bypassing the backoff-timing gate. */
+export const forceAutoChargeRetry = (bookingId: string) =>
+  apiFetch<AdminBookingDetail>(`${BOOKINGS_BASE}/${bookingId}/auto-charge/retry`, { method: "POST", authenticated: true });
+
+/** Stops the automatic sweep from ever attempting this occurrence again and notifies the customer to pay manually. */
+export const cancelAutoChargeRetries = (bookingId: string) =>
+  apiFetch<AdminBookingDetail>(`${BOOKINGS_BASE}/${bookingId}/auto-charge/cancel`, { method: "POST", authenticated: true });
 
 /** Live tracking snapshot for the ops view (task 284). Rejects with a 404 ApiError - see AdminBookingTrackingResponse's doc comment - when there is no live data to show; the caller renders that as a plain state, not an error. */
 export const getBookingTracking = (bookingId: string) =>

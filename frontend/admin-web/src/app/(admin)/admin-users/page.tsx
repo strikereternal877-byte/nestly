@@ -5,6 +5,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tansta
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
+import { useResetOnChange } from "@/hooks/useResetOnChange";
 import { z } from "zod";
 import {
   DataTable,
@@ -88,9 +89,7 @@ export default function AdminUsersPage() {
   }, [filters.email]);
 
   // Any filter change resets to page 1 (same pattern as customers/page.tsx).
-  useEffect(() => {
-    setPage(1);
-  }, [debouncedName, debouncedEmail, filters.status]);
+  useResetOnChange([debouncedName, debouncedEmail, filters.status], () => setPage(1));
 
   const nameSuggestionsQuery = useQuery({
     queryKey: ["admin-users", "name-suggestions", debouncedName] as const,

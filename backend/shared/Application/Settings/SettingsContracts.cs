@@ -4,7 +4,8 @@ namespace Nestly.Application.Settings;
 /// Booking rules settings group (SRS 12.19 "Booking rules", task 131a).
 /// Governs how far ahead and how close to a slot a booking may be created -
 /// distinct from <see cref="SlotSettings"/>, which governs how slots
-/// themselves are generated.
+/// themselves are generated. Once an admin has saved this group the slot engine applies the lead time, the booking horizon
+/// and same-day on/off, and booking creation applies the active-bookings cap (see <see cref="IPlatformRules"/>).
 /// </summary>
 /// <param name="MinLeadTimeHours">A booking must start at least this many hours from now.</param>
 /// <param name="MaxAdvanceBookingDays">A booking cannot be made more than this many days ahead.</param>
@@ -17,7 +18,9 @@ public sealed record BookingSettings(
     bool AllowSameDayBooking);
 
 /// <summary>
-/// Slot engine settings group (SRS 12.19 "Slot rules", SRS 15.2, task 131b).
+/// Slot engine settings group (SRS 12.19 "Slot rules", SRS 15.2, task 131b). Once saved, the slot engine applies the same-day
+/// cutoff, the booking horizon and overbooking; the default duration and capacity are recorded but not applied, because
+/// slots are created one at a time with their own times and capacity.
 /// </summary>
 /// <param name="DefaultSlotDurationMinutes">Length of a generated slot window.</param>
 /// <param name="SameDayCutoffHours">Same-day slots starting within this many hours are no longer offered (SRS 15.2 "same-day cutoff rules").</param>
@@ -33,9 +36,9 @@ public sealed record SlotSettings(
 
 /// <summary>
 /// Cancellation policy settings group (SRS 12.19 "Cancellation rules", SRS
-/// 11.14.1, task 131c). Field shape mirrors the existing
-/// <c>CancellationPolicyOptions</c> appsettings binding this group is meant
-/// to become the admin-editable front end for.
+/// 11.14.1, task 131c). Field shape mirrors the
+/// <c>CancellationPolicyOptions</c> configuration binding. Once an admin has saved this group it is what
+/// cancellations enforce (<see cref="IBookingPolicyProvider"/>); until then the configuration binding is.
 /// </summary>
 /// <param name="FreeCancellationWindowHours">Cancelling at least this many hours before the slot owes no fee.</param>
 /// <param name="LateCancellationFeePercentage">Percentage of the payable amount retained when cancelling inside the free window.</param>
@@ -47,21 +50,31 @@ public sealed record CancellationSettings(
 
 /// <summary>
 /// Reschedule policy settings group (SRS 12.19 "Reschedule rules", SRS
-/// 11.15.1, task 131d). Field shape mirrors the existing
-/// <c>ReschedulePolicyOptions</c> appsettings binding this group is meant to
-/// become the admin-editable front end for.
+/// 11.15.1, task 131d). Field shape mirrors the
+/// <c>ReschedulePolicyOptions</c> configuration binding. Once an admin has saved this group it is what
+/// reschedules enforce (<see cref="IBookingPolicyProvider"/>); until then the configuration binding is.
 /// </summary>
 /// <param name="MinHoursBeforeSlot">Rescheduling with less than this many hours to the current slot is blocked entirely.</param>
 /// <param name="MaxReschedulesPerBooking">How many times a single booking may be rescheduled.</param>
 /// <param name="LateFeeThresholdHours">Rescheduling with less than this many hours to go (but above <see cref="MinHoursBeforeSlot"/>) incurs a fee.</param>
-/// <param name="LateRescheduleFeePercentage">Percentage of the booking's payable amount charged as a late-reschedule fee.</param>
+/// <param name="LateRescheduleFeePercentage">Percentage of the booking's payable amount that is the late-reschedule fee.</param>
+/// <param name="CollectLateFeeFromWallet">
+/// Whether that fee is actually taken from the customer's wallet (a late reschedule is then refused when the wallet cannot cover it)
+/// or only recorded on the booking. Off unless an admin turns it on; a value saved before this existed reads as off.
+/// </param>
 public sealed record RescheduleSettings(
     decimal MinHoursBeforeSlot,
     int MaxReschedulesPerBooking,
     decimal LateFeeThresholdHours,
-    decimal LateRescheduleFeePercentage);
+    decimal LateRescheduleFeePercentage,
+    bool CollectLateFeeFromWallet = false);
 
-/// <summary>Tax settings group (SRS 12.19 "Tax settings", task 131e).</summary>
+/// <summary>
+/// Tax settings group (SRS 12.19 "Tax settings", task 131e). Once saved, <c>DefaultTaxPercentage</c> is charged in a city that
+/// has no pricing policy of its own; <c>TaxInclusivePricing</c> and <c>TaxRegistrationNumber</c> are recorded but not applied
+/// (docs/GST.md - the tax posture needs sign-off before inclusive pricing can change how every total is derived, and no tax
+/// invoice exists to carry a registration number).
+/// </summary>
 /// <param name="DefaultTaxPercentage">Default GST/tax rate applied to a booking (0-100), used where no city-specific override (<c>CityPricingPolicy</c>) exists.</param>
 /// <param name="TaxRegistrationNumber">Platform's tax/GST registration number, shown on customer invoices; null if not yet configured.</param>
 /// <param name="TaxInclusivePricing">Whether displayed service prices already include tax.</param>
@@ -70,7 +83,12 @@ public sealed record TaxSettings(
     string? TaxRegistrationNumber,
     bool TaxInclusivePricing);
 
-/// <summary>Wallet settings group (SRS 12.19 "Wallet settings", SRS 14.5, task 131f).</summary>
+/// <summary>
+/// Wallet settings group (SRS 12.19 "Wallet settings", SRS 14.5, task 131f). Add-money and the balance cap are read by the
+/// top-up service; once saved, <c>MaxWalletUsagePercentagePerBooking</c> caps the wallet's share at checkout.
+/// <c>WalletCreditExpiryDays</c> is recorded but not applied - every credit type is the customer's own cash, has its own
+/// programme expiry, or is documented as never expiring.
+/// </summary>
 /// <param name="MaxWalletBalance">Upper bound a customer's wallet balance may reach.</param>
 /// <param name="MaxWalletUsagePercentagePerBooking">Cap on how much of a single booking's payable amount may be covered from wallet balance (0-100).</param>
 /// <param name="WalletCreditExpiryDays">Days after which a wallet credit expires; null = credits never expire.</param>
@@ -85,7 +103,9 @@ public sealed record WalletSettings(
 /// Coupon settings group (SRS 12.19 "Coupon settings", SRS 14.2, task 131g).
 /// Platform-wide guardrails that apply across every <c>Coupon</c>, distinct
 /// from a single coupon's own fields (code, discount value, validity window)
-/// on the <c>Coupon</c> aggregate itself.
+/// on the <c>Coupon</c> aggregate itself. Once saved: the switch refuses every code, the per-customer cap limits different
+/// coupons held across live bookings, and the maximum percentage guards coupon creation. Stacking is recorded but not
+/// applied - a booking takes one coupon.
 /// </summary>
 /// <param name="MaxDiscountPercentagePerCoupon">Upper bound any individual coupon's percentage discount may be configured to (0-100).</param>
 /// <param name="MaxActiveCouponsPerCustomer">Cap on how many distinct coupons a customer may redeem while active; null = unlimited.</param>

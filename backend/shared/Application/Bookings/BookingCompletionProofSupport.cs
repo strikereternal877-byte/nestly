@@ -38,7 +38,11 @@ public static class BookingCompletionProofSupport
                 proof.PhotoRefs,
                 proof.ChecklistAnswers.Select(a => new CompletionChecklistAnswerResponse(a.Item, a.Completed, a.Notes)).ToList(),
                 proof.SubmittedByProviderId,
-                proof.SubmittedAtUtc);
+                proof.SubmittedAtUtc,
+                proof.ReviewStatus,
+                proof.ReviewedBy,
+                proof.ReviewedAtUtc,
+                proof.RejectionReason);
 
     /// <summary>Customer-facing read (task 198): 404s if the booking doesn't exist or isn't the caller's own (SRS 28.3 IDOR), null value if the booking simply has no proof yet (not every booking reaches Completed).</summary>
     public static async Task<Result<BookingCompletionProofResponse?>> GetForCustomerAsync(

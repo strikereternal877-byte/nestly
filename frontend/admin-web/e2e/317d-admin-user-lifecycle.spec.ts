@@ -27,8 +27,13 @@ test.describe("Admin user list, detail and activation lifecycle", () => {
     // users" heading (h2), which would otherwise make this locator ambiguous.
     await expect(page.getByRole("heading", { name: "Admin users", level: 1 })).toBeVisible();
 
+    // Live filtering (no Search button on this page - see admin-users/page.tsx):
+    // typing alone triggers the debounced query. There is also no "Search"
+    // button anywhere else in the DOM to click by name - the only such match
+    // is the header's GlobalSearch trigger ("Search pages and settings"),
+    // which a stray click here used to open, stalling the rest of the test
+    // behind its modal backdrop.
     await page.getByLabel("Email").fill(fixture.seededAdminUserEmail);
-    await page.getByRole("button", { name: "Search" }).click();
 
     // Scoped to the row's name link (not its "Manage" action, which shares
     // the same href) - matched by href to survive the table briefly showing

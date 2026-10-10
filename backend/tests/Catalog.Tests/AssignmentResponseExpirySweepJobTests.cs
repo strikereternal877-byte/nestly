@@ -62,7 +62,7 @@ public sealed class AssignmentResponseExpirySweepJobTests : IClassFixture<TestDa
     private static BookingProviderAssignmentService BuildAssignmentService(Nestly.Infrastructure.Persistence.NestlyDbContext context, int responseWindowMinutes = 15) => new(
         new BookingRepository(context), new ProviderRepository(context), new ServiceRepository(context),
         new BookingProviderAssignmentRepository(context), new ProviderScheduleConflictService(context, TestServices.Occupancy()),
-        Options.Create(new AutoAssignmentOptions { ResponseWindowMinutes = responseWindowMinutes }), context);
+        Options.Create(new AutoAssignmentOptions { ResponseWindowMinutes = responseWindowMinutes }), TestServices.ProviderNotificationPublisher(context), context);
 
     private static AssignmentResponseExpirySweepJob BuildSweepJob(Nestly.Infrastructure.Persistence.NestlyDbContext context) => new(
         new BookingProviderAssignmentRepository(context),

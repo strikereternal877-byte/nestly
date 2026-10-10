@@ -4,6 +4,7 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Button, Field, PageHeading, Select } from "@/components/ui";
+import { useResetOnChange } from "@/hooks/useResetOnChange";
 import {
   DataTable,
   ExportCsvButton,
@@ -201,20 +202,23 @@ export default function BookingsPage() {
   // suggestions above, rather than adding a second timer per field. Status,
   // Category and the two slot date fields apply immediately. Any change
   // resets to page 1 and drops the row selection, same as `onSubmit` used to.
-  useEffect(() => {
-    setPage(1);
-    setSelectedBookings(new Map());
-  }, [
-    debouncedReference,
-    debouncedCustomerName,
-    debouncedCustomerMobile,
-    filters.status,
-    debouncedCity,
-    filters.categoryId,
-    debouncedCouponCode,
-    filters.slotDateFrom,
-    filters.slotDateTo,
-  ]);
+  useResetOnChange(
+    [
+      debouncedReference,
+      debouncedCustomerName,
+      debouncedCustomerMobile,
+      filters.status,
+      debouncedCity,
+      filters.categoryId,
+      debouncedCouponCode,
+      filters.slotDateFrom,
+      filters.slotDateTo,
+    ],
+    () => {
+      setPage(1);
+      setSelectedBookings(new Map());
+    },
+  );
 
   const query = useQuery({
     queryKey: [

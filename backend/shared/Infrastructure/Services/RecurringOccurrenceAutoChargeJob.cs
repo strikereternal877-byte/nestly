@@ -1,0 +1,298 @@
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using Nestly.Application;
+using Nestly.Application.Bookings;
+using Nestly.Application.Notifications;
+using Nestly.Application.Payments;
+using Nestly.Application.RecurringBookings;
+using Nestly.BuildingBlocks.Results;
+using Nestly.Domain;
+using Nestly.Infrastructure.Options;
+
+namespace Nestly.Infrastructure.Services;
+
+/// <summary>See <see cref="IRecurringOccurrenceAutoChargeJob"/>.</summary>
+public class RecurringOccurrenceAutoChargeJob : IRecurringOccurrenceAutoChargeJob
+{
+    private readonly IBookingRepository _bookingRepository;
+    private readonly IRecurringBookingPlanRepository _planRepository;
+    private readonly IPaymentService _paymentService;
+    private readonly ICustomerRepository _customerRepository;
+    private readonly IServiceRepository _serviceRepository;
+    private readonly ISlotWindowRepository _slotWindowRepository;
+    private readonly IDeviceTokenRepository _deviceTokenRepository;
+    private readonly INotificationDispatchService _notificationDispatchService;
+    private readonly RecurringBookingOptions _options;
+    private readonly TimeProvider _timeProvider;
+    private readonly ILogger<RecurringOccurrenceAutoChargeJob> _logger;
+
+    public RecurringOccurrenceAutoChargeJob(
+        IBookingRepository bookingRepository,
+        IRecurringBookingPlanRepository planRepository,
+        IPaymentService paymentService,
+        ICustomerRepository customerRepository,
+        IServiceRepository serviceRepository,
+        ISlotWindowRepository slotWindowRepository,
+        IDeviceTokenRepository deviceTokenRepository,
+        INotificationDispatchService notificationDispatchService,
+        IOptions<RecurringBookingOptions> options,
+        TimeProvider timeProvider,
+        ILogger<RecurringOccurrenceAutoChargeJob> logger)
+    {
+        _bookingRepository = bookingRepository;
+        _planRepository = planRepository;
+        _paymentService = paymentService;
+        _customerRepository = customerRepository;
+        _serviceRepository = serviceRepository;
+        _slotWindowRepository = slotWindowRepository;
+        _deviceTokenRepository = deviceTokenRepository;
+        _notificationDispatchService = notificationDispatchService;
+        _options = options.Value;
+        _timeProvider = timeProvider;
+        _logger = logger;
+    }
+
+    public async Task ProcessDueAttemptsAsync(CancellationToken cancellationToken = default)
+    {
+        var nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
+        var candidates = await _bookingRepository.ListRecurringPaymentPendingAsync();
+
+        int attempted = 0, succeeded = 0, failed = 0, exhausted = 0;
+        foreach (var booking in candidates)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (booking.AutoChargeCancelledByAdmin)
+            {
+                continue;
+            }
+
+            // Read fresh every time rather than trusting a cached flag on the
+            // booking: a customer can turn auto-charge off on the plan at any
+            // point after this occurrence was created, and that choice must
+            // take effect on this booking's very next tick, not just future
+            // occurrences.
+            var plan = await _planRepository.GetByIdAsync(booking.RecurringBookingPlanId!.Value);
+            if (plan is null || !plan.AutoChargeEnabled)
+            {
+                continue;
+            }
+
+            if (!IsDueForAttempt(booking, nowUtc))
+            {
+                continue;
+            }
+
+            var outcome = await AttemptChargeAsync(booking, cancellationToken);
+            attempted++;
+            switch (outcome)
+            {
+                case AutoChargeAttemptOutcome.Succeeded:
+                    succeeded++;
+                    break;
+                case AutoChargeAttemptOutcome.Exhausted:
+                    failed++;
+                    exhausted++;
+                    break;
+                default:
+                    failed++;
+                    break;
+            }
+        }
+
+        _logger.LogInformation(
+            "Recurring auto-charge sweep: {Attempted} attempted, {Succeeded} succeeded, {Failed} failed, {Exhausted} exhausted retries and fell back to manual payment.",
+            attempted, succeeded, failed, exhausted);
+    }
+
+    public async Task<Result<AutoChargeAttemptOutcome>> ForceAttemptAsync(Guid bookingId, CancellationToken cancellationToken = default)
+    {
+        var booking = await _bookingRepository.GetByIdAsync(bookingId);
+        if (booking is null)
+        {
+            return Error.NotFound("RecurringAutoCharge.BookingNotFound", "The specified booking does not exist.");
+        }
+
+        if (booking.RecurringBookingPlanId is null)
+        {
+            return Error.Business("RecurringAutoCharge.NotARecurringOccurrence", "This booking was not generated by a recurring plan.");
+        }
+
+        if (booking.Status is not (BookingStatus.PaymentPending or BookingStatus.PaymentFailed))
+        {
+            return Error.Business(
+                "RecurringAutoCharge.NothingToCharge",
+                $"This booking is {booking.Status} - there is no pending payment to charge.");
+        }
+
+        var nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
+        return await AttemptChargeAsync(booking, cancellationToken, nowUtc);
+    }
+
+    /// <summary>
+    /// The one real gateway attempt, shared by the sweep (gated by
+    /// <see cref="IsDueForAttempt"/>) and <see cref="ForceAttemptAsync"/>
+    /// (ungated, an explicit admin action). Stamps the attempt before calling
+    /// the gateway - a mid-attempt crash still counts the attempt on retry
+    /// rather than re-trying the same window indefinitely - and fires the
+    /// manual-payment fallback notification the moment this attempt is also
+    /// the one that crosses the retry limit, regardless of which caller made it.
+    /// </summary>
+    private async Task<AutoChargeAttemptOutcome> AttemptChargeAsync(Booking booking, CancellationToken cancellationToken, DateTime? nowUtcOverride = null)
+    {
+        var nowUtc = nowUtcOverride ?? _timeProvider.GetUtcNow().UtcDateTime;
+        booking.RecordAutoChargeAttempt(nowUtc);
+        await _bookingRepository.UpdateAsync(booking);
+
+        var orderResult = await _paymentService.CreateOrderAsync(booking.CustomerId, new CreatePaymentOrderRequest(booking.Id, IdempotencyKey: null));
+        if (orderResult.IsFailure)
+        {
+            _logger.LogWarning(
+                "Recurring auto-charge attempt {AttemptCount} for booking {BookingId} could not create a gateway order: {ErrorCode} {ErrorMessage}",
+                booking.AutoChargeAttemptCount, booking.Id, orderResult.Error.Code, orderResult.Error.Message);
+        }
+        else
+        {
+            // Same off-session, no-customer-present shape as
+            // SubscriptionBillingJob: creates the order and resolves its
+            // outcome synchronously via the sandbox simulator rather than
+            // waiting on a redirect/webhook round trip nobody is present
+            // to complete. A production integration replaces this call
+            // with the vendor's real off-session/saved-payment-method
+            // charge API behind the same IPaymentService seam.
+            //
+            // The returned Result reflects only whether the callback was
+            // processed correctly (valid signature, transaction found) -
+            // HandleCallbackAsync returns Result.Success() on BOTH an
+            // approved and a declined payment, since either is a
+            // successfully-processed webhook. Whether the charge itself
+            // went through is read off the booking's own status below,
+            // never off this Result.
+            await _paymentService.SimulateAsync(booking.CustomerId, new SimulatePaymentRequest(orderResult.Value.GatewayOrderId));
+        }
+
+        if (booking.Status == BookingStatus.Confirmed)
+        {
+            // BookingConfirmed/PaymentSuccess already cover telling the
+            // customer, via the ordinary BookingStatusChangedEvent
+            // notification pipeline. Nothing further to do here.
+            return AutoChargeAttemptOutcome.Succeeded;
+        }
+
+        _logger.LogWarning(
+            "Recurring auto-charge attempt {AttemptCount} for booking {BookingId} did not confirm the booking (status: {Status}).",
+            booking.AutoChargeAttemptCount, booking.Id, booking.Status);
+
+        if (booking.AutoChargeAttemptCount >= _options.AutoChargeRetryLimit)
+        {
+            await PauseOpenEndedPlanAsync(booking);
+            await NotifyAutoChargeExhaustedAsync(booking, cancellationToken);
+            return AutoChargeAttemptOutcome.Exhausted;
+        }
+
+        return AutoChargeAttemptOutcome.Failed;
+    }
+
+    /// <summary>
+    /// An "until I cancel" plan has no end of its own, so a card that keeps
+    /// failing would otherwise keep generating unpaid occurrences forever.
+    /// Exhausting one occurrence's retries pauses such a plan (the customer
+    /// resumes it from the normal Paused state once payment is sorted out);
+    /// bounded plans are untouched - they end on their own.
+    /// </summary>
+    private async Task PauseOpenEndedPlanAsync(Booking booking)
+    {
+        var plan = await _planRepository.GetByIdAsync(booking.RecurringBookingPlanId!.Value);
+        if (plan is null || !plan.PauseForPaymentFailure())
+        {
+            return;
+        }
+
+        await _planRepository.UpdateAsync(plan);
+        _logger.LogWarning(
+            "Recurring plan {PlanId} is open-ended and auto-charge for booking {BookingId} exhausted its retries; plan paused.",
+            plan.Id, booking.Id);
+    }
+
+    /// <summary>
+    /// Whether this booking is due for its next attempt: the initial delay
+    /// after creation for a never-yet-attempted booking (giving the
+    /// "auto-charge scheduled" notice time to actually be seen), or the
+    /// backoff since the last attempt otherwise. A booking that has already
+    /// exhausted its retry budget is never due again - it already got its one
+    /// fallback notification when it crossed the limit, and repeating that on
+    /// every later tick would be noise, not help.
+    /// </summary>
+    private bool IsDueForAttempt(Booking booking, DateTime nowUtc) =>
+        NextAttemptDueAtUtc(booking, _options) is { } dueAt && dueAt <= nowUtc;
+
+    /// <summary>
+    /// Payment Management UX pass: the same due-date arithmetic
+    /// <see cref="IsDueForAttempt"/> uses, exposed for the admin queue
+    /// (<c>BookingManagementService.ListAutoChargeCandidatesAsync</c>) to
+    /// show "next attempt due" without a second, drifting copy of the
+    /// formula. Null means there is no next attempt: retries were cancelled,
+    /// or the limit was already reached.
+    /// </summary>
+    public static DateTime? NextAttemptDueAtUtc(Booking booking, RecurringBookingOptions options)
+    {
+        if (booking.AutoChargeCancelledByAdmin || booking.AutoChargeAttemptCount >= options.AutoChargeRetryLimit)
+        {
+            return null;
+        }
+
+        return booking.LastAutoChargeAttemptAtUtc is { } lastAttempt
+            ? lastAttempt.AddHours(options.AutoChargeRetryBackoffHours)
+            : booking.CreatedAtUtc.AddHours(options.AutoChargeInitialDelayHours);
+    }
+
+    public async Task NotifyRetriesCancelledAsync(Guid bookingId, CancellationToken cancellationToken = default)
+    {
+        var booking = await _bookingRepository.GetByIdAsync(bookingId);
+        if (booking is null)
+        {
+            _logger.LogWarning("Recurring auto-charge: booking {BookingId} was not found; skipping the retries-cancelled notification.", bookingId);
+            return;
+        }
+
+        await NotifyAutoChargeExhaustedAsync(booking, cancellationToken);
+    }
+
+    /// <summary>
+    /// The manual-payment fallback once auto-charge has given up - reuses the
+    /// same <see cref="NotificationEventType.RecurringBookingPaymentDue"/>
+    /// event <c>RecurringBookingSchedulerService</c> sends for a plan that
+    /// never had auto-charge on in the first place, so the customer gets one
+    /// consistent "pay manually" message regardless of which path led here,
+    /// with whatever remains of <see cref="RecurringBookingOptions.PaymentWindowHours"/>
+    /// still available to act on it.
+    /// </summary>
+    private async Task NotifyAutoChargeExhaustedAsync(Booking booking, CancellationToken cancellationToken)
+    {
+        var customer = await _customerRepository.GetByIdAsync(booking.CustomerId);
+        if (customer is null)
+        {
+            _logger.LogWarning("Recurring auto-charge: booking {BookingId}'s customer {CustomerId} was not found; skipping fallback notification.", booking.Id, booking.CustomerId);
+            return;
+        }
+
+        var service = await _serviceRepository.GetByIdAsync(booking.Items.Count > 0 ? booking.Items[0].ServiceId : Guid.Empty);
+        var slotWindow = await _slotWindowRepository.GetByIdAsync(booking.SlotWindowId);
+        var deviceTokens = await _deviceTokenRepository.ListActiveByOwnerAsync(DeviceTokenOwner.ForCustomer(booking.CustomerId));
+        var recipient = new NotificationRecipient(customer.Mobile, customer.Email, deviceTokens.Select(t => t.Token).ToList());
+
+        var variables = new Dictionary<string, string>
+        {
+            ["CustomerName"] = customer.Name,
+            ["ServiceName"] = service?.Name ?? string.Empty,
+            ["SlotDate"] = booking.SlotDate.ToString("yyyy-MM-dd"),
+            ["SlotWindow"] = slotWindow?.Name ?? string.Empty,
+            ["Amount"] = booking.TotalPayableSnapshot.ToString("0.00"),
+            ["PaymentWindowHours"] = _options.PaymentWindowHours.ToString()
+        };
+
+        await _notificationDispatchService.DispatchAsync(
+            booking.CustomerId, NotificationEventType.RecurringBookingPaymentDue, recipient, variables,
+            bookingId: booking.Id, cancellationToken: cancellationToken);
+    }
+}

@@ -144,6 +144,11 @@ public class Provider : Entity<Guid>
     public string? PublicPhotoUrl =>
         PhotoModerationStatus == ProviderPhotoModerationStatus.Approved ? PhotoUrl : null;
 
+    private readonly List<ProviderStatusHistory> _statusHistory = [];
+
+    /// <summary>Append-only status change log (Provider Management UX pass), mirrors <see cref="Booking.StatusHistory"/>.</summary>
+    public IReadOnlyList<ProviderStatusHistory> StatusHistory => _statusHistory;
+
     protected Provider() { }
 
     public Provider(
@@ -182,6 +187,7 @@ public class Provider : Entity<Guid>
         OnboardingStatus = ProviderOnboardingStatus.Registered;
         CreatedAt = DateTime.UtcNow;
         UpdatedAt = DateTime.UtcNow;
+        RecordStatusHistory(null, Status, reason: null);
     }
 
     public void UpdateProfile(string legalName, string displayName, string? email)
@@ -332,10 +338,12 @@ public class Provider : Entity<Guid>
     /// is enforced by <c>IProviderKycApprovalService.ActivateAsync</c>, not
     /// here - consistent with this method staying transition-agnostic.
     /// </summary>
-    public void ChangeStatus(ProviderStatus status)
+    public void ChangeStatus(ProviderStatus status, string? reason = null)
     {
+        var previousStatus = Status;
         Status = status;
         UpdatedAt = DateTime.UtcNow;
+        RecordStatusHistory(previousStatus, status, reason);
     }
 
     /// <summary>
@@ -349,25 +357,48 @@ public class Provider : Entity<Guid>
     /// stay). Login is blocked the moment <see cref="Status"/> leaves
     /// <see cref="ProviderStatus.Active"/> - the login service already gates
     /// on Suspended/Deactivated, so no separate "kill switch" is needed here.
+    /// <paramref name="reason"/> lands in <see cref="StatusHistory"/> - unlike
+    /// <c>Customer.SoftDelete</c>, which has no status-history table of its
+    /// own and instead writes a <c>CustomerNote</c>, this project's audit
+    /// trail for a provider's status changes.
     /// </summary>
-    public void SoftDelete()
+    public void SoftDelete(string reason)
     {
         if (Status == ProviderStatus.Deactivated)
         {
             return;
         }
 
+        if (string.IsNullOrWhiteSpace(reason))
+        {
+            throw new ArgumentException("A deletion reason is required.", nameof(reason));
+        }
+
+        var previousStatus = Status;
         LegalName = "Deleted Provider";
         DisplayName = "Deleted Provider";
         Email = $"deleted+{Id:N}@deleted.glavyx.invalid";
-        Phone = $"deleted-{Id:N}";
+        // Phone is varchar(20) (ProviderConfiguration) - the full "deleted-{32 hex chars}"
+        // form is 40 characters and was silently never enforced by the test
+        // database, but a real Postgres column rejects it outright (22001:
+        // value too long), so every call to this method has been failing in
+        // any environment with the real schema. Truncated to exactly 20:
+        // "deleted-" (8) plus 12 hex characters retains far more entropy than
+        // this app's realistic provider count could ever collide on, and a
+        // collision would only ever be caught (safely) by the phone column's
+        // own unique index, never silently overwrite another row.
+        Phone = $"deleted-{Id:N}"[..20];
         Latitude = null;
         Longitude = null;
         LocationUpdatedAtUtc = null;
         RemovePhoto();
         Status = ProviderStatus.Deactivated;
         UpdatedAt = DateTime.UtcNow;
+        RecordStatusHistory(previousStatus, Status, reason);
     }
+
+    private void RecordStatusHistory(ProviderStatus? from, ProviderStatus to, string? reason) =>
+        _statusHistory.Add(new ProviderStatusHistory(Guid.NewGuid(), Id, from, to, reason, DateTime.UtcNow));
 
     /// <summary>
     /// Advances onboarding once an admin has approved at least one submitted

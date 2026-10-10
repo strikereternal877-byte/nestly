@@ -4,6 +4,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tansta
 import { useEffect, useState } from "react";
 import { Button, Card, Field, PageHeading, Select } from "@/components/ui";
 import { FilterBar, Pagination, countActiveFilters } from "@/components/data-table";
+import { useResetOnChange } from "@/hooks/useResetOnChange";
 import { describeError } from "@/lib/api";
 import { createCoupon, searchCoupons, setCouponActive, updateCoupon } from "@/lib/coupon-api";
 import type { CouponAdminResponse, CouponCreateRequest, CouponUpdateRequest } from "@/lib/coupon-types";
@@ -55,9 +56,7 @@ export default function CouponsPage() {
   }, [filters.code]);
 
   // Any filter change resets to page 1 (same pattern as customers/page.tsx).
-  useEffect(() => {
-    setPage(1);
-  }, [debouncedCode, filters.status]);
+  useResetOnChange([debouncedCode, filters.status], () => setPage(1));
 
   const codeSuggestionsQuery = useQuery({
     queryKey: ["coupons", "code-suggestions", debouncedCode] as const,

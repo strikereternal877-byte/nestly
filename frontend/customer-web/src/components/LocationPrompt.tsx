@@ -1,10 +1,11 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { Button, Modal, useToast } from "@/components/ui";
 import { useSelectedCity } from "@/hooks/useSelectedCity";
 import { API_V1, apiFetch } from "@/lib/api";
+import { isPermissionDenied, locateCustomer } from "@/lib/geolocation";
 import { openCityPicker, setDetectedAddressLabel, setSelectedCity, setSelectedLocality } from "@/lib/location";
 import type { City, LocalitySearchResult } from "@/lib/types";
 
@@ -35,31 +36,47 @@ const MOBILE_QUERY = "(max-width: 767px)";
  * existing `CitySelector` via `openCityPicker()` rather than re-implementing
  * a second city list here.
  */
+function subscribeToMobileQuery(onChange: () => void): () => void {
+  const query = window.matchMedia(MOBILE_QUERY);
+  query.addEventListener("change", onChange);
+  return () => query.removeEventListener("change", onChange);
+}
+
+function getIsMobile(): boolean {
+  return window.matchMedia(MOBILE_QUERY).matches;
+}
+
+/** Desktop-safe default for SSR - corrected immediately from the real client snapshot above, same as every other useSyncExternalStore default in this codebase. */
+function getIsMobileServerSnapshot(): boolean {
+  return false;
+}
+
 export function LocationPrompt() {
   const { city } = useSelectedCity();
-  const [isMobile, setIsMobile] = useState(false);
+  const isMobile = useSyncExternalStore(subscribeToMobileQuery, getIsMobile, getIsMobileServerSnapshot);
   const [visible, setVisible] = useState(false);
-  const [status, setStatus] = useState<"idle" | "locating" | "no-match" | "unsupported">("idle");
+  const [status, setStatus] = useState<
+    "idle" | "awaiting-permission" | "locating" | "no-match" | "unsupported" | "failed" | "denied"
+  >("idle");
   const pushToast = useToast();
 
-  useEffect(() => {
-    const query = window.matchMedia(MOBILE_QUERY);
-    setIsMobile(query.matches);
-    const onChange = (event: MediaQueryListEvent) => setIsMobile(event.matches);
-    query.addEventListener("change", onChange);
-    return () => query.removeEventListener("change", onChange);
-  }, []);
-
-  useEffect(() => {
-    if (!isMobile) return;
-    if (city !== null) return; // undefined = still reading storage, a City = already chosen - neither should be interrupted
-    if (sessionStorage.getItem(PROMPTED_KEY)) return;
+  // "Adjusting state when a prop changes" (react.dev/learn/you-might-not-
+  // need-an-effect), not an effect, for the same reason as OfflineBanner's
+  // dismissed-reset: this only needs to fire once, the first render where
+  // (mobile, no city yet, not already prompted) all hold - not on every
+  // render where they still do - and comparing against a tracked previous
+  // value during render is what limits it to that one transition.
+  const shouldPrompt =
+    isMobile && city === null && typeof window !== "undefined" && !sessionStorage.getItem(PROMPTED_KEY);
+  const [hasPrompted, setHasPrompted] = useState(false);
+  if (shouldPrompt && !hasPrompted) {
+    setHasPrompted(true);
     // Marked as soon as the prompt is shown, not on a choice being made -
     // dismissing (Escape, backdrop click) still counts as "already asked
     // this session" so a refresh can't turn this into a nag.
     sessionStorage.setItem(PROMPTED_KEY, "1");
     setVisible(true);
-  }, [isMobile, city]);
+  }
 
   const citiesQuery = useQuery({
     queryKey: ["geography", "cities"],
@@ -79,10 +96,44 @@ export function LocationPrompt() {
     }
 
     setStatus("locating");
+
+    let position: GeolocationPosition;
     try {
-      const position = await getPositionWithFallback();
+      // One tap is enough: this waits for the customer to answer the browser's
+      // own prompt (see lib/geolocation.ts) instead of racing a timer against it.
+      position = await locateCustomer(undefined, {
+        onPhase: (phase) => setStatus(phase === "awaiting-permission" ? "awaiting-permission" : "locating"),
+      });
+    } catch (error) {
+      // A real "no", or permission never answered, or both the high-accuracy
+      // and coarse fixes timed out - none of them is "you're outside our
+      // service area", so each gets its own message and a logged cause
+      // instead of collapsing into "no-match" like every failure used to.
+      console.error("Location prompt: couldn't get a GPS fix.", error);
+      setStatus(isPermissionDenied(error) ? "denied" : "failed");
+      return;
+    }
+
+    let cities: City[];
+    try {
+      // citiesQuery.data alone races the fulfilment-window: it fires only
+      // once this modal opens (`enabled: visible`), and on a cold consumer-api
+      // instance (Render free tier - can take several seconds to wake) it can
+      // still be loading by the time geolocation+reverse-geocode resolve. The
+      // old `citiesQuery.data ?? []` read that gap as an empty city list and
+      // reported a spurious "no-match" even for a customer standing in a
+      // served city. Falling back to an explicit refetch closes it without
+      // re-fetching when the data already arrived (`??` short-circuits).
+      cities = citiesQuery.data ?? (await citiesQuery.refetch()).data ?? [];
+    } catch (error) {
+      console.error("Location prompt: couldn't load the serviceable-city list.", error);
+      setStatus("failed");
+      return;
+    }
+
+    try {
       const geocoded = await reverseGeocode(position.coords);
-      const matchedCity = geocoded ? matchCity(geocoded.address, citiesQuery.data ?? []) : null;
+      const matchedCity = geocoded ? matchCity(geocoded.address, cities) : null;
       if (!matchedCity) {
         setStatus("no-match");
         return;
@@ -133,26 +184,33 @@ export function LocationPrompt() {
         // City alone is still a fully usable selection - see comment above.
       }
       pushToast("success", `Location detected: ${detectedLabel}`);
-    } catch {
-      setStatus("no-match");
+    } catch (error) {
+      console.error("Location prompt: an unexpected error interrupted matching.", error);
+      setStatus("failed");
     }
   }
 
   if (!visible) return null;
 
-  const busy = status === "locating";
+  const busy = status === "locating" || status === "awaiting-permission";
 
   return (
     <Modal open={visible} onClose={() => setVisible(false)} title="Enable your location" size="sm">
       <div className="flex flex-col gap-4">
         <p className="text-sm text-fg-muted">
-          {status === "locating"
-            ? "Getting your location - this can take a few seconds on a real GPS fix..."
-            : status === "no-match"
-              ? "We couldn't match that to a city we serve yet - pick one manually instead."
-              : status === "unsupported"
-                ? "Your browser doesn't support location access here - pick a city manually instead."
-                : "Allow location access so we can show services available near you."}
+          {status === "awaiting-permission"
+            ? "Tap Allow on your browser's location prompt - we'll carry on as soon as you do."
+            : status === "locating"
+              ? "Getting your location - this can take a few seconds on a real GPS fix..."
+              : status === "no-match"
+                ? "We couldn't match that to a city we serve yet - pick one manually instead."
+                : status === "denied"
+                  ? "Location is blocked for this site - pick a city manually instead. You can allow it later in your browser's site settings."
+                  : status === "failed"
+                    ? "We couldn't detect your location just now - pick a city manually instead."
+                    : status === "unsupported"
+                      ? "Your browser doesn't support location access here - pick a city manually instead."
+                      : "Allow location access so we can show services available near you."}
         </p>
         <div className="flex flex-col gap-2">
           {status !== "unsupported" && (
@@ -160,50 +218,13 @@ export function LocationPrompt() {
               Allow location
             </Button>
           )}
-          <Button fullWidth variant="secondary" disabled={busy} onClick={chooseManually}>
+          <Button fullWidth variant="secondary" disabled={status === "locating"} onClick={chooseManually}>
             Choose city manually
           </Button>
         </div>
       </div>
     </Modal>
   );
-}
-
-/**
- * Requests a GPS fix, preferring a high-accuracy one but never letting the
- * accuracy request itself become a hard failure. `enableHighAccuracy: true`
- * asks the device to hold out for a real GPS-chip lock instead of a fast,
- * coarse WiFi/cell-tower fix - needed for building-level precision (see
- * `buildDetectedAddressLabel`'s doc comment) - but iOS Safari/WebKit has a
- * well-known quirk where a high-accuracy request can time out or fail
- * outright far more often than on Android, especially indoors (reported:
- * the location permission prompt appeared and was granted, on both Safari
- * and Chrome-on-iOS - which share the same WebKit engine under Apple's
- * platform rules, so this isn't a per-browser quirk - yet the request never
- * resolved). 8s is enough time to catch a fast high-accuracy lock without
- * making every iOS customer wait through a doomed 20s attempt first; on
- * failure or timeout, one retry without `enableHighAccuracy` almost always
- * still succeeds (that's the same "coarse but reliable" fix an unmodified
- * getCurrentPosition call would have returned). That retry gets a much
- * shorter 10s budget, not the original 20s: without a real GPS lock to wait
- * out, it resolves from WiFi/cell-tower data, which is fast - reported as
- * "takes longer to get live location" once the two budgets could stack
- * worst-case to 28s total, most of which was this retry sitting well past
- * when a coarse fix actually arrives.
- */
-function getPositionWithFallback(): Promise<GeolocationPosition> {
-  return new Promise((resolve, reject) => {
-    navigator.geolocation.getCurrentPosition(
-      resolve,
-      () => {
-        navigator.geolocation.getCurrentPosition(resolve, reject, {
-          enableHighAccuracy: false,
-          timeout: 10000,
-        });
-      },
-      { enableHighAccuracy: true, timeout: 8000 },
-    );
-  });
 }
 
 interface NominatimAddress {
@@ -254,7 +275,11 @@ async function reverseGeocode(coords: GeolocationCoordinates): Promise<ReverseGe
     const data = (await response.json()) as NominatimReverseResponse;
     if (!data.address) return null;
     return { address: data.address, displayName: data.display_name ?? null };
-  } catch {
+  } catch (error) {
+    // Still degrades to the manual-pick path, not a thrown error - see this
+    // function's own doc comment - but logged rather than silent, so a real
+    // Nominatim outage/rate-limit is distinguishable from "nothing matched".
+    console.error("Location prompt: reverse-geocoding failed.", error);
     return null;
   }
 }
@@ -278,8 +303,20 @@ function buildDetectedAddressLabel(displayName: string, cityName: string): strin
     .join(", ");
 }
 
-function namesMatch(candidate: string, name: string): boolean {
-  return candidate.includes(name) || name.includes(candidate);
+/**
+ * Whole-word containment rather than raw substring: Nominatim/seed names are
+ * routinely multi-word ("Vaishali Nagar", "Malviya Nagar", "Shastri Nagar"),
+ * and a plain `.includes()` lets a single common word shared by many
+ * unrelated areas ("Nagar", "Colony", "Road") match any of them. Requiring
+ * every word of the shorter name to appear as a whole word in the longer one
+ * still matches genuine partial results (OSM returning "Mansarovar" for a
+ * seeded "Mansarovar Extension", or vice versa) without matching two areas
+ * that merely share one generic word.
+ */
+function namesMatch(a: string, b: string): boolean {
+  const wordsOf = (value: string) => value.split(/[^a-z0-9]+/).filter(Boolean);
+  const [shorter, longer] = wordsOf(a).length <= wordsOf(b).length ? [wordsOf(a), wordsOf(b)] : [wordsOf(b), wordsOf(a)];
+  return shorter.length > 0 && shorter.every((word) => longer.includes(word));
 }
 
 /** Matches a reverse-geocoded address against Glavyx's serviceable cities. */
@@ -295,31 +332,44 @@ function matchCity(address: NominatimAddress, cities: City[]): City | null {
 
 /**
  * Matches a reverse-geocoded address against the admin-seeded areas within
- * one already-matched city. Matched by area name first, not postcode:
- * OpenStreetMap's crowd-sourced `postcode` tagging in India is often
- * imprecise or street-level rather than the official India Post PIN (spot-
- * checked against this app's own seed data - the same coordinates that
- * clearly sit inside a seeded "Mansarovar" area came back tagged with a
- * different postcode than that area's seeded PIN code), so requiring an
- * exact postcode match would silently miss real matches. A postcode match is
- * still accepted as an alternate signal, since it costs nothing when it
- * happens to line up. No match (customer is inside a serviceable city but
- * an area Glavyx hasn't onboarded yet) is a normal outcome, not a failure -
- * the caller leaves the city-only selection in place rather than inventing
- * an unserviceable area.
+ * one already-matched city.
+ *
+ * Tried finest-grained field first: `neighbourhood` is the closest OSM
+ * equivalent to a seeded Locality, `suburb` and `quarter` progressively
+ * coarser, and `city_district` coarser still - it can span several actual
+ * seeded localities, so a match against it alone is the least trustworthy
+ * signal and is only consulted once every finer field has come up empty.
+ * Whichever field is tried, every locality is checked against it before
+ * moving on to the next, coarser field - so a `neighbourhood` match for a
+ * *different* candidate locality is still preferred over a `city_district`
+ * match, rather than the two being pooled together as equally good.
+ *
+ * Postcode is a fallback signal only, tried after every name field: OSM's
+ * crowd-sourced `postcode` tagging in India is often imprecise or
+ * street-level rather than the official India Post PIN (spot-checked
+ * against this app's own seed data - the same coordinates that clearly sit
+ * inside a seeded "Mansarovar" area came back tagged with a different
+ * postcode than that area's seeded PIN code), so it is not trusted to
+ * override a name-based result the way it used to.
+ *
+ * No match (customer is inside a serviceable city but an area Glavyx hasn't
+ * onboarded yet) is a normal outcome, not a failure - the caller leaves the
+ * city-only selection in place rather than inventing an unserviceable area.
  */
 function matchLocality(address: NominatimAddress, localities: LocalitySearchResult[]): LocalitySearchResult | null {
   if (localities.length === 0) return null;
 
-  const candidateNames = [address.neighbourhood, address.suburb, address.quarter, address.city_district]
-    .filter((value): value is string => Boolean(value))
-    .map((value) => value.toLowerCase());
+  const fieldsByGranularity = [address.neighbourhood, address.suburb, address.quarter, address.city_district];
+  for (const field of fieldsByGranularity) {
+    if (!field) continue;
+    const candidate = field.toLowerCase();
+    const match = localities.find((locality) => namesMatch(candidate, locality.name.toLowerCase()));
+    if (match) return match;
+  }
 
-  return (
-    localities.find((locality) => {
-      if (address.postcode && address.postcode === locality.pincodeCode) return true;
-      const name = locality.name.toLowerCase();
-      return candidateNames.some((candidate) => namesMatch(candidate, name));
-    }) ?? null
-  );
+  if (address.postcode) {
+    return localities.find((locality) => address.postcode === locality.pincodeCode) ?? null;
+  }
+
+  return null;
 }

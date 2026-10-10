@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cx, EmptyState, Field, Modal } from "@/components/ui";
+import { useResetOnChange } from "@/hooks/useResetOnChange";
 import { buildSearchIndex, matchEntry, type SearchCategory, type SearchIndexEntry } from "@/lib/search-index";
 import { useAdminClaims } from "@/lib/use-admin-claims";
 
@@ -71,9 +72,7 @@ export function GlobalSearch() {
 
   // Reset the active row whenever the visible result set changes, so
   // pressing Enter always activates a row that is actually on screen.
-  useEffect(() => {
-    setActiveIndex(0);
-  }, [query]);
+  useResetOnChange([query], () => setActiveIndex(0));
 
   // Global Ctrl/Cmd+K shortcut to open the palette from anywhere in the
   // admin app. No existing keybinding system to conflict with - the only
@@ -116,7 +115,6 @@ export function GlobalSearch() {
   };
 
   const trimmedQuery = query.trim();
-  let rowIndex = -1;
 
   return (
     <>
@@ -172,8 +170,14 @@ export function GlobalSearch() {
                     {group.category}
                   </p>
                   <div className="flex flex-col gap-0.5">
-                    {group.entries.map(({ entry, matchedKeyword }) => {
-                      rowIndex += 1;
+                    {group.entries.map((matchedEntry) => {
+                      const { entry, matchedKeyword } = matchedEntry;
+                      // flatResults is the same groups-then-entries flattening
+                      // in the same order, so an entry's position there is
+                      // exactly its on-screen row index - computed by lookup
+                      // rather than a mutable counter incremented across this
+                      // nested map (react-hooks/immutability).
+                      const rowIndex = flatResults.indexOf(matchedEntry);
                       const isActive = rowIndex === activeIndex;
                       return (
                         <button

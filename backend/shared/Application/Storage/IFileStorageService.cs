@@ -21,4 +21,17 @@ public interface IFileStorageService
     /// rather than assuming either shape.
     /// </summary>
     Task<string> SaveAsync(Stream content, string fileNameHint, string contentType, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Best-effort removal of a previously <see cref="SaveAsync"/>-returned
+    /// reference. Exists for right-to-erasure flows (see
+    /// <c>Provider.SoftDelete</c>/<c>ProviderManagementService.DeleteAsync</c>)
+    /// so an already-anonymized DB row doesn't leave its uploaded file (a KYC
+    /// document, a profile photo) behind in storage. Implementations must
+    /// treat "already gone" (404, missing local file) as success, and must
+    /// silently no-op - never throw - for a reference that isn't theirs to
+    /// delete (e.g. one saved by the other implementation before a storage
+    /// migration), since the caller has no way to route by origin.
+    /// </summary>
+    Task DeleteAsync(string fileReference, CancellationToken cancellationToken = default);
 }

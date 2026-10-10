@@ -2,10 +2,12 @@ using System.Data.Common;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.Extensions.Logging.Abstractions;
 using Nestly.Application;
 using Nestly.Application.RecurringBookings;
 using Nestly.Domain;
 using Nestly.Infrastructure.Persistence;
+using Nestly.Infrastructure.Persistence.Repositories;
 using Nestly.Infrastructure.Services;
 
 namespace Nestly.Catalog.Tests;
@@ -31,6 +33,14 @@ public sealed class RecurringBookingPlanAdminServiceTests : IClassFixture<TestDa
     private readonly TestDatabase _db;
 
     public RecurringBookingPlanAdminServiceTests(TestDatabase db) => _db = db;
+
+    private static RecurringBookingPlanAdminService CreateService(NestlyDbContext context) => new(
+        context,
+        new RecurringBookingPlanRepository(context),
+        TestServices.AuditLogWriter(context),
+        RecurringTestWiring.PlanNotifier(context),
+        TestServices.Clock(),
+        NullLogger<RecurringBookingPlanAdminService>.Instance);
 
     private static readonly DateOnly Today = new(2026, 8, 10);
 
@@ -132,7 +142,7 @@ public sealed class RecurringBookingPlanAdminServiceTests : IClassFixture<TestDa
         context.RecurringBookingPlans.AddRange(active, paused, cancelled, completed, secondActive);
         await context.SaveChangesAsync();
 
-        var report = (await new RecurringBookingPlanAdminService(context).GetReportAsync(Horizon())).Value;
+        var report = (await CreateService(context).GetReportAsync(Horizon())).Value;
 
         report.TotalPlans.Should().Be(5);
         report.ByStatus.Should().BeEquivalentTo(new[]
@@ -156,7 +166,7 @@ public sealed class RecurringBookingPlanAdminServiceTests : IClassFixture<TestDa
         context.RecurringBookingPlans.Add(NewPlan(fixture));
         await context.SaveChangesAsync();
 
-        var report = (await new RecurringBookingPlanAdminService(context).GetReportAsync(Horizon())).Value;
+        var report = (await CreateService(context).GetReportAsync(Horizon())).Value;
 
         report.ByStatus.Should().HaveCount(Enum.GetValues<RecurringBookingPlanStatus>().Length);
         report.ByStatus.Single(r => r.Status == RecurringBookingPlanStatus.Cancelled).PlanCount.Should().Be(0);
@@ -183,13 +193,14 @@ public sealed class RecurringBookingPlanAdminServiceTests : IClassFixture<TestDa
         context.RecurringBookingPlans.AddRange(weekly, biweekly, monthly, cancelledWeekly);
         await context.SaveChangesAsync();
 
-        var report = (await new RecurringBookingPlanAdminService(context).GetReportAsync(Horizon())).Value;
+        var report = (await CreateService(context).GetReportAsync(Horizon())).Value;
 
         report.ActiveByFrequency.Should().BeEquivalentTo(new[]
         {
             new RecurringPlanFrequencyCountRow(RecurringBookingRecurrenceFrequency.Weekly, 1),
             new RecurringPlanFrequencyCountRow(RecurringBookingRecurrenceFrequency.Biweekly, 1),
             new RecurringPlanFrequencyCountRow(RecurringBookingRecurrenceFrequency.Monthly, 1),
+            new RecurringPlanFrequencyCountRow(RecurringBookingRecurrenceFrequency.Daily, 0),
         });
     }
 
@@ -214,7 +225,7 @@ public sealed class RecurringBookingPlanAdminServiceTests : IClassFixture<TestDa
         context.RecurringBookingPlans.AddRange(dueInside, dueOutside, pausedInside);
         await context.SaveChangesAsync();
 
-        var report = (await new RecurringBookingPlanAdminService(context).GetReportAsync(Horizon(days: 14))).Value;
+        var report = (await CreateService(context).GetReportAsync(Horizon(days: 14))).Value;
 
         report.PlansDueInHorizon.Should().Be(1);
     }
@@ -248,7 +259,7 @@ public sealed class RecurringBookingPlanAdminServiceTests : IClassFixture<TestDa
         context.Bookings.AddRange(firstOfTheDay, secondOfTheDay, nextWeek, oneOff, beyondHorizon, cancelled);
         await context.SaveChangesAsync();
 
-        var report = (await new RecurringBookingPlanAdminService(context).GetReportAsync(Horizon())).Value;
+        var report = (await CreateService(context).GetReportAsync(Horizon())).Value;
 
         report.UpcomingOccurrenceVolume.Should().Be(3);
         report.UpcomingVolumeByDate.Should().BeEquivalentTo(new[]
@@ -280,7 +291,7 @@ public sealed class RecurringBookingPlanAdminServiceTests : IClassFixture<TestDa
         await context.SaveChangesAsync();
 
         capture.Reset();
-        await new RecurringBookingPlanAdminService(context).GetReportAsync(Horizon());
+        await CreateService(context).GetReportAsync(Horizon());
 
         capture.Commands.Should().NotBeEmpty();
 
@@ -302,7 +313,7 @@ public sealed class RecurringBookingPlanAdminServiceTests : IClassFixture<TestDa
         using var context = _db.CreateContext();
         Reset(context);
 
-        var result = await new RecurringBookingPlanAdminService(context)
+        var result = await CreateService(context)
             .GetReportAsync(new AdminRecurringPlanReportRequest(Today, Today.AddDays(-1)));
 
         result.IsFailure.Should().BeTrue();
@@ -315,7 +326,7 @@ public sealed class RecurringBookingPlanAdminServiceTests : IClassFixture<TestDa
         using var context = _db.CreateContext();
         Reset(context);
 
-        var report = (await new RecurringBookingPlanAdminService(context)
+        var report = (await CreateService(context)
             .GetReportAsync(new AdminRecurringPlanReportRequest(null, null))).Value;
 
         var today = DateOnly.FromDateTime(DateTime.UtcNow.Date);
@@ -334,7 +345,7 @@ public sealed class RecurringBookingPlanAdminServiceTests : IClassFixture<TestDa
         context.RecurringBookingPlans.AddRange(NewPlan(first), NewPlan(second));
         await context.SaveChangesAsync();
 
-        var response = (await new RecurringBookingPlanAdminService(context)
+        var response = (await CreateService(context)
             .SearchAsync(new AdminRecurringPlanSearchRequest(null, null, null, null))).Value;
 
         response.TotalCount.Should().Be(2);
@@ -359,7 +370,7 @@ public sealed class RecurringBookingPlanAdminServiceTests : IClassFixture<TestDa
         context.RecurringBookingPlans.AddRange(wanted, wrongFrequency, wrongCustomer, wrongStatus);
         await context.SaveChangesAsync();
 
-        var service = new RecurringBookingPlanAdminService(context);
+        var service = CreateService(context);
 
         (await service.SearchAsync(new AdminRecurringPlanSearchRequest(
             RecurringBookingPlanStatus.Active, RecurringBookingRecurrenceFrequency.Biweekly, mine.Customer.Id, mine.Service.Id)))
@@ -381,7 +392,7 @@ public sealed class RecurringBookingPlanAdminServiceTests : IClassFixture<TestDa
         context.RecurringBookingPlans.AddRange(plans);
         await context.SaveChangesAsync();
 
-        var service = new RecurringBookingPlanAdminService(context);
+        var service = CreateService(context);
 
         var firstPage = (await service.SearchAsync(new AdminRecurringPlanSearchRequest(null, null, null, null, Page: 1, PageSize: 2))).Value;
         firstPage.TotalCount.Should().Be(5, "the total counts every match, not just this page");
@@ -403,10 +414,68 @@ public sealed class RecurringBookingPlanAdminServiceTests : IClassFixture<TestDa
         using var context = _db.CreateContext();
         Reset(context);
 
-        var response = (await new RecurringBookingPlanAdminService(context)
+        var response = (await CreateService(context)
             .SearchAsync(new AdminRecurringPlanSearchRequest(null, null, null, null, Page: 1, PageSize: 100_000))).Value;
 
         response.PageSize.Should().Be(PagedQueryExtensions.MaxPageSize);
+    }
+
+    [Fact]
+    public async Task CancelAsync_cancels_an_active_plan_and_does_not_touch_its_bookings()
+    {
+        using var context = _db.CreateContext();
+        Reset(context);
+        var fixture = Seed(context);
+        var plan = NewPlan(fixture);
+        context.RecurringBookingPlans.Add(plan);
+        var booking = NewBooking(fixture, plan.Id, plan.NextOccurrenceDate);
+        context.Bookings.Add(booking);
+        await context.SaveChangesAsync();
+
+        var result = await CreateService(context).CancelAsync(plan.Id, Guid.NewGuid(), new AdminCancelRecurringPlanRequest("Customer moved out of the service area."));
+
+        result.IsSuccess.Should().BeTrue(because: result.IsFailure ? result.Error.Code : "an active plan should cancel");
+        result.Value.Status.Should().Be(RecurringBookingPlanStatus.Cancelled);
+        result.Value.CustomerName.Should().Be(fixture.Customer.Name);
+        result.Value.ServiceName.Should().Be(fixture.Service.Name);
+
+        await using var verifyContext = _db.CreateContext();
+        var persistedPlan = await verifyContext.RecurringBookingPlans.FindAsync(plan.Id);
+        persistedPlan!.Status.Should().Be(RecurringBookingPlanStatus.Cancelled);
+
+        // Cancelling the plan is only "no more future occurrences" - it must
+        // never reach into bookings the plan already produced.
+        var persistedBooking = await verifyContext.Bookings.FindAsync(booking.Id);
+        persistedBooking!.Status.Should().Be(BookingStatus.Initiated);
+    }
+
+    [Fact]
+    public async Task CancelAsync_an_already_cancelled_plan_returns_a_business_error()
+    {
+        using var context = _db.CreateContext();
+        Reset(context);
+        var fixture = Seed(context);
+        var plan = NewPlan(fixture);
+        plan.Cancel();
+        context.RecurringBookingPlans.Add(plan);
+        await context.SaveChangesAsync();
+
+        var result = await CreateService(context).CancelAsync(plan.Id, Guid.NewGuid(), new AdminCancelRecurringPlanRequest("Any reason"));
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be("RecurringBookingPlan.InvalidCancel");
+    }
+
+    [Fact]
+    public async Task CancelAsync_unknown_plan_returns_not_found()
+    {
+        using var context = _db.CreateContext();
+        Reset(context);
+
+        var result = await CreateService(context).CancelAsync(Guid.NewGuid(), Guid.NewGuid(), new AdminCancelRecurringPlanRequest("Any reason"));
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be("RecurringBookingPlan.NotFound");
     }
 
     /// <summary>

@@ -1,9 +1,12 @@
 using FluentAssertions;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Nestly.Application;
 using Nestly.Application.Abstractions.Auditing;
 using Nestly.Application.ProviderManagement;
 using Nestly.Domain;
 using Nestly.Infrastructure.Auditing;
+using Nestly.Infrastructure.Options;
 using Nestly.Infrastructure.Persistence;
 using Nestly.Infrastructure.Persistence.Repositories;
 using Nestly.Infrastructure.Services;
@@ -49,7 +52,14 @@ public class ProviderEarningsServiceTests : IDisposable
         new ProviderRepository(context),
         new ProviderPayoutRepository(context),
         new ProviderEarningLedgerRepository(context),
-        new AuditLogWriter(context, new StubAuditContextProvider()));
+        new ProviderBankAccountRepository(context),
+        new AuditLogWriter(context, new StubAuditContextProvider()),
+        TestServices.ProviderNotificationPublisher(context),
+        // These tests only exercise the manual bank-transfer flow
+        // (UpdateStatusAsync) and read-side earnings/payout views - a
+        // not-configured no-op gateway is the correct stand-in, same as
+        // production when PayU Payouts credentials are absent.
+        new NoOpProviderPayoutGateway());
 
     private sealed class StubAuditContextProvider : IAuditContextProvider
     {

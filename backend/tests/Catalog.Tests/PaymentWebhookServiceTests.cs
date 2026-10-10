@@ -85,13 +85,27 @@ public sealed class PaymentWebhookServiceTests : IClassFixture<TestDatabase>
     {
         var paymentRepository = new PaymentTransactionRepository(context);
         var bookingRepository = new BookingRepository(context);
-        var webhookService = new PaymentWebhookService(
-            paymentRepository, bookingRepository, new ServiceRepository(context), gateway,
-            new CommissionService(Options.Create(new CommissionOptions())), new EscrowService(new PlatformEscrowLedgerRepository(context)),
-            context, new NoOpMetricsService(), NullLogger<PaymentWebhookService>.Instance);
-        var paymentService = new PaymentService(
-            paymentRepository, bookingRepository, gateway, (ISandboxPaymentSimulator)gateway, webhookService,
-            new AlwaysEligibleProviderSearchStub());
+        var webhookService = new PaymentWebhookService(paymentRepository,
+            new PaymentGroupRepository(context),
+            new RecurringBookingPlanRepository(context),
+            bookingRepository,
+            new ServiceRepository(context),
+            gateway,
+            new CommissionService(Options.Create(new CommissionOptions())),
+            new EscrowService(new PlatformEscrowLedgerRepository(context)),
+            context,
+            new NoOpMetricsService(),
+            NullLogger<PaymentWebhookService>.Instance);
+        var paymentService = new PaymentService(paymentRepository,
+            bookingRepository,
+            gateway,
+            (ISandboxPaymentSimulator)gateway,
+            webhookService,
+            new AlwaysEligibleProviderSearchStub(),
+            new PaymentGroupRepository(context),
+            new RecurringBookingPlanRepository(context),
+            new RecurringBookingOccurrenceRepository(context),
+            null!);
 
         return (paymentService, webhookService);
     }
@@ -456,5 +470,144 @@ public sealed class PaymentWebhookServiceTests : IClassFixture<TestDatabase>
 
         result.IsFailure.Should().BeTrue();
         result.Error.Code.Should().Be("Payment.OrderNotFound");
+    }
+
+    /// <summary>
+    /// Covers VerifyPendingAttemptAsync - the active gateway-verify path for
+    /// a checkout the customer abandoned/cancelled, which never gets a
+    /// webhook at all (see PayUPaymentGateway.VerifyOrderStatusAsync's own
+    /// doc comment for the real-world gap this closes). ScriptedVerifyGateway
+    /// wraps the real sandbox gateway so signature/hash behaviour used
+    /// elsewhere in this file stays real, only VerifyOrderStatusAsync itself
+    /// is scripted.
+    /// </summary>
+    private sealed class ScriptedVerifyGateway : IPaymentGateway, ISandboxPaymentSimulator
+    {
+        private readonly SandboxPaymentGateway _inner;
+        private readonly GatewayVerifyResult _scriptedResult;
+
+        public int VerifyCallCount { get; private set; }
+
+        public ScriptedVerifyGateway(SandboxPaymentGateway inner, GatewayVerifyResult scriptedResult)
+        {
+            _inner = inner;
+            _scriptedResult = scriptedResult;
+        }
+
+        public Task<GatewayOrderResult> CreateOrderAsync(GatewayCreateOrderRequest request, CancellationToken cancellationToken = default) =>
+            _inner.CreateOrderAsync(request, cancellationToken);
+
+        public Task<GatewayRefundResult> RefundAsync(GatewayRefundRequest request, CancellationToken cancellationToken = default) =>
+            _inner.RefundAsync(request, cancellationToken);
+
+        public bool VerifyWebhookSignature(string canonicalPayload, string signature) =>
+            _inner.VerifyWebhookSignature(canonicalPayload, signature);
+
+        public string BuildCanonicalPayload(PaymentWebhookRequest request) =>
+            _inner.BuildCanonicalPayload(request);
+
+        public Task<GatewayVerifyResult> VerifyOrderStatusAsync(string gatewayOrderId, CancellationToken cancellationToken = default)
+        {
+            VerifyCallCount++;
+            return Task.FromResult(_scriptedResult);
+        }
+
+        public SandboxPaymentOutcome DetermineOutcome(decimal amount) => _inner.DetermineOutcome(amount);
+
+        public string SignPayload(string canonicalPayload) => _inner.SignPayload(canonicalPayload);
+    }
+
+    [Fact]
+    public async Task VerifyPendingAttemptAsync_moves_an_abandoned_checkout_to_PaymentFailed()
+    {
+        var sandbox = BuildGateway();
+        var gateway = new ScriptedVerifyGateway(sandbox, new GatewayVerifyResult("failure", FailureReason: "No amount was deducted. The checkout was not completed."));
+
+        Fixture fixture;
+        using (var seedContext = _db.CreateContext())
+        {
+            fixture = await SeedBookingAsync(seedContext, priceOverride: 501m);
+            var (payments, _) = BuildServices(seedContext, gateway);
+            await payments.CreateOrderAsync(fixture.Customer.Id, new CreatePaymentOrderRequest(fixture.BookingId, IdempotencyKey: null));
+        }
+
+        using (var verifyContext = _db.CreateContext())
+        {
+            var (_, webhook) = BuildServices(verifyContext, gateway);
+            var result = await webhook.VerifyPendingAttemptAsync(fixture.BookingId);
+            result.IsSuccess.Should().BeTrue();
+        }
+
+        using var readContext = _db.CreateContext();
+        var booking = await new BookingRepository(readContext).GetByIdAsync(fixture.BookingId);
+        booking!.Status.Should().Be(BookingStatus.PaymentFailed);
+
+        var transaction = await new PaymentTransactionRepository(readContext).GetByBookingIdAsync(fixture.BookingId);
+        transaction!.Attempts[0].Status.Should().Be(PaymentAttemptStatus.Failed);
+        transaction.Attempts[0].FailureReason.Should().Be("No amount was deducted. The checkout was not completed.");
+    }
+
+    [Fact]
+    public async Task VerifyPendingAttemptAsync_leaves_a_still_pending_attempt_untouched()
+    {
+        var sandbox = BuildGateway();
+        var gateway = new ScriptedVerifyGateway(sandbox, new GatewayVerifyResult("pending"));
+
+        Fixture fixture;
+        using (var seedContext = _db.CreateContext())
+        {
+            fixture = await SeedBookingAsync(seedContext, priceOverride: 501m);
+            var (payments, _) = BuildServices(seedContext, gateway);
+            await payments.CreateOrderAsync(fixture.Customer.Id, new CreatePaymentOrderRequest(fixture.BookingId, IdempotencyKey: null));
+        }
+
+        using (var verifyContext = _db.CreateContext())
+        {
+            var (_, webhook) = BuildServices(verifyContext, gateway);
+            var result = await webhook.VerifyPendingAttemptAsync(fixture.BookingId);
+            result.IsSuccess.Should().BeTrue();
+        }
+
+        using var readContext = _db.CreateContext();
+        var booking = await new BookingRepository(readContext).GetByIdAsync(fixture.BookingId);
+        booking!.Status.Should().Be(BookingStatus.PaymentPending, "the gateway itself hasn't reached an outcome yet");
+
+        var transaction = await new PaymentTransactionRepository(readContext).GetByBookingIdAsync(fixture.BookingId);
+        transaction!.Attempts[0].Status.Should().Be(PaymentAttemptStatus.Created);
+    }
+
+    [Fact]
+    public async Task VerifyPendingAttemptAsync_never_calls_the_gateway_for_an_already_resolved_attempt()
+    {
+        var sandbox = BuildGateway();
+        var gateway = new ScriptedVerifyGateway(sandbox, new GatewayVerifyResult(PaymentWebhookPayload.SuccessStatus));
+
+        Fixture fixture;
+        string gatewayOrderId;
+        using (var seedContext = _db.CreateContext())
+        {
+            fixture = await SeedBookingAsync(seedContext, priceOverride: 501m);
+            var (payments, _) = BuildServices(seedContext, gateway);
+            var order = await payments.CreateOrderAsync(fixture.Customer.Id, new CreatePaymentOrderRequest(fixture.BookingId, IdempotencyKey: null));
+            gatewayOrderId = order.Value.GatewayOrderId;
+        }
+
+        using (var callbackContext = _db.CreateContext())
+        {
+            var (_, webhook) = BuildServices(callbackContext, gateway);
+            string paymentRef = "sandbox_pay_test_ref";
+            string payload = PaymentWebhookPayload.Build(gatewayOrderId, paymentRef, PaymentWebhookPayload.SuccessStatus);
+            string signature = sandbox.SignPayload(payload);
+            (await webhook.HandleCallbackAsync(new PaymentWebhookRequest(gatewayOrderId, paymentRef, PaymentWebhookPayload.SuccessStatus, signature))).IsSuccess.Should().BeTrue();
+        }
+
+        using (var verifyContext = _db.CreateContext())
+        {
+            var (_, webhook) = BuildServices(verifyContext, gateway);
+            var result = await webhook.VerifyPendingAttemptAsync(fixture.BookingId);
+            result.IsSuccess.Should().BeTrue();
+        }
+
+        gateway.VerifyCallCount.Should().Be(0, "an already-resolved attempt has nothing left to verify");
     }
 }

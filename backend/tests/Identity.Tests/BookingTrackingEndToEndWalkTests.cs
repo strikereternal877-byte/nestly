@@ -52,7 +52,7 @@ public class BookingTrackingEndToEndWalkTests : IDisposable
     private static BookingProviderAssignmentService CreateAssignmentService(NestlyDbContext context) => new(
         new BookingRepository(context), new ProviderRepository(context), new ServiceRepository(context),
         new BookingProviderAssignmentRepository(context), new ProviderScheduleConflictService(context, TestServices.Occupancy()),
-        Options.Create(new AutoAssignmentOptions()), context);
+        Options.Create(new AutoAssignmentOptions()), TestServices.ProviderNotificationPublisher(context), context);
 
     private static ProviderJobService CreateJobService(NestlyDbContext context, IBookingEtaService etaService) => new(
         new BookingRepository(context),

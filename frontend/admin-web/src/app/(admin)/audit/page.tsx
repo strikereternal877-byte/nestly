@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { Badge, Field, PageHeading, Select } from "@/components/ui";
 import { DataTable, FilterBar, Pagination, countActiveFilters } from "@/components/data-table";
 import type { DataTableColumn } from "@/components/data-table";
+import { useResetOnChange } from "@/hooks/useResetOnChange";
 import { API_V1, apiFetch } from "@/lib/api";
 import {
   AUDIT_ACTOR_TYPES,
@@ -145,9 +146,10 @@ export default function AuditLogPage() {
 
   // Any filter change resets to page 1 - staying on a now out-of-range page
   // would just show an empty result (same pattern as customers/page.tsx).
-  useEffect(() => {
-    setDraft((current) => (current.page === 1 ? current : { ...current, page: 1 }));
-  }, [debouncedActorId, debouncedEntityName, debouncedAction, draft.actorType, draft.outcome, draft.fromDate, draft.toDate]);
+  useResetOnChange(
+    [debouncedActorId, debouncedEntityName, debouncedAction, draft.actorType, draft.outcome, draft.fromDate, draft.toDate],
+    () => setDraft((current) => (current.page === 1 ? current : { ...current, page: 1 })),
+  );
 
   const effectiveFilters: AuditLogFilters = {
     ...draft,

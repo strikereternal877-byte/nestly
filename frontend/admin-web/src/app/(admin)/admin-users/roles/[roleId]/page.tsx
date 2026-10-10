@@ -150,6 +150,8 @@ export default function AdminRoleDetailPage() {
   useEffect(() => {
     if (detailQuery.data) {
       form.reset({ name: detailQuery.data.name, description: detailQuery.data.description });
+      // Reacting to the role query arriving, not a render-time prop change.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelectedCodes(new Set(detailQuery.data.permissionCodes));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -206,7 +206,10 @@ export interface AdminBookingReschedule {
   toSlotDate: string;
   toSlotStartTime: string;
   isLate: boolean;
+  /** The late fee under the policy of the day. */
   feeAmount: number;
+  /** What was actually taken from the customer's wallet for it - 0 when nothing was (an admin's reschedule, a reschedule that was not late, or one made before late fees were collected). */
+  feeCollectedAmount: number;
   createdAtUtc: string;
 }
 
@@ -329,12 +332,60 @@ export interface CompletionChecklistAnswerResponse {
   notes: string | null;
 }
 
+/** Mirrors Nestly.Domain.CompletionProofReviewStatus's declaration order exactly. */
+export enum CompletionProofReviewStatus {
+  Pending = 0,
+  Approved = 1,
+  Rejected = 2,
+}
+
 export interface BookingCompletionProofResponse {
   id: string;
   bookingId: string;
   photoRefs: string[];
   checklistAnswers: CompletionChecklistAnswerResponse[];
   submittedByProviderId: string;
+  submittedAtUtc: string;
+  // Appended last, matching the C# positional record's own append-only rule.
+  reviewStatus: CompletionProofReviewStatus;
+  reviewedBy: string | null;
+  reviewedAtUtc: string | null;
+  rejectionReason: string | null;
+}
+
+export interface RejectCompletionProofRequest {
+  reason: string;
+}
+
+/**
+ * One row of the admin auto-charge queue (Payment Management UX pass gap:
+ * previously zero visibility into `RecurringOccurrenceAutoChargeJob`).
+ * `nextAttemptDueAtUtc` is null when there is no next attempt - retries were
+ * cancelled, or `attemptCount` already reached `retryLimit`.
+ */
+export interface AdminAutoChargeCandidate {
+  bookingId: string;
+  bookingReference: string;
+  customerName: string;
+  amountDue: number;
+  status: BookingStatus;
+  planAutoChargeEnabled: boolean;
+  cancelledByAdmin: boolean;
+  attemptCount: number;
+  retryLimit: number;
+  lastAttemptAtUtc: string | null;
+  nextAttemptDueAtUtc: string | null;
+}
+
+/** One row of the admin completion-proof review queue (Order/Booking Management UX pass) - the full submitted evidence plus enough booking/provider identity to review and act on it without opening the booking. */
+export interface BookingCompletionProofQueueItem {
+  bookingId: string;
+  bookingReference: string;
+  customerName: string;
+  providerId: string;
+  providerDisplayName: string;
+  photoRefs: string[];
+  checklistAnswers: CompletionChecklistAnswerResponse[];
   submittedAtUtc: string;
 }
 

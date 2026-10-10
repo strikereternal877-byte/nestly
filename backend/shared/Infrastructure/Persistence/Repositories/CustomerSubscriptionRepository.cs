@@ -57,6 +57,13 @@ public class CustomerSubscriptionRepository : ICustomerSubscriptionRepository
         return affected == 1;
     }
 
+    public async Task ReleaseFreeVisitAsync(Guid subscriptionId)
+    {
+        await _context.CustomerSubscriptions
+            .Where(s => s.Id == subscriptionId && s.FreeVisitsRemaining < s.FreeVisitsIncludedSnapshot)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(s => s.FreeVisitsRemaining, s => s.FreeVisitsRemaining + 1));
+    }
+
     public async Task<IReadOnlyList<CustomerSubscription>> ListDueForBillingAsync(DateTime asOfUtc) =>
         await _context.CustomerSubscriptions
             .Where(s => LiveStatuses.Contains(s.Status) && s.NextBillingDateUtc <= asOfUtc)

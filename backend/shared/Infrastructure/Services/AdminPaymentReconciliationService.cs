@@ -189,6 +189,16 @@ public sealed class AdminPaymentReconciliationService : IAdminPaymentReconciliat
             return Result.Failure<AdminPaymentTransactionListItemResponse>(NotVoidable);
         }
 
+        // One member of a prepaid checkout cannot be voided on its own: the gateway holds a single
+        // order for the whole group, and a payment landing later would settle the other members
+        // while this one stayed voided.
+        if (transaction.LatestAttempt?.PaymentGroupId is not null)
+        {
+            return Result.Failure<AdminPaymentTransactionListItemResponse>(Error.Business(
+                "Payment.PartOfPrepaidCheckout",
+                "This payment is one visit of a prepaid checkout and cannot be voided on its own."));
+        }
+
         transaction.Void(string.IsNullOrWhiteSpace(reason) ? "Voided by admin (payment reconciliation)." : reason);
         await _paymentRepository.UpdateAsync(transaction);
 

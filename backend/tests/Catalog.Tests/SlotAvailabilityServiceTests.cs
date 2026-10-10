@@ -1,3 +1,4 @@
+using Nestly.Application.Settings;
 using FluentAssertions;
 using Nestly.Application.Serviceability;
 using Nestly.Application.Slots;
@@ -12,14 +13,16 @@ public sealed class SlotAvailabilityServiceTests : IClassFixture<TestDatabase>
 {
     private readonly TestDatabase _db;
 
-    private SlotAvailabilityService BuildService(Nestly.Infrastructure.Persistence.NestlyDbContext context, TimeProvider? timeProvider = null) => new(
+    private SlotAvailabilityService BuildService(
+        Nestly.Infrastructure.Persistence.NestlyDbContext context, TimeProvider? timeProvider = null, IPlatformRules? rules = null) => new(
         new ServiceabilityRepository(context),
         new ServiceabilityValidationService(new ServiceabilityRepository(context), new InMemoryCacheService()),
         new SlotWindowRepository(context),
         new SlotBlackoutRepository(context),
         new SlotBookingPolicyRepository(context),
         new SlotCapacityRepository(context),
-        TestServices.Clock(timeProvider));
+        TestServices.Clock(timeProvider),
+        rules);
 
     public SlotAvailabilityServiceTests(TestDatabase db) => _db = db;
 
@@ -428,5 +431,177 @@ public sealed class SlotAvailabilityServiceTests : IClassFixture<TestDatabase>
         public void Advance(TimeSpan by) => _now += by;
 
         public override DateTimeOffset GetUtcNow() => _now;
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Platform rules (Settings -> Booking / Slot). A fixed clock keeps "now", "today" and the window start comparable.
+    // ---------------------------------------------------------------------------------------------------------------
+
+    private static readonly DateTimeOffset Tuesday8Am = new(2030, 3, 5, 8, 0, 0, TimeSpan.Zero);
+    private static readonly DateOnly TuesdayToday = new(2030, 3, 5);
+    private static readonly DateOnly NextTuesday = new(2030, 3, 12);
+
+    private static BookingSettings BookingRules(int minLeadHours = 0, int maxAdvanceDays = 365, bool allowSameDay = true) =>
+        new(minLeadHours, maxAdvanceDays, null, allowSameDay);
+
+    private static SlotSettings SlotRules(int sameDayCutoffHours = 0, int maxAdvanceDays = 365, bool allowOverbooking = false) =>
+        new(60, sameDayCutoffHours, maxAdvanceDays, 1, allowOverbooking);
+
+    [Fact]
+    public async Task A_saved_booking_horizon_shortens_a_longer_city_window()
+    {
+        Fixture fixture;
+        using (var context = _db.CreateContext())
+        {
+            fixture = SeedGeographyAndService(context, DayOfWeek.Tuesday, TimeSpan.FromHours(10), TimeSpan.FromHours(12));
+            context.SlotBookingPolicies.Add(new SlotBookingPolicy(Guid.NewGuid(), fixture.City.Id, 0, 30));
+            context.SaveChanges();
+        }
+
+        using var readContext = _db.CreateContext();
+        var service = BuildService(readContext, new FakeTimeProvider(Tuesday8Am), TestServices.Rules(booking: BookingRules(maxAdvanceDays: 5)));
+
+        var nextWeek = await service.GetAvailableSlotsAsync(fixture.Service.Id, fixture.Locality.Id, NextTuesday);
+        nextWeek.Value.Slots.Should().BeEmpty("seven days out is beyond the platform's five-day horizon, though the city allows thirty");
+        nextWeek.Value.Reason.Should().Be(SlotUnavailabilityReason.DateOutOfBookableRange);
+
+        (await service.GetAvailableSlotsAsync(fixture.Service.Id, fixture.Locality.Id, TuesdayToday)).Value.Slots.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task A_saved_platform_horizon_never_loosens_a_shorter_city_window()
+    {
+        Fixture fixture;
+        using (var context = _db.CreateContext())
+        {
+            fixture = SeedGeographyAndService(context, DayOfWeek.Tuesday, TimeSpan.FromHours(10), TimeSpan.FromHours(12));
+            context.SlotBookingPolicies.Add(new SlotBookingPolicy(Guid.NewGuid(), fixture.City.Id, 0, 3));
+            context.SaveChanges();
+        }
+
+        using var readContext = _db.CreateContext();
+        var service = BuildService(readContext, new FakeTimeProvider(Tuesday8Am), TestServices.Rules(slot: SlotRules(maxAdvanceDays: 30)));
+
+        (await service.GetAvailableSlotsAsync(fixture.Service.Id, fixture.Locality.Id, NextTuesday)).Value.Slots
+            .Should().BeEmpty("the city only books three days ahead, and a platform allowance of thirty does not widen that");
+    }
+
+    [Fact]
+    public async Task A_saved_minimum_lead_time_hides_a_window_that_starts_too_soon()
+    {
+        Fixture fixture;
+        using (var context = _db.CreateContext())
+        {
+            // Starts at 09:00; it is 08:00 now.
+            fixture = SeedGeographyAndService(context, DayOfWeek.Tuesday, TimeSpan.FromHours(9), TimeSpan.FromHours(13));
+        }
+
+        using var readContext = _db.CreateContext();
+        var clock = new FakeTimeProvider(Tuesday8Am);
+
+        var twoHours = await BuildService(readContext, clock, TestServices.Rules(booking: BookingRules(minLeadHours: 2)))
+            .GetAvailableSlotsAsync(fixture.Service.Id, fixture.Locality.Id, TuesdayToday);
+        twoHours.Value.Slots.Should().BeEmpty("the window starts in one hour and the platform wants two");
+        twoHours.Value.Reason.Should().Be(SlotUnavailabilityReason.CutoffPassed);
+
+        (await BuildService(readContext, clock, TestServices.Rules(booking: BookingRules(minLeadHours: 1)))
+            .GetAvailableSlotsAsync(fixture.Service.Id, fixture.Locality.Id, TuesdayToday)).Value.Slots.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task A_saved_same_day_cutoff_applies_to_today_and_not_to_later_days()
+    {
+        Fixture fixture;
+        using (var context = _db.CreateContext())
+        {
+            fixture = SeedGeographyAndService(context, DayOfWeek.Tuesday, TimeSpan.FromHours(10), TimeSpan.FromHours(12));
+        }
+
+        using var readContext = _db.CreateContext();
+        var service = BuildService(readContext, new FakeTimeProvider(Tuesday8Am), TestServices.Rules(slot: SlotRules(sameDayCutoffHours: 3)));
+
+        (await service.GetAvailableSlotsAsync(fixture.Service.Id, fixture.Locality.Id, TuesdayToday)).Value.Slots
+            .Should().BeEmpty("today's 10:00 window is two hours away and same-day bookings need three");
+        (await service.GetAvailableSlotsAsync(fixture.Service.Id, fixture.Locality.Id, NextTuesday)).Value.Slots
+            .Should().ContainSingle("a later day is not 'same day'");
+    }
+
+    [Fact]
+    public async Task Switching_same_day_booking_off_makes_today_unbookable_but_not_tomorrow_onward()
+    {
+        Fixture fixture;
+        using (var context = _db.CreateContext())
+        {
+            fixture = SeedGeographyAndService(context, DayOfWeek.Tuesday, TimeSpan.FromHours(10), TimeSpan.FromHours(12));
+        }
+
+        using var readContext = _db.CreateContext();
+        var service = BuildService(readContext, new FakeTimeProvider(Tuesday8Am), TestServices.Rules(booking: BookingRules(allowSameDay: false)));
+
+        var today = await service.GetAvailableSlotsAsync(fixture.Service.Id, fixture.Locality.Id, TuesdayToday);
+        today.Value.Slots.Should().BeEmpty();
+        today.Value.Reason.Should().Be(SlotUnavailabilityReason.DateOutOfBookableRange);
+
+        (await service.GetAvailableSlotsAsync(fixture.Service.Id, fixture.Locality.Id, NextTuesday)).Value.Slots.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task Allowing_overbooking_keeps_a_full_window_on_offer_and_still_counts_the_seat()
+    {
+        Fixture fixture;
+        using (var context = _db.CreateContext())
+        {
+            fixture = SeedGeographyAndService(context, DayOfWeek.Tuesday, TimeSpan.FromHours(10), TimeSpan.FromHours(12), capacity: 1);
+        }
+
+        var clock = new FakeTimeProvider(Tuesday8Am);
+        using (var context = _db.CreateContext())
+        {
+            (await BuildService(context, clock).ReserveSlotAsync(fixture.Window!.Id, NextTuesday)).IsSuccess.Should().BeTrue();
+        }
+
+        using (var context = _db.CreateContext())
+        {
+            var strict = BuildService(context, clock);
+            (await strict.GetAvailableSlotsAsync(fixture.Service.Id, fixture.Locality.Id, NextTuesday)).Value.Reason
+                .Should().Be(SlotUnavailabilityReason.FullyBooked, "without overbooking the one seat is taken");
+            (await strict.ReserveSlotAsync(fixture.Window!.Id, NextTuesday)).IsFailure.Should().BeTrue();
+        }
+
+        using (var context = _db.CreateContext())
+        {
+            var lenient = BuildService(context, clock, TestServices.Rules(slot: SlotRules(allowOverbooking: true)));
+            (await lenient.GetAvailableSlotsAsync(fixture.Service.Id, fixture.Locality.Id, NextTuesday)).Value.Slots
+                .Should().ContainSingle("a full window stays selectable when overbooking is allowed");
+            (await lenient.ReserveSlotAsync(fixture.Window!.Id, NextTuesday)).IsSuccess.Should().BeTrue();
+        }
+
+        using var readContext = _db.CreateContext();
+        var counts = await new SlotCapacityRepository(readContext).GetBookedCountsAsync([fixture.Window!.Id], NextTuesday);
+        counts[fixture.Window!.Id].Should().Be(2, "the overbooked seat is counted, so a release stays symmetric");
+    }
+
+    /// <summary>A clock that stands still at the instant it is given, so "now", "today" and a window's start stay comparable.</summary>
+    private sealed class FakeTimeProvider(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
+    }
+
+    [Fact]
+    public async Task With_no_saved_rules_the_slot_engine_behaves_as_it_always_did()
+    {
+        Fixture fixture;
+        using (var context = _db.CreateContext())
+        {
+            fixture = SeedGeographyAndService(context, DayOfWeek.Tuesday, TimeSpan.FromHours(9), TimeSpan.FromHours(13));
+        }
+
+        using var readContext = _db.CreateContext();
+        var service = BuildService(readContext, new FakeTimeProvider(Tuesday8Am), TestServices.Rules());
+
+        (await service.GetAvailableSlotsAsync(fixture.Service.Id, fixture.Locality.Id, TuesdayToday)).Value.Slots
+            .Should().ContainSingle("today at 09:00 is bookable at 08:00 when nothing is saved - no lead time, no horizon, same-day allowed");
+        (await service.GetAvailableSlotsAsync(fixture.Service.Id, fixture.Locality.Id, TuesdayToday.AddDays(400))).Value.Reason
+            .Should().NotBe(SlotUnavailabilityReason.DateOutOfBookableRange, "no horizon without a saved one or a city policy");
     }
 }

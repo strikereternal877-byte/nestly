@@ -89,10 +89,17 @@ public sealed class AdminPaymentQueryServiceTests : IClassFixture<TestDatabase>
     private static PaymentWebhookService BuildWebhookService(
         IPaymentTransactionRepository paymentRepository, IBookingRepository bookingRepository,
         Nestly.Infrastructure.Persistence.NestlyDbContext context, IPaymentGateway gateway) =>
-        new(
-            paymentRepository, bookingRepository, new ServiceRepository(context), gateway,
-            new CommissionService(Options.Create(new CommissionOptions())), new EscrowService(new PlatformEscrowLedgerRepository(context)),
-            context, new NoOpMetricsService(), Microsoft.Extensions.Logging.Abstractions.NullLogger<PaymentWebhookService>.Instance);
+        new(paymentRepository,
+            new PaymentGroupRepository(context),
+            new RecurringBookingPlanRepository(context),
+            bookingRepository,
+            new ServiceRepository(context),
+            gateway,
+            new CommissionService(Options.Create(new CommissionOptions())),
+            new EscrowService(new PlatformEscrowLedgerRepository(context)),
+            context,
+            new NoOpMetricsService(),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<PaymentWebhookService>.Instance);
 
     private sealed record SeededBooking(Guid CustomerId, Guid BookingId);
 
@@ -155,10 +162,16 @@ public sealed class AdminPaymentQueryServiceTests : IClassFixture<TestDatabase>
         {
             var paymentRepository = new PaymentTransactionRepository(context);
             var bookingRepository = new BookingRepository(context);
-            var paymentService = new PaymentService(
-                paymentRepository, bookingRepository, gateway, (ISandboxPaymentSimulator)gateway,
-                BuildWebhookService(paymentRepository, bookingRepository, context, gateway),
-                new AlwaysEligibleProviderSearchStub());
+            var paymentService = new PaymentService(paymentRepository,
+            bookingRepository,
+            gateway,
+            (ISandboxPaymentSimulator)gateway,
+            BuildWebhookService(paymentRepository, bookingRepository, context, gateway),
+            new AlwaysEligibleProviderSearchStub(),
+            new PaymentGroupRepository(context),
+            new RecurringBookingPlanRepository(context),
+            new RecurringBookingOccurrenceRepository(context),
+            null!);
 
             await paymentService.CreateOrderAsync(pending.CustomerId, new CreatePaymentOrderRequest(pending.BookingId, null));
             var succeededOrder = await paymentService.CreateOrderAsync(succeeded.CustomerId, new CreatePaymentOrderRequest(succeeded.BookingId, null));
@@ -204,10 +217,16 @@ public sealed class AdminPaymentQueryServiceTests : IClassFixture<TestDatabase>
             var paymentRepository = new PaymentTransactionRepository(context);
             var bookingRepository = new BookingRepository(context);
             var gateway = BuildGateway();
-            var paymentService = new PaymentService(
-                paymentRepository, bookingRepository, gateway, (ISandboxPaymentSimulator)gateway,
-                BuildWebhookService(paymentRepository, bookingRepository, context, gateway),
-                new AlwaysEligibleProviderSearchStub());
+            var paymentService = new PaymentService(paymentRepository,
+            bookingRepository,
+            gateway,
+            (ISandboxPaymentSimulator)gateway,
+            BuildWebhookService(paymentRepository, bookingRepository, context, gateway),
+            new AlwaysEligibleProviderSearchStub(),
+            new PaymentGroupRepository(context),
+            new RecurringBookingPlanRepository(context),
+            new RecurringBookingOccurrenceRepository(context),
+            null!);
 
             foreach (var booking in seeded)
             {
@@ -248,10 +267,16 @@ public sealed class AdminPaymentQueryServiceTests : IClassFixture<TestDatabase>
         {
             var paymentRepository = new PaymentTransactionRepository(context);
             var bookingRepository = new BookingRepository(context);
-            var paymentService = new PaymentService(
-                paymentRepository, bookingRepository, gateway, (ISandboxPaymentSimulator)gateway,
-                BuildWebhookService(paymentRepository, bookingRepository, context, gateway),
-                new AlwaysEligibleProviderSearchStub());
+            var paymentService = new PaymentService(paymentRepository,
+            bookingRepository,
+            gateway,
+            (ISandboxPaymentSimulator)gateway,
+            BuildWebhookService(paymentRepository, bookingRepository, context, gateway),
+            new AlwaysEligibleProviderSearchStub(),
+            new PaymentGroupRepository(context),
+            new RecurringBookingPlanRepository(context),
+            new RecurringBookingOccurrenceRepository(context),
+            null!);
 
             var order = await paymentService.CreateOrderAsync(seeded.CustomerId, new CreatePaymentOrderRequest(seeded.BookingId, null));
             transactionId = order.Value.PaymentTransactionId;

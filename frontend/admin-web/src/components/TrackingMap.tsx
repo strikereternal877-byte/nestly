@@ -83,6 +83,11 @@ export function TrackingMap({
     }
 
     providerMarkerRef.current.position = position;
+    // Deliberately the two primitives, not providerLocation itself: the
+    // effect only ever reads .latitude/.longitude off it, and depending on
+    // the object would re-run on every parent re-render that passes a new
+    // but value-equal providerLocation reference, thrashing the marker.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [providerLocation?.latitude, providerLocation?.longitude]);
 
   if (status === "unavailable") {

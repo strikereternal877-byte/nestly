@@ -22,11 +22,19 @@ public class AdminAuthController : ControllerBase
 
     private readonly IAdminLoginService _loginService;
     private readonly IValidator<AdminLoginRequest> _loginValidator;
+    private readonly IValidator<RefreshTokenRequest> _refreshValidator;
+    private readonly IValidator<LogoutRequest> _logoutValidator;
 
-    public AdminAuthController(IAdminLoginService loginService, IValidator<AdminLoginRequest> loginValidator)
+    public AdminAuthController(
+        IAdminLoginService loginService,
+        IValidator<AdminLoginRequest> loginValidator,
+        IValidator<RefreshTokenRequest> refreshValidator,
+        IValidator<LogoutRequest> logoutValidator)
     {
         _loginService = loginService;
         _loginValidator = loginValidator;
+        _refreshValidator = refreshValidator;
+        _logoutValidator = logoutValidator;
     }
 
     /// <summary>
@@ -51,6 +59,39 @@ public class AdminAuthController : ControllerBase
 
         var result = await _loginService.LoginAsync(request);
         return result.IsSuccess ? Ok(result.Value) : result.ToProblemResult();
+    }
+
+    /// <summary>Exchange a still-valid refresh token for a new access+refresh pair (rotation, SRS 28.3).</summary>
+    [HttpPost("refresh")]
+    [ProducesResponseType(typeof(AdminLoginResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> Refresh([FromBody] RefreshTokenRequest request)
+    {
+        var validation = await _refreshValidator.ValidateAsync(request);
+        if (!validation.IsValid)
+        {
+            return ValidationProblem(ToModelState(validation));
+        }
+
+        var result = await _loginService.RefreshAsync(request);
+        return result.IsSuccess ? Ok(result.Value) : result.ToProblemResult();
+    }
+
+    /// <summary>Invalidate a session's refresh token (SRS 12.1.2: logout invalidates the active session).</summary>
+    [HttpPost("logout")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> Logout([FromBody] LogoutRequest request)
+    {
+        var validation = await _logoutValidator.ValidateAsync(request);
+        if (!validation.IsValid)
+        {
+            return ValidationProblem(ToModelState(validation));
+        }
+
+        var result = await _loginService.LogoutAsync(request);
+        return result.IsSuccess ? NoContent() : result.ToProblemResult();
     }
 
     /// <summary>

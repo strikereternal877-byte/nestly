@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { PageHeading, Tabs } from "@/components/ui";
+import { BankAccountSection } from "./_components/BankAccountSection";
 import { GoLiveChecklistSection } from "./_components/GoLiveChecklistSection";
 import { KycSection } from "./_components/KycSection";
 import { PhotoSection } from "./_components/PhotoSection";
@@ -10,6 +11,7 @@ import { RatingsPromoSection } from "./_components/RatingsPromoSection";
 import { ReferralPromoSection } from "./_components/ReferralPromoSection";
 import { ServiceAreasSection } from "./_components/ServiceAreasSection";
 import { SkillsSection } from "./_components/SkillsSection";
+import { SupportPromoSection } from "./_components/SupportPromoSection";
 
 type ProfileTab = "details" | "verification" | "coverage";
 
@@ -91,8 +93,16 @@ export default function ProfilePage() {
       ) : null}
 
       {tab === "verification" ? (
-        <div id="kyc" className="scroll-mt-24">
-          <KycSection />
+        <div className="flex flex-col gap-6">
+          <div id="kyc" className="scroll-mt-24">
+            <KycSection />
+          </div>
+          {/* Placed right after KYC - related verification concerns, and the
+              BankAccountProof KYC document above is this section's own
+              supporting evidence (docs/PROVIDER.md OPEN DECISIONS #3). */}
+          <div id="bank-account" className="scroll-mt-24">
+            <BankAccountSection />
+          </div>
         </div>
       ) : null}
 
@@ -109,6 +119,7 @@ export default function ProfilePage() {
 
       <RatingsPromoSection />
       <ReferralPromoSection />
+      <SupportPromoSection />
     </div>
   );
 }

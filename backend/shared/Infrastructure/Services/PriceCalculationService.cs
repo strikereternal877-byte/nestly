@@ -2,6 +2,7 @@ using Nestly.Application;
 using Nestly.Application.Abstractions.Caching;
 using Nestly.Application.Pricing;
 using Nestly.Application.Serviceability;
+using Nestly.Application.Settings;
 using Nestly.BuildingBlocks.Results;
 using Nestly.Domain;
 
@@ -48,6 +49,7 @@ public class PriceCalculationService : IPriceCalculationService
     private readonly IServiceVariantRepository _variantRepository;
     private readonly IServiceAddOnGroupRepository _groupRepository;
     private readonly ICacheService _cache;
+    private readonly IPlatformRules _platformRules;
 
     public PriceCalculationService(
         IServiceRepository serviceRepository,
@@ -57,7 +59,8 @@ public class PriceCalculationService : IPriceCalculationService
         ICityPricingPolicyRepository pricingPolicyRepository,
         IServiceVariantRepository variantRepository,
         IServiceAddOnGroupRepository groupRepository,
-        ICacheService cache)
+        ICacheService cache,
+        IPlatformRules? platformRules = null)
     {
         _serviceRepository = serviceRepository;
         _addOnRepository = addOnRepository;
@@ -67,6 +70,7 @@ public class PriceCalculationService : IPriceCalculationService
         _variantRepository = variantRepository;
         _groupRepository = groupRepository;
         _cache = cache;
+        _platformRules = platformRules ?? NoPlatformRules.Instance;
     }
 
     public async Task<Result<PriceBreakdownResponse>> CalculateAsync(PriceCalculationRequest request)
@@ -190,7 +194,13 @@ public class PriceCalculationService : IPriceCalculationService
 
         var pricingPolicy = await _pricingPolicyRepository.GetByCityAsync(request.CityId);
         decimal visitCharge = pricingPolicy?.VisitCharge ?? 0m;
-        decimal taxPercentage = pricingPolicy?.TaxPercentage ?? 0m;
+        // A city with its own pricing policy uses that policy's tax. A city without one used to be charged none; once an
+        // admin has saved the Tax group in Settings, its default percentage is what applies there instead. (Whether displayed
+        // prices include tax, and the registration number, are saved by that group too but are not applied here.) Prices are
+        // cached for PriceCalculationTtl, so a change shows within that long - the same delay a city's own tax change has.
+        decimal taxPercentage = pricingPolicy?.TaxPercentage
+            ?? (await _platformRules.GetTaxAsync())?.DefaultTaxPercentage
+            ?? 0m;
         decimal platformFee = pricingPolicy?.PlatformFee ?? 0m;
 
         decimal subtotal = baseTotal + addOnTotal + visitCharge;

@@ -88,6 +88,29 @@ public class RecurringBookingPlansController : ControllerBase
         return result.IsSuccess ? Ok(result.Value) : result.ToProblemResult();
     }
 
+    /// <summary>"I'm away until a date": no visit is generated before it; the plan carries on from there. Optionally cancels the few visits already booked before that date.</summary>
+    [HttpPost("{id:guid}/skip-visits")]
+    [ProducesResponseType(typeof(RecurringBookingPlanResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status422UnprocessableEntity)]
+    public async Task<IActionResult> SkipVisits(Guid id, [FromBody] SkipVisitsRequest request)
+    {
+        var result = await _planService.SkipVisitsAsync(CurrentCustomerId(), id, request);
+        return result.IsSuccess ? Ok(result.Value) : result.ToProblemResult();
+    }
+
+    /// <summary>Changes the time-of-day window for every visit generated from now on. Visits already booked keep their slot.</summary>
+    [HttpPost("{id:guid}/slot")]
+    [ProducesResponseType(typeof(RecurringBookingPlanResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status422UnprocessableEntity)]
+    public async Task<IActionResult> ChangeSlot(Guid id, [FromBody] ChangePlanSlotRequest request)
+    {
+        var result = await _planService.ChangeSlotAsync(CurrentCustomerId(), id, request);
+        return result.IsSuccess ? Ok(result.Value) : result.ToProblemResult();
+    }
+
     /// <summary>Cancels a plan permanently - a cancelled plan can never be resumed.</summary>
     [HttpPost("{id:guid}/cancel")]
     [ProducesResponseType(typeof(RecurringBookingPlanResponse), StatusCodes.Status200OK)]
@@ -96,6 +119,28 @@ public class RecurringBookingPlansController : ControllerBase
     public async Task<IActionResult> Cancel(Guid id)
     {
         var result = await _planService.CancelAsync(CurrentCustomerId(), id);
+        return result.IsSuccess ? Ok(result.Value) : result.ToProblemResult();
+    }
+
+    /// <summary>Toggles off-session auto-charge consent on the plan (recurring-booking payment-timing fix). Callable regardless of pause state.</summary>
+    [HttpPost("{id:guid}/auto-charge")]
+    [ProducesResponseType(typeof(RecurringBookingPlanResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status422UnprocessableEntity)]
+    public async Task<IActionResult> SetAutoCharge(Guid id, [FromBody] SetAutoChargeRequest request)
+    {
+        var result = await _planService.SetAutoChargeAsync(CurrentCustomerId(), id, request.Enabled);
+        return result.IsSuccess ? Ok(result.Value) : result.ToProblemResult();
+    }
+
+    /// <summary>Edits how many more occurrences this plan will generate - end date and/or occurrence count only (occurrence-count integrity fix). Cannot reduce below what has already been booked.</summary>
+    [HttpPost("{id:guid}/bounds")]
+    [ProducesResponseType(typeof(RecurringBookingPlanResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status422UnprocessableEntity)]
+    public async Task<IActionResult> SetOccurrenceBounds(Guid id, [FromBody] SetOccurrenceBoundsRequest request)
+    {
+        var result = await _planService.SetOccurrenceBoundsAsync(CurrentCustomerId(), id, request.EndDate, request.OccurrenceCount);
         return result.IsSuccess ? Ok(result.Value) : result.ToProblemResult();
     }
 

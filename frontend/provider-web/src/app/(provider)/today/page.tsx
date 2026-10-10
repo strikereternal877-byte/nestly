@@ -21,7 +21,7 @@ import type { JobListItem } from "@/lib/jobs-types";
  * for why.
  */
 const NEXT_ACTION_LABEL: Partial<Record<JobStatus, string>> = {
-  [JobStatus.Assigned]: "Accept or decline",
+  [JobStatus.Assigned]: "Review job offer",
   [JobStatus.Accepted]: "Start job",
   [JobStatus.EnRoute]: "Mark arrived",
   [JobStatus.Arrived]: "Start job",

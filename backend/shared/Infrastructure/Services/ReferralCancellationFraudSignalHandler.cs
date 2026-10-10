@@ -17,6 +17,18 @@ namespace Nestly.Infrastructure.Services;
 /// handler on BookingStatusChangedEvent, same shape as
 /// EscrowReleaseOnCompletionHandler/BookingNotificationTriggerHandler/
 /// ReferralQualifyingBookingHandler.
+///
+/// <see cref="BookingStatus.Refunded"/> is included alongside the two
+/// Cancelled statuses, mirroring <c>NestlyCoinsClawbackHandler</c>'s
+/// identical trigger set - a qualifying booking only ever reaches
+/// ReferralQualifyingBookingHandler.DisburseAsync once it is already
+/// Completed, and BookingLifecycle allows a Completed booking only one way
+/// out: Completed -> RefundPending -> Refunded (never back to either
+/// Cancelled status - see BookingLifecycle's own transition table). Without
+/// Refunded here, the one signal this handler exists to raise could
+/// structurally never fire for the exact case REFERRAL.md wrote it for: a
+/// dispute or admin refund reversing an already-rewarded referral's
+/// qualifying order.
 /// </summary>
 public sealed class ReferralCancellationFraudSignalHandler : INotificationHandler<DomainEventNotification<BookingStatusChangedEvent>>
 {
@@ -47,7 +59,7 @@ public sealed class ReferralCancellationFraudSignalHandler : INotificationHandle
     public async Task Handle(DomainEventNotification<BookingStatusChangedEvent> notification, CancellationToken cancellationToken)
     {
         var domainEvent = notification.DomainEvent;
-        if (domainEvent.ToStatus is not (BookingStatus.CancelledByCustomer or BookingStatus.CancelledByAdmin))
+        if (domainEvent.ToStatus is not (BookingStatus.CancelledByCustomer or BookingStatus.CancelledByAdmin or BookingStatus.Refunded))
         {
             return;
         }
@@ -67,7 +79,7 @@ public sealed class ReferralCancellationFraudSignalHandler : INotificationHandle
         var result = await _fraudReviewService.FlagAsync(
             referral.Id,
             adminUserId: null,
-            note: $"System: qualifying booking cancelled {sinceReward.TotalHours:0.0}h after reward.");
+            note: $"System: qualifying booking reached {domainEvent.ToStatus} {sinceReward.TotalHours:0.0}h after reward.");
 
         if (result.IsFailure)
         {

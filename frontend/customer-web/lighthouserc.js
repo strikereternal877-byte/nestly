@@ -74,7 +74,36 @@ module.exports = {
           disabled: false,
         },
       },
-      puppeteerScript: require.resolve("./lighthouse/auth-setup.js"),
+      // GitHub's ubuntu-latest runners have disabled unprivileged user
+      // namespaces (AppArmor), which Chrome's own sandbox needs - without
+      // this, the browser process dies immediately with
+      // "FATAL:zygote_host_impl_linux.cc No usable sandbox!" before
+      // Lighthouse ever gets a page to audit. The CI job's own container is
+      // already the isolation boundary here, same reasoning every other
+      // CI-run Chrome (Playwright's `--with-deps chromium` included) relies
+      // on. `settings.chromeFlags` (the usual place for this) is silently
+      // ignored whenever `puppeteerScript` is set - LHCI logs "WARNING:
+      // collect.settings.chromeFlags option will be ignored" and launches
+      // through Puppeteer directly instead of chrome-launcher - so this has
+      // to go through `puppeteerLaunchOptions.args`, Puppeteer's own launch
+      // option, to actually reach the browser process auth-setup.js's `page`
+      // comes from.
+      puppeteerLaunchOptions: {
+        args: ["--no-sandbox", "--disable-gpu"],
+      },
+      // A relative path, not require.resolve()'s absolute one: LHCI's own
+      // PuppeteerManager.invokePuppeteerScriptForUrl loads this via
+      // `require(path.join(process.cwd(), scriptPath))` - path.join, unlike
+      // path.resolve, does not special-case an already-absolute second
+      // argument, so an absolute scriptPath gets cwd prepended onto it
+      // anyway, doubling it into a path that can never exist
+      // ("…/frontend/customer-web/home/runner/…/frontend/customer-web/
+      // lighthouse/auth-setup.js") - confirmed against the installed
+      // @lhci/cli source. process.cwd() here is frontend/customer-web (this
+      // config's own directory - see ci.yml's `working-directory` for this
+      // step), so a path relative to it is exactly what a relative path
+      // from this file already looks like.
+      puppeteerScript: "./lighthouse/auth-setup.js",
     },
     assert: {
       // No `preset` — intentionally scoped to exactly the three budgeted

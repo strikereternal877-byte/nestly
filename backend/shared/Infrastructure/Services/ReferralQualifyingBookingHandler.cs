@@ -71,9 +71,20 @@ public sealed class ReferralQualifyingBookingHandler : INotificationHandler<Doma
             return;
         }
 
-        referral.MarkQualified(booking.Id);
-        await _referralRepository.UpdateAsync(referral);
+        // Two of this referee's bookings completing near-simultaneously can
+        // both reach this point with their own independently-loaded
+        // Registered referral - TryMarkQualifiedAsync's atomic conditional
+        // UPDATE, not the read above, is what actually decides which one (if
+        // either) gets to disburse. The loser must stop here: DisburseAsync
+        // issues a real wallet credit/coupon, so calling it twice for one
+        // referral is a real duplicate payout, not a harmless retry.
+        bool wonRace = await _referralRepository.TryMarkQualifiedAsync(referral.Id, booking.Id);
+        if (!wonRace)
+        {
+            return;
+        }
 
+        referral.MarkQualified(booking.Id);
         await _rewardService.DisburseAsync(referral);
     }
 }

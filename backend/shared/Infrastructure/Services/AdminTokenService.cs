@@ -1,5 +1,6 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
+using System.Security.Cryptography;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Nestly.Application.Identity;
@@ -31,6 +32,10 @@ public class AdminTokenService : IAdminTokenService
     {
         _options = options.Value;
     }
+
+    public TimeSpan RefreshTokenLifetime => TimeSpan.FromHours(_options.RefreshTokenHours);
+
+    public string GenerateRefreshToken() => Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
 
     public AdminAccessToken GenerateAccessToken(Guid adminUserId, string email, string? roleName, IReadOnlyList<string> permissionCodes)
     {

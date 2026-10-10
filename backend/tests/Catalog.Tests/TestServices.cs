@@ -2,6 +2,10 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Nestly.Application.Abstractions.Auditing;
 using Nestly.Application.Abstractions.Time;
+using Nestly.Application.Notifications;
+using Nestly.Application.Wallet;
+using Nestly.Application.Escrow;
+using Nestly.Application.Payments;
 using Nestly.Application.ProviderManagement;
 using Nestly.Application.Settings;
 using Nestly.Infrastructure.Auditing;
@@ -60,6 +64,108 @@ internal static class TestServices
             TravelFeasibilityFactory.Sandbox(context),
             NullLogger<OverrunReassignmentService>.Instance);
 
+    /// <summary>Real <see cref="IProviderEarningLedgerService"/> over the test database, for suites (e.g. <c>RefundService</c>'s clawback) that need one only as a collaborator, not under test.</summary>
+    public static IProviderEarningLedgerService ProviderEarningLedgerService(NestlyDbContext context) =>
+        new ProviderEarningLedgerService(
+            new ProviderRepository(context),
+            new ProviderEarningLedgerRepository(context),
+            new BookingRepository(context),
+            new PaymentTransactionRepository(context),
+            new ProviderPayoutRepository(context));
+
+    /// <summary>
+    /// The full <see cref="RefundService"/> builder, extracted here once it
+    /// grew a fifth and sixth collaborator (<see cref="ProviderEarningLedgerService"/>
+    /// for the job-completion clawback) - every suite that only needs a
+    /// working refund path, not the clawback itself under test, should call
+    /// this rather than repeat the wiring.
+    /// </summary>
+    public static RefundService RefundService(NestlyDbContext context, IPaymentGateway gateway) =>
+        new(
+            new BookingRepository(context),
+            new PaymentTransactionRepository(context),
+            new RefundTransactionRepository(context),
+            new WalletService(new WalletLedgerRepository(context), context),
+            new EscrowService(new PlatformEscrowLedgerRepository(context)),
+            new ProviderEarningLedgerRepository(context),
+            ProviderEarningLedgerService(context),
+            gateway,
+            context,
+            NullLogger<RefundService>.Instance);
+
+    /// <summary>
+    /// The full <see cref="CancellationService"/> builder, extracted here
+    /// once it grew enough collaborators (coupon release, subscription
+    /// free-visit release, the cancellation-fee escrow release) that
+    /// repeating the wiring per suite became the main source of test-file
+    /// churn whenever a new one was added. Every suite that only needs a
+    /// working cancellation path, not one of those releases itself under
+    /// test, should call this rather than repeat the wiring.
+    /// </summary>
+    public static CancellationService CancellationService(
+        NestlyDbContext context, IPaymentGateway gateway, TimeProvider timeProvider, CancellationPolicyOptions? policy = null) =>
+        new(
+            new BookingRepository(context),
+            new PaymentTransactionRepository(context),
+            new RefundTransactionRepository(context),
+            RefundService(context, gateway),
+            new BookingCancellationRepository(context),
+            new BookingProviderAssignmentRepository(context),
+            SlotAvailability(context, timeProvider),
+            new CouponService(new CouponRepository(context), new CouponRedemptionRepository(context), new BookingRepository(context), TimeProvider.System),
+            new CustomerSubscriptionRepository(context),
+            new EscrowService(new PlatformEscrowLedgerRepository(context)),
+            Clock(timeProvider),
+            timeProvider,
+            Policies(policy), ProviderNotificationPublisher(context), new BookingRescheduleRepository(context));
+
+    /// <summary>
+    /// The cancellation/reschedule policy as a fixed answer - the given options, or the defaults. What every suite that is
+    /// not testing <see cref="BookingPolicyProvider"/> itself wants in place of the real, settings-backed provider.
+    /// </summary>
+    public static IBookingPolicyProvider Policies(CancellationPolicyOptions? cancellation = null, ReschedulePolicyOptions? reschedule = null) =>
+        new FixedBookingPolicyProvider(cancellation ?? new CancellationPolicyOptions(), reschedule ?? new ReschedulePolicyOptions());
+
+    /// <summary>
+    /// Admin-saved platform rules as a fixed answer: only the groups passed are "saved", every other one is null - which is
+    /// what an engine reads as "do what you always did".
+    /// </summary>
+    public static IPlatformRules Rules(
+        BookingSettings? booking = null, SlotSettings? slot = null, TaxSettings? tax = null,
+        WalletSettings? wallet = null, CouponSettings? coupon = null) =>
+        new FixedPlatformRules(booking, slot, tax, wallet, coupon);
+
+    private sealed class FixedPlatformRules(
+        BookingSettings? booking, SlotSettings? slot, TaxSettings? tax, WalletSettings? wallet, CouponSettings? coupon) : IPlatformRules
+    {
+        public Task<BookingSettings?> GetBookingAsync(CancellationToken cancellationToken = default) => Task.FromResult(booking);
+
+        public Task<SlotSettings?> GetSlotAsync(CancellationToken cancellationToken = default) => Task.FromResult(slot);
+
+        public Task<TaxSettings?> GetTaxAsync(CancellationToken cancellationToken = default) => Task.FromResult(tax);
+
+        public Task<WalletSettings?> GetWalletAsync(CancellationToken cancellationToken = default) => Task.FromResult(wallet);
+
+        public Task<CouponSettings?> GetCouponAsync(CancellationToken cancellationToken = default) => Task.FromResult(coupon);
+    }
+
+    /// <summary>Real <see cref="IWalletService"/> over the test database.</summary>
+    public static IWalletService Wallet(NestlyDbContext context) => new WalletService(new WalletLedgerRepository(context), context);
+
+    /// <summary>Real <see cref="IEscrowService"/> over the test database.</summary>
+    public static IEscrowService Escrow(NestlyDbContext context) => new EscrowService(new PlatformEscrowLedgerRepository(context));
+
+    private sealed class FixedBookingPolicyProvider(CancellationPolicyOptions cancellation, ReschedulePolicyOptions reschedule) : IBookingPolicyProvider
+    {
+        public Task<CancellationSettings> GetCancellationAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(new CancellationSettings(cancellation.FreeCancellationWindowHours, cancellation.LateCancellationFeePercentage, AllowAdminOverride: true));
+
+        public Task<RescheduleSettings> GetRescheduleAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(new RescheduleSettings(
+                reschedule.MinHoursBeforeSlot, reschedule.MaxReschedulesPerBooking, reschedule.LateFeeThresholdHours, reschedule.LateRescheduleFeePercentage,
+                reschedule.CollectLateFeeFromWallet));
+    }
+
     public static SlotAvailabilityService SlotAvailability(NestlyDbContext context, TimeProvider? timeProvider = null) =>
         new(
             new ServiceabilityRepository(context),
@@ -97,9 +203,30 @@ internal static class TestServices
     public static IAuditLogWriter AuditLogWriter(NestlyDbContext context) =>
         new AuditLogWriter(context, SystemAuditContextProvider.Instance);
 
+    /// <summary>Real <see cref="IProviderPlanReservationService"/> over the test database, for suites that build a service that consults it but are not testing it.</summary>
+    public static IProviderPlanReservationService PlanReservations(NestlyDbContext context) =>
+        new ProviderPlanReservationService(
+            context, Clock(), Options.Create(new RecurringBookingOptions()),
+            NullLogger<ProviderPlanReservationService>.Instance);
+
     /// <summary>Real <see cref="ISystemSettingsService"/> over the test database, for suites that need one only as a collaborator (not under test).</summary>
     public static ISystemSettingsService SystemSettings(NestlyDbContext context) =>
         new SystemSettingsService(new SystemSettingRepository(context), AuditLogWriter(context), SystemAuditContextProvider.Instance);
+
+    /// <summary>
+    /// Real <see cref="IProviderNotificationPublisher"/> over the test
+    /// database with the sandbox push provider (no network, no key) - for
+    /// suites that construct <see cref="BookingProviderAssignmentService"/>/
+    /// <see cref="ProviderKycApprovalService"/>/<see cref="ProviderManagementService"/>/
+    /// <see cref="ProviderPayoutService"/> directly and are not themselves
+    /// testing the provider notification feed.
+    /// </summary>
+    public static IProviderNotificationPublisher ProviderNotificationPublisher(NestlyDbContext context) =>
+        new ProviderNotificationPublisher(
+            new ProviderNotificationRepository(context),
+            new DeviceTokenRepository(context),
+            new SandboxPushNotificationProvider(NullLogger<SandboxPushNotificationProvider>.Instance),
+            NullLogger<Nestly.Infrastructure.Services.ProviderNotificationPublisher>.Instance);
 
     private sealed class SystemAuditContextProvider : IAuditContextProvider
     {

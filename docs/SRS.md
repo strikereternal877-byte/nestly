@@ -2320,7 +2320,11 @@ handled throughout this backlog.
 1. **Reschedule fee.** Category-specific and policy-driven, not a flat
    free/paid switch: `ReschedulePolicyOptions` + `RescheduleFeeCalculator`
    (Phase 5, task 82) compute the fee from the configured policy window and
-   category.
+   category. The policy is whatever an admin saved in Settings, else the
+   configuration (`IBookingPolicyProvider`), and a customer's late fee is
+   collected from their wallet when they reschedule once an admin (or
+   configuration) switches collection on - it ships off - see DATABASE.md,
+   "Late-reschedule fee collection".
 1. **Provider assignment.** Deferred out of the Phase 1 admin workflow, then
    delivered as its own phase: reordered 2026-07-31 to run as Phase 7
    (`docs/PROVIDER.md`), landed 2026-08-01 — `BookingProviderAssignment`,

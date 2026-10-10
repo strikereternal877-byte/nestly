@@ -43,7 +43,7 @@ public sealed class ReferralRegistrationTests : IClassFixture<TestDatabase>
             otpService,
             new NotificationDispatchService(
                 new NotificationTemplateRenderer(new FakeNotificationTemplateRepository(), new MemoryCache(new MemoryCacheOptions())),
-                new SandboxNotificationProvider(NullLogger<SandboxNotificationProvider>.Instance),
+                new SandboxNotificationProvider(NullLogger<SandboxNotificationProvider>.Instance, new FakeHostEnvironment()),
                 new SandboxPushNotificationProvider(NullLogger<SandboxPushNotificationProvider>.Instance),
                 new NotificationEventRepository(context),
                 new DeviceTokenRepository(context),

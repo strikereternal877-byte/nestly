@@ -28,7 +28,7 @@ import type { AdminSessionClaims } from "@/lib/types";
  */
 const GROUPS: readonly { label: string; keys: readonly NavModuleKey[] }[] = [
   { label: "Overview", keys: ["dashboard", "overview", "reports"] },
-  { label: "Operations", keys: ["fulfilment", "bookings", "payments", "slots", "support", "chat", "reviews"] },
+  { label: "Operations", keys: ["fulfilment", "bookings", "payments", "slots", "support", "provider-support", "chat", "reviews"] },
   { label: "Catalog", keys: ["catalog", "pricing", "serviceability"] },
   { label: "People", keys: ["customers", "provider", "provider-referral", "admin-users"] },
   { label: "Growth", keys: ["coupons", "referral", "nestly-coins", "subscription"] },
@@ -99,6 +99,17 @@ const MODULE_ICONS: Record<NavModuleKey, ReactNode> = {
       <circle cx="12" cy="12" r="8.5" />
       <circle cx="12" cy="12" r="3.5" />
       <path d="m6.2 6.2 3.4 3.4M18 6l-3.5 3.6M18 18l-3.5-3.4M6.2 17.8l3.4-3.4" />
+    </svg>
+  ),
+  // Same headset-adjacent glyph family as "support" - this is the same admin
+  // support function, over the provider side of the marketplace instead of
+  // the customer side, not a visually distinct capability.
+  "provider-support": (
+    <svg {...ICON_PROPS}>
+      <path d="M4 12a8 8 0 0 1 16 0v5a2.5 2.5 0 0 1-2.5 2.5H16" />
+      <rect x="2.5" y="11" width="4" height="6" rx="1.5" />
+      <rect x="17.5" y="11" width="4" height="6" rx="1.5" />
+      <path d="M13.5 19.5a2 2 0 0 1-2 2H10" />
     </svg>
   ),
   chat: (

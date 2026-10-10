@@ -26,45 +26,61 @@ const STATIC_PATHS = [
  * `services`, `serviceGroups[].services`, `subcategories` and
  * `subcategoryGroups[].subcategories` - so this walks all of them, keyed by a
  * visited set because a deep tree would otherwise refetch shared branches.
+ *
+ * Breadth-first in parallel waves, one wave per tree depth, rather than one
+ * request at a time: the catalog is wide (dozens of categories) but shallow
+ * (a handful of levels), so fetching a whole wave with Promise.all turns an
+ * O(category count) sequential build-time crawl into O(tree depth) - the
+ * difference between finishing well inside Next's static-generation timeout
+ * and running past it. Safe to do unconditionally because serverJson never
+ * rejects (see its own doc comment) - a failed fetch resolves to null and is
+ * skipped, exactly like the old one-at-a-time version already did.
  */
 async function crawlCatalog(): Promise<{ categories: Set<string>; services: Set<string> }> {
   const categories = new Set<string>();
   const services = new Set<string>();
 
   const cities = (await serverJson<City[]>("/geography/cities")) ?? [];
-  const queue: string[] = [];
 
-  for (const city of cities) {
-    const summaries = (await serverJson<CategorySummary[]>(`/categories?cityId=${city.id}`)) ?? [];
-    for (const summary of summaries) {
+  const topLevelByCity = await Promise.all(
+    cities.map((city) => serverJson<CategorySummary[]>(`/categories?cityId=${city.id}`)),
+  );
+
+  let frontier: string[] = [];
+  for (const summaries of topLevelByCity) {
+    for (const summary of summaries ?? []) {
       if (!categories.has(summary.slug)) {
         categories.add(summary.slug);
-        queue.push(summary.slug);
+        frontier.push(summary.slug);
       }
     }
   }
 
-  while (queue.length > 0) {
-    const slug = queue.shift()!;
-    const detail = await serverJson<CategoryDetail>(`/categories/${slug}`);
-    if (!detail) continue;
+  while (frontier.length > 0) {
+    const details = await Promise.all(frontier.map((slug) => serverJson<CategoryDetail>(`/categories/${slug}`)));
 
-    const nested = [
-      ...detail.services,
-      ...detail.serviceGroups.flatMap((group) => group.services),
-    ];
-    for (const service of nested) services.add(service.slug);
+    const nextFrontier: string[] = [];
+    for (const detail of details) {
+      if (!detail) continue;
 
-    const children = [
-      ...detail.subcategories,
-      ...detail.subcategoryGroups.flatMap((group) => group.subcategories),
-    ];
-    for (const child of children) {
-      if (!categories.has(child.slug)) {
-        categories.add(child.slug);
-        queue.push(child.slug);
+      const nested = [
+        ...detail.services,
+        ...detail.serviceGroups.flatMap((group) => group.services),
+      ];
+      for (const service of nested) services.add(service.slug);
+
+      const children = [
+        ...detail.subcategories,
+        ...detail.subcategoryGroups.flatMap((group) => group.subcategories),
+      ];
+      for (const child of children) {
+        if (!categories.has(child.slug)) {
+          categories.add(child.slug);
+          nextFrontier.push(child.slug);
+        }
       }
     }
+    frontier = nextFrontier;
   }
 
   return { categories, services };

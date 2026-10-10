@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Alert, Button, Card, CheckboxField, Field, useToast } from "@/components/ui";
 import { FormActions, FormGrid } from "@/components/data-table";
 import { describeError } from "@/lib/api";
@@ -55,7 +55,12 @@ export function ProgramConfigCard({
   const [form, setForm] = useState<NestlyCoinsProgramConfigRequest>(() => toFormValues(config));
 
   // Re-seed when the audience tab changes or a refetch brings new values.
-  useEffect(() => setForm(toFormValues(config)), [config, audience]);
+  // Adjusting state when a prop changes (react.dev/learn/you-might-not-need-an-effect).
+  const [seededFor, setSeededFor] = useState({ config, audience });
+  if (seededFor.config !== config || seededFor.audience !== audience) {
+    setSeededFor({ config, audience });
+    setForm(toFormValues(config));
+  }
 
   const saveMutation = useMutation({
     mutationFn: () => upsertCoinsConfig(audience, form),

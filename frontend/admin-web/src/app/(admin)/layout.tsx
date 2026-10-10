@@ -32,10 +32,13 @@ export default function AuthenticatedLayout({ children }: { children: ReactNode 
   }, []);
 
   // Reaching the destination should dismiss the drawer, not leave it covering
-  // the page that was just navigated to.
-  useEffect(() => {
+  // the page that was just navigated to. Adjusting state when a prop changes
+  // (react.dev/learn/you-might-not-need-an-effect), not an effect.
+  const [navOpenForPathname, setNavOpenForPathname] = useState(pathname);
+  if (pathname !== navOpenForPathname) {
+    setNavOpenForPathname(pathname);
     setNavOpen(false);
-  }, [pathname]);
+  }
 
   useEffect(() => {
     if (!navOpen) return;

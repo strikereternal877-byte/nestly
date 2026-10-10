@@ -29,6 +29,8 @@ public sealed class NestlyDbContext : DbContext
     public DbSet<BookingCompletionProof> BookingCompletionProofs { get; set; }
     public DbSet<PaymentTransaction> PaymentTransactions { get; set; }
     public DbSet<PaymentAttempt> PaymentAttempts { get; set; }
+    public DbSet<PaymentGroup> PaymentGroups { get; set; }
+    public DbSet<WalletTopUp> WalletTopUps { get; set; }
     public DbSet<RefundTransaction> RefundTransactions { get; set; }
     public DbSet<WalletLedgerEntry> WalletLedgerEntries { get; set; }
     public DbSet<PlatformEscrowLedger> PlatformEscrowLedgers { get; set; }
@@ -55,6 +57,10 @@ public sealed class NestlyDbContext : DbContext
     public DbSet<NotificationTemplate> NotificationTemplates { get; set; }
     public DbSet<ExportJob> ExportJobs { get; set; }
     public DbSet<Provider> Providers { get; set; }
+    public DbSet<ProviderStatusHistory> ProviderStatusHistories { get; set; }
+    public DbSet<ProviderNotification> ProviderNotifications { get; set; }
+    public DbSet<ProviderSupportTicket> ProviderSupportTickets { get; set; }
+    public DbSet<ProviderSupportTicketComment> ProviderSupportTicketComments { get; set; }
     public DbSet<ProviderAuthIdentity> ProviderAuthIdentities { get; set; }
     public DbSet<ProviderOtp> ProviderOtps { get; set; }
     public DbSet<ProviderSession> ProviderSessions { get; set; }
@@ -68,6 +74,7 @@ public sealed class NestlyDbContext : DbContext
     public DbSet<BookingProviderAssignment> BookingProviderAssignments { get; set; }
     public DbSet<ProviderEarningLedgerEntry> ProviderEarningLedgerEntries { get; set; }
     public DbSet<ProviderPayout> ProviderPayouts { get; set; }
+    public DbSet<ProviderBankAccount> ProviderBankAccounts { get; set; }
     public DbSet<ProviderBackgroundCheck> ProviderBackgroundChecks { get; set; }
     public DbSet<ProviderLocationPing> ProviderLocationPings { get; set; }
     public DbSet<Referral> Referrals { get; set; }

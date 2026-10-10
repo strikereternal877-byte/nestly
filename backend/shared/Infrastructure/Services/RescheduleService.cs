@@ -1,17 +1,20 @@
 using System.Data;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Logging;
 using Nestly.Application;
 using Nestly.Application.Abstractions.Time;
 using Nestly.Application.Bookings;
+using Nestly.Application.Escrow;
+using Nestly.Application.Notifications;
 using Nestly.Application.Payments;
 using Nestly.Application.ProviderManagement;
 using Nestly.Application.Refunds;
 using Nestly.Application.Reschedules;
+using Nestly.Application.Settings;
 using Nestly.Application.Slots;
+using Nestly.Application.Wallet;
 using Nestly.BuildingBlocks.Results;
 using Nestly.Domain;
-using Nestly.Infrastructure.Options;
 using Nestly.Infrastructure.Persistence;
 
 namespace Nestly.Infrastructure.Services;
@@ -51,7 +54,12 @@ public class RescheduleService : IRescheduleService
     private readonly NestlyDbContext _context;
     private readonly IBusinessClock _businessClock;
     private readonly TimeProvider _timeProvider;
-    private readonly ReschedulePolicyOptions _policy;
+    private readonly IBookingPolicyProvider _policies;
+    private readonly IProviderNotificationPublisher _providerNotifications;
+    private readonly IProviderPlanReservationService _planReservations;
+    private readonly IWalletService _wallet;
+    private readonly IEscrowService _escrow;
+    private readonly ILogger<RescheduleService> _logger;
 
     public RescheduleService(
         IBookingRepository bookingRepository,
@@ -64,7 +72,12 @@ public class RescheduleService : IRescheduleService
         NestlyDbContext context,
         IBusinessClock businessClock,
         TimeProvider timeProvider,
-        IOptions<ReschedulePolicyOptions> policy)
+        IBookingPolicyProvider policies,
+        IProviderNotificationPublisher providerNotifications,
+        IProviderPlanReservationService planReservations,
+        IWalletService wallet,
+        IEscrowService escrow,
+        ILogger<RescheduleService> logger)
     {
         _bookingRepository = bookingRepository;
         _paymentRepository = paymentRepository;
@@ -76,7 +89,12 @@ public class RescheduleService : IRescheduleService
         _context = context;
         _businessClock = businessClock;
         _timeProvider = timeProvider;
-        _policy = policy.Value;
+        _policies = policies;
+        _providerNotifications = providerNotifications;
+        _planReservations = planReservations;
+        _wallet = wallet;
+        _escrow = escrow;
+        _logger = logger;
     }
 
     public async Task<Result<RescheduleEligibilityResponse>> GetEligibilityAsync(Guid customerId, Guid bookingId)
@@ -179,8 +197,50 @@ public class RescheduleService : IRescheduleService
         }
 
         var previousSlot = new BookingSlotSummary(booking.SlotWindowId, booking.SlotWindowNameSnapshot, booking.SlotDate, booking.SlotStartTimeSnapshot, booking.SlotEndTimeSnapshot);
+        // Who was on the job, and under which assignment row, before anything moves: saving the reschedule below
+        // dispatches the auto-assigner in-process, which may hand the job to the same professional again (a new row)
+        // or to somebody else, and the reconcile afterwards has to tell those apart.
+        Guid? previousProviderId = booking.AssignedProviderId;
+        bool hadProfessional = previousProviderId is not null;
+        Guid? previousAssignmentId = hadProfessional
+            ? (await _assignmentRepository.GetActiveByBookingAsync(booking.Id))?.Id
+            : null;
 
         bool movingSlot = previousSlot.SlotWindowId != chosenSlot.SlotWindowId || previousSlot.Date != request.SlotDate;
+
+        var policy = await _policies.GetRescheduleAsync();
+        var cancellationPolicy = await _policies.GetCancellationAsync();
+
+        decimal payableAmount = await ResolvePayableAmountAsync(booking);
+        // The snapshot is a business wall-clock time; lifting it to a real
+        // instant is what makes "how long until the slot" comparable with UTC
+        // now (see IBusinessClock) - subtracting the two directly skewed every
+        // late-reschedule fee decision by the business timezone's offset.
+        DateTime currentSlotStartUtc = _businessClock.ToUtc(booking.SlotDate, booking.SlotStartTimeSnapshot);
+        DateTime now = _timeProvider.GetUtcNow().UtcDateTime;
+        var feeOutcome = RescheduleFeeCalculator.Compute(
+            payableAmount, currentSlotStartUtc - now, policy.LateFeeThresholdHours, policy.LateRescheduleFeePercentage);
+
+        // A customer's own late reschedule is paid for from their wallet, in the same step as the move. An admin moving a
+        // booking never charges the customer, and a "reschedule" that leaves the slot where it was gives them nothing to
+        // pay for. Checked before a seat is taken on the new slot, so a wallet that is too empty costs nothing to find out.
+        // And only while collection is switched on: off, the fee is recorded on the booking and nothing is taken or refused.
+        decimal feeToCollect = policy.CollectLateFeeFromWallet && actor == RescheduleActor.Customer && movingSlot && feeOutcome.IsLate
+            ? feeOutcome.FeeAmount
+            : 0m;
+        if (feeToCollect > 0)
+        {
+            var balance = await _wallet.GetBalanceAsync(booking.CustomerId);
+            if (balance.IsFailure)
+            {
+                return balance.Error;
+            }
+
+            if (balance.Value.Balance < feeToCollect)
+            {
+                return LateFeeWalletShort(feeToCollect, balance.Value.Balance);
+            }
+        }
 
         // Take a seat on the target slot before giving up the current one.
         // Availability above only reports what is free; it does not hold
@@ -196,34 +256,72 @@ public class RescheduleService : IRescheduleService
             }
         }
 
-        decimal payableAmount = await ResolvePayableAmountAsync(booking);
-        // The snapshot is a business wall-clock time; lifting it to a real
-        // instant is what makes "how long until the slot" comparable with UTC
-        // now (see IBusinessClock) - subtracting the two directly skewed every
-        // late-reschedule fee decision by the business timezone's offset.
-        DateTime currentSlotStartUtc = _businessClock.ToUtc(booking.SlotDate, booking.SlotStartTimeSnapshot);
-        DateTime now = _timeProvider.GetUtcNow().UtcDateTime;
-        var feeOutcome = RescheduleFeeCalculator.Compute(
-            payableAmount, currentSlotStartUtc - now, _policy.LateFeeThresholdHours, _policy.LateRescheduleFeePercentage);
-
-        booking.Reschedule(chosenSlot.SlotWindowId, request.SlotDate, chosenSlot.Name, chosenSlot.StartTime, chosenSlot.EndTime, request.Reason);
-        await _bookingRepository.UpdateAsync(booking);
-
-        // Task 290: the slot move above always persists regardless of what
-        // happens to the assignment - only "keep the same professional" can
-        // fail, and it must never take the reschedule itself down with it.
-        booking = await ReconcileProviderAssignmentAfterRescheduleAsync(booking);
-
-        // Only once the move is committed: releasing first would let a
-        // concurrent booking take the seat this reschedule might still need to
-        // roll back to.
-        if (movingSlot)
+        // Debited only once the seat is held, and handed back if anything below fails: the customer pays for a move that
+        // happened, never for one that did not. The debit is the authoritative balance check (the read above was only a
+        // cheap early answer) - it is serialisable against every other wallet write.
+        Guid rescheduleId = Guid.NewGuid();
+        if (feeToCollect > 0)
         {
-            await _slotAvailabilityService.ReleaseSlotAsync(previousSlot.SlotWindowId, previousSlot.Date);
+            var debit = await _wallet.DebitAsync(
+                booking.CustomerId, feeToCollect, WalletSourceType.RescheduleFee, rescheduleId,
+                $"Late reschedule fee for booking {booking.BookingReference}");
+            if (debit.IsFailure)
+            {
+                // The balance moved between the check and the debit (spent elsewhere in the meantime): give the seat back.
+                await _slotAvailabilityService.ReleaseSlotAsync(chosenSlot.SlotWindowId, request.SlotDate);
+                if (debit.Error.Code != "Wallet.InsufficientBalance")
+                {
+                    return debit.Error;
+                }
+
+                var latest = await _wallet.GetBalanceAsync(booking.CustomerId);
+                return LateFeeWalletShort(feeToCollect, latest.IsSuccess ? latest.Value.Balance : 0m);
+            }
         }
 
+        // What cancelling the slot being given up would cost right now, per
+        // the cancellation policy CancellationService itself enforces - not
+        // the separate reschedule-fee policy above. Booking.Reschedule locks
+        // this in as a floor under any future cancellation's fee (see
+        // Booking.LockedCancellationFeeSnapshot's doc comment) so moving the
+        // slot can never be used to erase a cancellation fee already owed.
+        var cancellationOutcomeOnSlotGivenUp = CancellationFeeCalculator.Compute(
+            payableAmount, currentSlotStartUtc - now, cancellationPolicy.FreeCancellationWindowHours, cancellationPolicy.LateCancellationFeePercentage);
+
+        try
+        {
+            booking.Reschedule(
+                chosenSlot.SlotWindowId, request.SlotDate, chosenSlot.Name, chosenSlot.StartTime, chosenSlot.EndTime, request.Reason,
+                cancellationOutcomeOnSlotGivenUp.FeeAmount);
+            await _bookingRepository.UpdateAsync(booking);
+        }
+        catch
+        {
+            // The reservation above already committed independently of this
+            // write (it is its own atomic conditional UPDATE, not part of
+            // any transaction wrapping this method) - if the booking write
+            // itself now fails for any reason (a DB error, a timeout), that
+            // reservation is not rolled back with it and nothing else will
+            // ever give it up. Compensate immediately rather than leaving
+            // the new slot's capacity counter permanently decremented for a
+            // reschedule that never actually happened.
+            if (movingSlot)
+            {
+                await _slotAvailabilityService.ReleaseSlotAsync(chosenSlot.SlotWindowId, request.SlotDate);
+            }
+
+            if (feeToCollect > 0)
+            {
+                await ReturnLateFeeAsync(booking, feeToCollect, rescheduleId);
+            }
+
+            throw;
+        }
+
+        // Recorded as soon as the move is saved - before the provider reconcile below, which can still fail - so the money
+        // that has moved is never without its history row: that row is what a later cancellation counts against its fee.
         var history = new BookingReschedule(
-            Guid.NewGuid(),
+            rescheduleId,
             booking.Id,
             actor,
             request.Reason,
@@ -236,9 +334,42 @@ public class RescheduleService : IRescheduleService
             chosenSlot.StartTime,
             chosenSlot.EndTime,
             feeOutcome.IsLate,
-            feeOutcome.FeeAmount);
+            feeOutcome.FeeAmount,
+            feeToCollect);
 
         await _rescheduleRepository.AddAsync(history);
+
+        if (feeToCollect > 0)
+        {
+            // Internal bookkeeping only: the wallet debit above is the real money movement and the history row the proof
+            // of it, so a failure here is logged for reconciliation rather than turned into a failed reschedule.
+            try
+            {
+                await _escrow.RecordRescheduleFeeAsync(booking.Id, rescheduleId, feeToCollect);
+            }
+            catch (Exception exception)
+            {
+                _logger.LogError(
+                    exception,
+                    "Late-reschedule fee {FeeAmount} for booking {BookingId} (reschedule {RescheduleId}) was taken from the wallet but could not be booked as platform revenue.",
+                    feeToCollect, booking.Id, rescheduleId);
+            }
+        }
+
+        // Task 290: the slot move above always persists regardless of what
+        // happens to the assignment - only "keep the same professional" can
+        // fail, and it must never take the reschedule itself down with it.
+        ProfessionalAfterReschedule professional;
+        (booking, professional) = await ReconcileProviderAssignmentAfterRescheduleAsync(
+            booking, previousSlot, previousProviderId, previousAssignmentId, respectPlanReservations: actor == RescheduleActor.Customer);
+
+        // Only once the move is committed: releasing first would let a
+        // concurrent booking take the seat this reschedule might still need to
+        // roll back to.
+        if (movingSlot)
+        {
+            await _slotAvailabilityService.ReleaseSlotAsync(previousSlot.SlotWindowId, previousSlot.Date);
+        }
 
         int reschedulesUsed = await _rescheduleRepository.CountByBookingAsync(booking.Id);
 
@@ -250,8 +381,43 @@ public class RescheduleService : IRescheduleService
             feeOutcome.IsLate,
             feeOutcome.FeeAmount,
             reschedulesUsed,
-            _policy.MaxReschedulesPerBooking,
-            history.CreatedAtUtc));
+            policy.MaxReschedulesPerBooking,
+            history.CreatedAtUtc,
+            policy.LateFeeThresholdHours,
+            policy.LateRescheduleFeePercentage,
+            previousSlot.Date.ToDateTime(TimeOnly.FromTimeSpan(previousSlot.StartTime)).AddHours(-(double)policy.LateFeeThresholdHours),
+            payableAmount,
+            booking.LockedCancellationFeeSnapshot,
+            hadProfessional ? professional : ProfessionalAfterReschedule.NoneAssigned,
+            feeToCollect));
+    }
+
+    /// <summary>The customer's wallet cannot cover the late fee. 422 with the numbers, so the screen can say exactly what to add.</summary>
+    private static Error LateFeeWalletShort(decimal fee, decimal balance) => Error.Business(
+        "Reschedule.LateFeeWalletShort",
+        $"Rescheduling now is a late reschedule with a fee of \u20B9{fee:0.00}, taken from your wallet. Your wallet has \u20B9{balance:0.00} - " +
+        $"add \u20B9{fee - balance:0.00} to reschedule at this time, or cancel the booking instead.");
+
+    /// <summary>
+    /// Puts a late fee back in the wallet after the reschedule it was taken for failed to save. Best effort by necessity - this
+    /// runs while the original failure is already propagating, and must not replace it - so a failure here is logged loudly
+    /// with everything needed to return the money by hand.
+    /// </summary>
+    private async Task ReturnLateFeeAsync(Booking booking, decimal fee, Guid rescheduleId)
+    {
+        try
+        {
+            await _wallet.CreditAsync(
+                booking.CustomerId, fee, WalletSourceType.RescheduleFeeReversal, rescheduleId,
+                $"Late reschedule fee returned - booking {booking.BookingReference} could not be rescheduled");
+        }
+        catch (Exception exception)
+        {
+            _logger.LogCritical(
+                exception,
+                "Late-reschedule fee {FeeAmount} was taken from customer {CustomerId}'s wallet for booking {BookingId} (reschedule {RescheduleId}) but the reschedule failed and the fee could not be returned - return it by hand.",
+                fee, booking.CustomerId, booking.Id, rescheduleId);
+        }
     }
 
     /// <summary>
@@ -263,13 +429,44 @@ public class RescheduleService : IRescheduleService
     /// slot). Returns the booking to keep using - normally the same instance,
     /// but a fresh reload after the race-losing branch below.
     /// </summary>
-    private async Task<Booking> ReconcileProviderAssignmentAfterRescheduleAsync(Booking booking)
+    ///
+    /// <para>
+    /// Two things beyond task 290's original rule. A customer's reschedule is not an admin override, so the professional
+    /// is also let go when the new time is one a recurring plan of someone else holds them for
+    /// (<see cref="IProviderPlanReservationService"/>) - an admin's own reschedule keeps the older, conflict-only rule.
+    /// And the professional is told either way: kept, they are sent the new time; let go, they are told the job is no
+    /// longer theirs - without it a job quietly changed time under an accepted assignment, or quietly vanished from a
+    /// schedule.
+    /// </para>
+    ///
+    /// <para>
+    /// "Who is on the job" is judged against <paramref name="previousProviderId"/>, captured before the move, not read off
+    /// the booking now: saving the move has already run the auto-assigner, which offers the job to the professional who was
+    /// on it first (<see cref="ProviderAutoAssignmentHandler"/>) and only otherwise to somebody else. So a job that is now
+    /// somebody else's is reported as let go, and the professional it was taken from is told - the new one has been sent
+    /// the job as an offer by the assigner itself. A professional re-offered the job by the assigner already holds a message
+    /// with the new time (<paramref name="previousAssignmentId"/> no longer being the live row is how that shows), so a
+    /// second one is not sent.
+    /// </para>
+    private async Task<(Booking Booking, ProfessionalAfterReschedule Professional)> ReconcileProviderAssignmentAfterRescheduleAsync(
+        Booking booking, BookingSlotSummary previousSlot, Guid? previousProviderId, Guid? previousAssignmentId, bool respectPlanReservations)
     {
-        if (booking.AssignedProviderId is not { } providerId)
+        if (previousProviderId is not { } formerProviderId)
         {
-            return booking;
+            // Nobody was on the job, so there is nobody to keep or let go. Anyone on it now was offered it by the
+            // auto-assigner just now, and has been told so.
+            return (booking, ProfessionalAfterReschedule.NoneAssigned);
         }
 
+        if (booking.AssignedProviderId != formerProviderId)
+        {
+            // The assigner gave the job to somebody else (the professional could not take the new time and another
+            // was offered it) - the one it was taken from has to be told, nothing else would.
+            await TellProfessionalAsync(formerProviderId, booking, previousSlot, kept: false, alreadyOfferedTheNewTime: false);
+            return (booking, ProfessionalAfterReschedule.Released);
+        }
+
+        var providerId = formerProviderId;
         var activeAssignment = await _assignmentRepository.GetActiveByBookingAsync(booking.Id);
         if (activeAssignment is null)
         {
@@ -278,8 +475,12 @@ public class RescheduleService : IRescheduleService
             // carry forward silently.
             booking.AssignProvider(null);
             await _bookingRepository.UpdateAsync(booking);
-            return booking;
+            return (booking, ProfessionalAfterReschedule.NoneAssigned);
         }
+
+        // Read before the transaction opens: whether another plan holds this professional at the new time.
+        bool reservedByAnotherPlan = respectPlanReservations
+            && await _planReservations.IsReservedByAnotherPlanAsync(providerId, booking.Id);
 
         // Task 288's own reasoning applies verbatim: the read this decides on
         // and the write that acts on it must not be split by a concurrent
@@ -292,7 +493,7 @@ public class RescheduleService : IRescheduleService
 
         try
         {
-            if (conflict is null)
+            if (conflict is null && !reservedByAnotherPlan)
             {
                 // Only announce the status when the booking is not already
                 // sitting on it. Booking.Reschedule leaves it at
@@ -324,7 +525,12 @@ public class RescheduleService : IRescheduleService
 
             await _bookingRepository.UpdateAsync(booking);
             await dbTransaction.CommitAsync();
-            return booking;
+
+            bool kept = conflict is null && !reservedByAnotherPlan;
+            await TellProfessionalAsync(
+                providerId, booking, previousSlot, kept,
+                alreadyOfferedTheNewTime: kept && activeAssignment.Id != previousAssignmentId);
+            return (booking, kept ? ProfessionalAfterReschedule.Kept : ProfessionalAfterReschedule.Released);
         }
         catch (DbUpdateException)
         {
@@ -354,8 +560,41 @@ public class RescheduleService : IRescheduleService
             }
 
             await _bookingRepository.UpdateAsync(freshBooking);
-            return freshBooking;
+            await TellProfessionalAsync(providerId, freshBooking, previousSlot, kept: false, alreadyOfferedTheNewTime: false);
+            return (freshBooking, ProfessionalAfterReschedule.Released);
         }
+    }
+
+    /// <summary>
+    /// Best effort, after the change is committed (the publisher never throws): a professional is told when a job
+    /// assigned to them moves, or when it is taken off them because the new time does not work.
+    /// </summary>
+    private Task TellProfessionalAsync(
+        Guid providerId, Booking booking, BookingSlotSummary previousSlot, bool kept, bool alreadyOfferedTheNewTime)
+    {
+        if (kept && alreadyOfferedTheNewTime)
+        {
+            // The assigner re-offered them the job for the new time a moment ago ("New job offer ... respond before it
+            // expires"); a second message about the same change is noise.
+            return Task.CompletedTask;
+        }
+
+        string was = $"{previousSlot.Date:d MMM} at {previousSlot.StartTime:hh\\:mm}-{previousSlot.EndTime:hh\\:mm}";
+        string now = $"{booking.SlotDate:d MMM} at {booking.SlotStartTimeSnapshot:hh\\:mm}-{booking.SlotEndTimeSnapshot:hh\\:mm}";
+
+        return kept
+            ? _providerNotifications.NotifyAsync(
+                providerId,
+                ProviderNotificationType.JobRescheduled,
+                "Job rescheduled",
+                $"The booking was moved from {was} to {now}. It is still assigned to you - please check the new time works.",
+                deepLinkPath: $"/jobs/{booking.Id}")
+            : _providerNotifications.NotifyAsync(
+                providerId,
+                ProviderNotificationType.JobUnassigned,
+                "Job taken off your schedule",
+                $"The booking on {was} was moved to {now}, which does not work with your schedule, so it is no longer assigned to you. Nothing else to do.",
+                deepLinkPath: "/jobs");
     }
 
     private void DetachPendingAssignmentWrites()
@@ -373,18 +612,20 @@ public class RescheduleService : IRescheduleService
 
     private async Task<RescheduleEligibilityResponse> EvaluateEligibilityAsync(Booking booking)
     {
+        var policy = await _policies.GetRescheduleAsync();
+
         if (!BookingLifecycle.IsValidTransition(booking.Status, BookingStatus.Rescheduled))
         {
             return new RescheduleEligibilityResponse(
-                false, $"A booking in status '{booking.Status}' cannot be rescheduled.", 0, _policy.MaxReschedulesPerBooking, _policy.MinHoursBeforeSlot);
+                false, $"This booking is \"{BookingStatusMapper.LabelFor(booking.Status)}\", so it can't be rescheduled.", 0, policy.MaxReschedulesPerBooking, policy.MinHoursBeforeSlot);
         }
 
         int reschedulesUsed = await _rescheduleRepository.CountByBookingAsync(booking.Id);
-        if (reschedulesUsed >= _policy.MaxReschedulesPerBooking)
+        if (reschedulesUsed >= policy.MaxReschedulesPerBooking)
         {
             return new RescheduleEligibilityResponse(
-                false, $"This booking has already been rescheduled the maximum of {_policy.MaxReschedulesPerBooking} time(s).",
-                reschedulesUsed, _policy.MaxReschedulesPerBooking, _policy.MinHoursBeforeSlot);
+                false, $"This booking has already been rescheduled the maximum of {policy.MaxReschedulesPerBooking} time(s).",
+                reschedulesUsed, policy.MaxReschedulesPerBooking, policy.MinHoursBeforeSlot);
         }
 
         // Business wall-clock lifted to a real instant before meeting UTC now
@@ -393,13 +634,44 @@ public class RescheduleService : IRescheduleService
         DateTime now = _timeProvider.GetUtcNow().UtcDateTime;
         double hoursUntilSlot = (slotStartUtc - now).TotalHours;
 
-        if (hoursUntilSlot < (double)_policy.MinHoursBeforeSlot)
+        if (hoursUntilSlot < (double)policy.MinHoursBeforeSlot)
         {
             return new RescheduleEligibilityResponse(
-                false, "The reschedule window for this booking's slot has expired.", reschedulesUsed, _policy.MaxReschedulesPerBooking, _policy.MinHoursBeforeSlot);
+                false, "The reschedule window for this booking's slot has expired.", reschedulesUsed, policy.MaxReschedulesPerBooking, policy.MinHoursBeforeSlot);
         }
 
-        return new RescheduleEligibilityResponse(true, null, reschedulesUsed, _policy.MaxReschedulesPerBooking, _policy.MinHoursBeforeSlot);
+        // Eligible: say what a reschedule made right now would be recorded as and what it would lock in.
+        decimal payable = await ResolvePayableAmountAsync(booking);
+        DateTime slotStartLocal = booking.SlotDate.ToDateTime(TimeOnly.FromTimeSpan(booking.SlotStartTimeSnapshot));
+        TimeSpan untilSlot = slotStartUtc - now;
+        var cancellationPolicy = await _policies.GetCancellationAsync();
+        var lateNow = RescheduleFeeCalculator.Compute(payable, untilSlot, policy.LateFeeThresholdHours, policy.LateRescheduleFeePercentage);
+        var cancellationFeeToday = CancellationFeeCalculator.Compute(
+            payable, untilSlot, cancellationPolicy.FreeCancellationWindowHours, cancellationPolicy.LateCancellationFeePercentage);
+
+        // The late fee comes out of the wallet when the customer confirms, so say now whether the wallet can cover it.
+        decimal walletBalance = 0m;
+        decimal shortfall = 0m;
+        if (policy.CollectLateFeeFromWallet && lateNow.IsLate && lateNow.FeeAmount > 0)
+        {
+            var balance = await _wallet.GetBalanceAsync(booking.CustomerId);
+            walletBalance = balance.IsSuccess ? balance.Value.Balance : 0m;
+            shortfall = Math.Max(0m, lateNow.FeeAmount - walletBalance);
+        }
+
+        return new RescheduleEligibilityResponse(
+            true, null, reschedulesUsed, policy.MaxReschedulesPerBooking, policy.MinHoursBeforeSlot,
+            LateFeeThresholdHours: policy.LateFeeThresholdHours,
+            LateRescheduleFeePercentage: policy.LateRescheduleFeePercentage,
+            FreeRescheduleEndsAt: slotStartLocal.AddHours(-(double)policy.LateFeeThresholdHours),
+            LastRescheduleAt: slotStartLocal.AddHours(-(double)policy.MinHoursBeforeSlot),
+            IsLateNow: lateNow.IsLate,
+            LateFeeIfRescheduledNow: lateNow.FeeAmount,
+            FeeBasisAmount: payable,
+            CancellationFeeLockedIn: Math.Max(booking.LockedCancellationFeeSnapshot, cancellationFeeToday.FeeAmount),
+            WalletBalance: walletBalance,
+            LateFeeShortfall: shortfall,
+            LateFeeIsCollected: policy.CollectLateFeeFromWallet);
     }
 
     /// <summary>

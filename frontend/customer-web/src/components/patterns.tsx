@@ -7,6 +7,7 @@ import { useVisibleAccountLinks } from "@/components/SiteHeader";
 import { Badge, Card, Skeleton, cx } from "@/components/ui";
 import type { BadgeTone } from "@/components/ui";
 import { SPRING } from "@/components/motion";
+import { professionalProgress } from "@/lib/booking-actions";
 import { motion } from "motion/react";
 import {
   BookingProviderAssignmentStatus,
@@ -76,6 +77,23 @@ export function formatCalendarDate(iso: string): string {
 /** A ".NET TimeSpan" `hh:mm:ss` pair as "09:00–11:00". */
 export function formatTimeRange(startTime: string, endTime: string): string {
   return `${startTime.slice(0, 5)}–${endTime.slice(0, 5)}`;
+}
+
+/**
+ * A business-local wall-clock date-time with no zone suffix ("2026-10-03T05:00:00" - what the API sends for a
+ * moment that is read against a slot's own time) as "Sat, 3 Oct, 05:00 AM". Parsed as local time on purpose: it is
+ * already the business's wall clock, and treating it as UTC would shift it by the viewer's offset.
+ */
+export function formatLocalDateTime(local: string): string {
+  const date = new Date(local);
+  if (Number.isNaN(date.getTime())) return local;
+  return date.toLocaleString(undefined, {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 /** An ISO instant as a local date + time, for timeline and ledger rows. */
@@ -228,6 +246,8 @@ export function recurringPlanStatusTone(status: RecurringBookingPlanStatus): Bad
  */
 export function recurringFrequencyLabel(frequency: RecurringBookingRecurrenceFrequency): string {
   switch (frequency) {
+    case RecurringBookingRecurrenceFrequency.Daily:
+      return "Every day";
     case RecurringBookingRecurrenceFrequency.Weekly:
       return "Every week";
     case RecurringBookingRecurrenceFrequency.Biweekly:
@@ -239,11 +259,12 @@ export function recurringFrequencyLabel(frequency: RecurringBookingRecurrenceFre
   }
 }
 
-/** Picker options, in the enum's own order. */
+/** Picker options, shortest interval first (not the enum's ordinal order - Daily was appended last for wire compatibility). */
 export const RECURRING_FREQUENCY_OPTIONS: {
   value: RecurringBookingRecurrenceFrequency;
   label: string;
 }[] = [
+  RecurringBookingRecurrenceFrequency.Daily,
   RecurringBookingRecurrenceFrequency.Weekly,
   RecurringBookingRecurrenceFrequency.Biweekly,
   RecurringBookingRecurrenceFrequency.Monthly,
@@ -827,6 +848,7 @@ export function Timeline({
   providerAssignmentStatus: BookingProviderAssignmentStatus | null;
 }) {
   const hasAssignment = providerAssignmentStatus !== null;
+  const progress = professionalProgress(currentStatus, providerAssignmentStatus);
 
   if (entries.length === 0 && !hasAssignment) {
     return <p className="text-sm text-fg-muted">No status history yet.</p>;
@@ -860,13 +882,15 @@ export function Timeline({
           filled
           isCurrent
           showRail={false}
-          title={providerAssignmentLabel(providerAssignmentStatus)}
+          title={progress?.label ?? providerAssignmentLabel(providerAssignmentStatus)}
           meta="Professional assignment"
         >
           <p className="mt-1 text-sm text-fg-muted">
-            {providerAssignmentStatus === BookingProviderAssignmentStatus.Accepted
-              ? "Your professional has confirmed and will arrive in your slot window."
-              : "This updates on its own — no action needed from you."}
+            {progress
+              ? progress.detail
+              : providerAssignmentStatus === BookingProviderAssignmentStatus.Accepted
+                ? "Your professional has confirmed and will arrive in your slot window."
+                : "This updates on its own — no action needed from you."}
           </p>
         </TimelineNode>
       ) : null}

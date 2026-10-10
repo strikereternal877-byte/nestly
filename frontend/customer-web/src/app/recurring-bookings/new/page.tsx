@@ -109,6 +109,8 @@ function NewRecurringBookingPlanScreen() {
   useEffect(() => {
     if (selectedAddressId !== null || !addressesQuery.data) return;
     const preferred = addressesQuery.data.find((a) => a.isDefault) ?? addressesQuery.data[0];
+    // Reacting to the addresses query arriving, not a render-time prop change.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (preferred) setSelectedAddressId(preferred.id);
   }, [addressesQuery.data, selectedAddressId]);
 
@@ -145,17 +147,16 @@ function NewRecurringBookingPlanScreen() {
       return;
     }
 
+    // Neither a count nor an end date is allowed: the plan then runs until
+    // the customer cancels it.
     const trimmedCount = occurrenceCount.trim();
-    if (!trimmedCount && !endDate) {
-      setFormError("Set either a number of visits or an end date, so the plan is bounded.");
-      return;
-    }
 
     // Local midnight, not `new Date(selectedDate)` - that parses a bare
     // YYYY-MM-DD as UTC and shifts the derived weekday/day-of-month by one
     // for anyone behind UTC.
     const anchor = new Date(`${selectedDate}T00:00:00`);
     const isMonthly = frequency === RecurringBookingRecurrenceFrequency.Monthly;
+    const isDaily = frequency === RecurringBookingRecurrenceFrequency.Daily;
 
     const body: CreateRecurringBookingPlanRequestBody = {
       serviceId: service.id,
@@ -165,7 +166,7 @@ function NewRecurringBookingPlanScreen() {
       slotWindowId: selectedSlotWindowId,
       quantity,
       frequency,
-      recurrenceDayOfWeek: isMonthly ? null : anchor.getDay(),
+      recurrenceDayOfWeek: isMonthly || isDaily ? null : anchor.getDay(),
       recurrenceDayOfMonth: isMonthly ? anchor.getDate() : null,
       startDate: selectedDate,
       endDate: endDate || null,
@@ -220,9 +221,11 @@ function NewRecurringBookingPlanScreen() {
 
   const anchorDate = new Date(`${selectedDate}T00:00:00`);
   const dayLabel =
-    frequency === RecurringBookingRecurrenceFrequency.Monthly
-      ? `day ${anchorDate.getDate()} of the month`
-      : DAY_OF_WEEK_LABELS[anchorDate.getDay()];
+    frequency === RecurringBookingRecurrenceFrequency.Daily
+      ? "day"
+      : frequency === RecurringBookingRecurrenceFrequency.Monthly
+        ? `day ${anchorDate.getDate()} of the month`
+        : DAY_OF_WEEK_LABELS[anchorDate.getDay()];
 
   return (
     <main className="flex w-full flex-col animate-rise">
@@ -359,8 +362,8 @@ function NewRecurringBookingPlanScreen() {
           </div>
 
           <p className="text-xs leading-relaxed text-fg-subtle">
-            Set at least one so the plan has a definite end — you can always cancel early from the
-            manage screen.
+            Leave both empty and the plan keeps going until you cancel it — pause or cancel any time
+            from the manage screen.
           </p>
         </div>
       </Card>

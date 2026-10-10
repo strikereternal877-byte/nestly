@@ -16,7 +16,7 @@ public class RecurringPlanProviderContinuityService : IRecurringPlanProviderCont
     /// - counts, because the customer has been told who is coming and expects
     /// the same person next time.
     /// </summary>
-    private static readonly HashSet<BookingStatus> NonPrecedentStatuses =
+    internal static readonly HashSet<BookingStatus> NonPrecedentStatuses =
     [
         BookingStatus.CancelledByCustomer,
         BookingStatus.CancelledByAdmin,

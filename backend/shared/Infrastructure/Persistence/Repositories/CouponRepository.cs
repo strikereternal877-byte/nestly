@@ -142,6 +142,17 @@ public class CouponRepository : ICouponRepository
         return affected == 1;
     }
 
+    public async Task ReleaseRedemptionAsync(Guid couponId, Guid customerId)
+    {
+        await _context.Coupons
+            .Where(c => c.Id == couponId && c.RedemptionCount > 0)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(c => c.RedemptionCount, c => c.RedemptionCount - 1));
+
+        await _context.Set<CouponCustomerRedemptionCounter>()
+            .Where(c => c.CouponId == couponId && c.CustomerId == customerId && c.ReservedCount > 0)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(c => c.ReservedCount, c => c.ReservedCount - 1));
+    }
+
     public async Task AddAsync(Coupon coupon)
     {
         await _context.Coupons.AddAsync(coupon);

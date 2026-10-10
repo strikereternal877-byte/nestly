@@ -5,6 +5,7 @@ using Nestly.Application.Catalog;
 using Nestly.Application.Coupons;
 using Nestly.Application.Pricing;
 using Nestly.Application.Serviceability;
+using Nestly.Application.Settings;
 using Nestly.Application.Slots;
 using Nestly.Application.Subscriptions;
 using Nestly.Application.Wallet;
@@ -33,6 +34,7 @@ public class BookingSummaryService : IBookingSummaryService
     private readonly IWalletService _walletService;
     private readonly IServiceabilityRepository _serviceabilityRepository;
     private readonly BookingOptions _bookingOptions;
+    private readonly IPlatformRules _platformRules;
 
     public BookingSummaryService(
         IServiceRepository serviceRepository,
@@ -45,8 +47,10 @@ public class BookingSummaryService : IBookingSummaryService
         ISubscriptionBenefitService subscriptionBenefitService,
         IWalletService walletService,
         IServiceabilityRepository serviceabilityRepository,
-        IOptions<BookingOptions> bookingOptions)
+        IOptions<BookingOptions> bookingOptions,
+        IPlatformRules? platformRules = null)
     {
+        _platformRules = platformRules ?? NoPlatformRules.Instance;
         _serviceabilityRepository = serviceabilityRepository;
         _bookingOptions = bookingOptions.Value;
         _serviceRepository = serviceRepository;
@@ -199,7 +203,17 @@ public class BookingSummaryService : IBookingSummaryService
         decimal walletApplied = 0m;
         if (request.ApplyWalletCredit)
         {
-            walletApplied = Math.Min(walletBalance, finalPayable);
+            // Wallet rules: a cap on how much of one booking the wallet may pay for. Rounded down to the paisa, so the share
+            // the gateway is asked for is never short by a rounding hair; 100 (the seeded value) is no cap at all.
+            decimal walletShare = finalPayable;
+            var walletRules = await _platformRules.GetWalletAsync();
+            if (walletRules is not null && walletRules.MaxWalletUsagePercentagePerBooking < 100m)
+            {
+                walletShare = Math.Round(
+                    finalPayable * walletRules.MaxWalletUsagePercentagePerBooking / 100m, 2, MidpointRounding.ToZero);
+            }
+
+            walletApplied = Math.Min(walletBalance, walletShare);
             finalPayable = Math.Max(0, finalPayable - walletApplied);
         }
 

@@ -14,7 +14,10 @@ test.describe("Admin sign-in", () => {
     await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
 
     await page.getByLabel("Email").fill("dev-admin@nestly.local");
-    await page.getByLabel("Password").fill("E2eTest!Passw0rd");
+    // exact: true - a bare substring match also resolves the "Show password"
+    // toggle button (its own aria-label contains "password"), which is a
+    // Playwright strict-mode violation.
+    await page.getByLabel("Password", { exact: true }).fill("E2eTest!Passw0rd");
     await page.getByRole("button", { name: "Sign in" }).click();
 
     await page.waitForURL(/\/dashboard/);
@@ -25,7 +28,7 @@ test.describe("Admin sign-in", () => {
     await page.goto("/login");
 
     await page.getByLabel("Email").fill("dev-admin@nestly.local");
-    await page.getByLabel("Password").fill("WrongPassword!123");
+    await page.getByLabel("Password", { exact: true }).fill("WrongPassword!123");
     await page.getByRole("button", { name: "Sign in" }).click();
 
     await expect(page.getByText("Invalid email or password.")).toBeVisible();

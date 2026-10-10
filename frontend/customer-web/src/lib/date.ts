@@ -57,6 +57,33 @@ export function isoDateOffsetFromToday(offsetDays: number): string {
  * booked date would have the scheduler book a second, duplicate visit for the
  * day the customer is already paying for.
  */
+/** Length of one prepaid cycle of an "until I cancel" plan - mirrors the API's `RecurringBookings:PrepaidCycleDays` default. Only used to estimate the total shown before checkout; the payment page shows the real figure. */
+export const PREPAID_CYCLE_DAYS = 30;
+
+/**
+ * How many visits one prepaid cycle of an open-ended plan holds, counting the booking placed with
+ * the plan: that booking, plus every repeat that falls inside the cycle (and always at least the
+ * first repeat, however long the interval).
+ */
+export function openEndedCycleVisitCount(
+  firstDate: string,
+  frequency: RecurringBookingRecurrenceFrequency,
+): number {
+  const cycleEndDate = new Date(`${firstDate}T00:00:00`);
+  cycleEndDate.setDate(cycleEndDate.getDate() + PREPAID_CYCLE_DAYS - 1);
+  const cycleEnd = toLocalIsoDate(cycleEndDate);
+
+  const firstRepeat = addRecurrenceInterval(firstDate, frequency);
+  const through = firstRepeat > cycleEnd ? firstRepeat : cycleEnd;
+
+  let repeats = 0;
+  for (let date = firstRepeat; date <= through; date = addRecurrenceInterval(date, frequency)) {
+    repeats += 1;
+  }
+
+  return 1 + repeats;
+}
+
 export function addRecurrenceInterval(
   isoDate: string,
   frequency: RecurringBookingRecurrenceFrequency,
@@ -77,8 +104,12 @@ export function addRecurrenceInterval(
     return toLocalIsoDate(target);
   }
 
-  date.setDate(
-    date.getDate() + (frequency === RecurringBookingRecurrenceFrequency.Biweekly ? 14 : 7),
-  );
+  const stepDays =
+    frequency === RecurringBookingRecurrenceFrequency.Daily
+      ? 1
+      : frequency === RecurringBookingRecurrenceFrequency.Biweekly
+        ? 14
+        : 7;
+  date.setDate(date.getDate() + stepDays);
   return toLocalIsoDate(date);
 }

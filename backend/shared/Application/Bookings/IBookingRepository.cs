@@ -2,6 +2,13 @@ using Nestly.Domain;
 
 namespace Nestly.Application.Bookings;
 
+/// <summary>
+/// One visit of a recurring plan, reduced to what a plan card needs - read in bulk for several plans in one query
+/// instead of loading each plan's visits as full aggregates.
+/// </summary>
+public record PlanVisitSummary(
+    Guid PlanId, Guid BookingId, DateOnly SlotDate, BookingStatus Status, decimal TotalPayable, decimal WalletCreditApplied);
+
 public interface IBookingRepository
 {
     Task AddAsync(Booking booking);
@@ -72,14 +79,68 @@ public interface IBookingRepository
     /// </summary>
     Task<IReadOnlyList<Booking>> ListByRecurringPlanAsync(Guid recurringBookingPlanId);
 
+    /// <summary>
+    /// The visits of several recurring plans dated on or after <paramref name="fromDate"/>, in one query (the plan list
+    /// would otherwise load each plan's whole history). Bounded by the date because a long-running daily plan
+    /// accumulates a booking a day.
+    /// </summary>
+    Task<IReadOnlyList<PlanVisitSummary>> ListVisitSummariesByPlansAsync(IReadOnlyCollection<Guid> planIds, DateOnly fromDate);
+
     /// <summary>Nestly Coins' reorder check (docs/NESTLY-COINS.md GUIDELINES #2, task 201): does this customer have any OTHER Completed booking besides <paramref name="excludingBookingId"/>? A dedicated count query, mirroring <c>IReferralRepository.CountRewardedByReferrerAsync</c>'s convention, rather than listing and filtering full booking rows client-side.</summary>
     Task<int> CountCompletedByCustomerAsync(Guid customerId, Guid excludingBookingId);
 
     /// <summary>Nestly Coins' reorder check, provider side (docs/NESTLY-COINS.md GUIDELINES #2, task 201): does this provider have any OTHER Completed booking besides <paramref name="excludingBookingId"/>?</summary>
     Task<int> CountCompletedByAssignedProviderAsync(Guid providerId, Guid excludingBookingId);
 
-    /// <summary>Task 240: PaymentPending bookings created before <paramref name="olderThanUtc"/> - BookingExpirySweepJob's candidate set. Still PaymentPending only; one that already moved to Confirmed/PaymentFailed/CancelledByCustomer never matches regardless of age.</summary>
-    Task<IReadOnlyList<Booking>> ListStalePaymentPendingAsync(DateTime olderThanUtc);
+    /// <summary>
+    /// Task 240: PaymentPending bookings created before <paramref name="olderThanUtc"/>
+    /// - BookingExpirySweepJob's candidate set. Still PaymentPending only; one
+    /// that already moved to Confirmed/PaymentFailed/CancelledByCustomer never
+    /// matches regardless of age.
+    ///
+    /// <para>
+    /// A recurring-plan occurrence (<see cref="Booking.RecurringBookingPlanId"/>
+    /// non-null) is matched against <paramref name="recurringOlderThanUtc"/>
+    /// instead - its own, much longer, cutoff - because it is created
+    /// unattended, days ahead of the visit, rather than while a customer
+    /// waits on a checkout screen. See
+    /// <see cref="Nestly.Infrastructure.Options.RecurringBookingOptions.PaymentWindowHours"/>'s
+    /// doc comment for why the two cutoffs must differ.
+    /// </para>
+    /// </summary>
+    Task<IReadOnlyList<Booking>> ListStalePaymentPendingAsync(DateTime olderThanUtc, DateTime recurringOlderThanUtc);
+
+    /// <summary>
+    /// Recurring-booking payment-timing fix: every <see cref="BookingStatus.PaymentPending"/>
+    /// or <see cref="BookingStatus.PaymentFailed"/> booking with a non-null
+    /// <see cref="Booking.RecurringBookingPlanId"/> - <c>RecurringOccurrenceAutoChargeJob</c>'s
+    /// full candidate set, before it filters by the owning plan's
+    /// <c>RecurringBookingPlan.AutoChargeEnabled</c> flag and its own
+    /// attempt-count/backoff timing.
+    ///
+    /// <para>
+    /// PaymentFailed is included deliberately, not an oversight: a declined
+    /// gateway attempt moves the booking there, not back to PaymentPending
+    /// (see <c>PaymentWebhookService</c>) - <see cref="IPaymentService.CreateOrderAsync"/>
+    /// already knows how to retry from PaymentFailed (it transitions the
+    /// booking back to PaymentPending itself before minting a new gateway
+    /// order), so the job only needs to find the booking again, not handle
+    /// the retry transition itself. Without PaymentFailed here, a single
+    /// declined attempt would make every later retry attempt on this
+    /// occurrence permanently unreachable.
+    /// </para>
+    ///
+    /// <para>
+    /// Not narrowed to auto-charge-enabled plans here - same "small, bounded
+    /// operational set, no join needed" reasoning as
+    /// <see cref="ListAwaitingPaymentAsync"/>, and the job reads each
+    /// occurrence's plan anyway to re-check <c>AutoChargeEnabled</c> fresh (a
+    /// customer can turn it off between the occurrence's creation and this
+    /// job's next tick). Tracked, not <see cref="ListAwaitingPaymentAsync"/>'s
+    /// AsNoTracking: the job transitions and saves what it loads here.
+    /// </para>
+    /// </summary>
+    Task<IReadOnlyList<Booking>> ListRecurringPaymentPendingAsync();
 
     /// <summary>
     /// Task 333: <see cref="BookingStatus.Confirmed"/> bookings whose slot

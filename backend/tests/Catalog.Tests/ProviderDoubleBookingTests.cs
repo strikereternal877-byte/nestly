@@ -121,6 +121,7 @@ public sealed class ProviderDoubleBookingTests : IClassFixture<TestDatabase>
         new BookingProviderAssignmentRepository(context),
         new ProviderScheduleConflictService(context, TestServices.Occupancy()),
         Options.Create(new AutoAssignmentOptions()),
+        TestServices.ProviderNotificationPublisher(context),
         context);
 
     private static ProviderAssignmentEligibilityService BuildEligibilityService(NestlyDbContext context) => new(

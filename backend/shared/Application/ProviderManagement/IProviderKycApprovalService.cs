@@ -14,6 +14,9 @@ namespace Nestly.Application.ProviderManagement;
 /// </summary>
 public interface IProviderKycApprovalService
 {
+    /// <summary>The admin KYC verification queue: every document still Pending, across every provider, oldest submission first - see <see cref="ProviderKycDocumentQueueItemResponse"/>.</summary>
+    Task<IReadOnlyList<ProviderKycDocumentQueueItemResponse>> ListPendingDocumentsAsync(CancellationToken cancellationToken = default);
+
     Task<Result<ProviderKycDocumentResponse>> ApproveDocumentAsync(Guid documentId, Guid adminUserId);
 
     Task<Result<ProviderKycDocumentResponse>> RejectDocumentAsync(Guid documentId, Guid adminUserId, RejectProviderKycDocumentRequest request);

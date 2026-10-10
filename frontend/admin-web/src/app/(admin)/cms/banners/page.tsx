@@ -4,6 +4,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tansta
 import { useEffect, useState } from "react";
 import { Button, Card, PageHeading, Select } from "@/components/ui";
 import { FilterBar, Pagination, countActiveFilters } from "@/components/data-table";
+import { useResetOnChange } from "@/hooks/useResetOnChange";
 import { describeError } from "@/lib/api";
 import { createBanner, searchBanners, setBannerPublished, updateBanner } from "@/lib/cms-api";
 import {
@@ -50,9 +51,7 @@ export default function CmsBannersPage() {
   // debouncing is needed - a change just resets to page 1 (same pattern as
   // customers/page.tsx), staying on a now out-of-range page would otherwise
   // show an empty result.
-  useEffect(() => {
-    setPage(1);
-  }, [filters.placement, filters.status]);
+  useResetOnChange([filters.placement, filters.status], () => setPage(1));
 
   const bannersQuery = useQuery({
     queryKey: ["cms", "banners", "search", filters, page] as const,

@@ -1,17 +1,31 @@
--- Gives 5 already-Active providers (originally Bengaluru-only demo data)
--- real capacity to serve E2E City, companion to
+-- Gives E2E Test Provider plus 5 already-Active providers (originally
+-- Bengaluru-only demo data) real capacity to serve E2E City, companion to
 -- dev-category-city-mapping-seed.sql.
 --
--- Why this exists: E2E City originally had exactly one capable provider
--- (E2E Test Provider), which meant any two same-day bookings would always
--- collide on BookingProviderAssignmentService's unconditional double-booking
--- guard (task 288) - the second booking would simply never get an
--- automatic assignment, not because of a bug, but because there was
--- genuinely only one provider who could ever take it. Five providers gives
--- enough real spare capacity to test concurrent same-day bookings without
--- hitting that ceiling immediately.
+-- E2E Test Provider is included because it is the only provider that exists
+-- at all against a fresh database (ci.yml's `e2e` job, any newly-provisioned
+-- dev database): without a ProviderServiceArea + ProviderSkillMapping row of
+-- its own, ProviderMatchingService.FindCandidatesAsync never returns it as a
+-- candidate, which means BookingService's own-eligibility gate
+-- (Booking.NoProviderAvailable, see that class) rejects every booking
+-- attempt against E2E City outright - not a downstream assignment failure,
+-- a hard failure at booking creation, regardless of this seed's ordering
+-- relative to anything else.
 --
--- Each of the 5 gets:
+-- The other 5 ('Provider 1/2/5/6/7') are long-lived local/demo data that may
+-- not exist in a fresh database (this DO block's own FOR loop simply finds
+-- nothing for them there, which is fine) - kept for the reason below.
+--
+-- Why more than one provider: E2E City originally had exactly one capable
+-- provider, which meant any two same-day bookings would always collide on
+-- BookingProviderAssignmentService's unconditional double-booking guard
+-- (task 288) - the second booking would simply never get an automatic
+-- assignment, not because of a bug, but because there was genuinely only one
+-- provider who could ever take it. Several providers gives enough real spare
+-- capacity to test concurrent same-day bookings without hitting that
+-- ceiling immediately.
+--
+-- Each matched provider gets:
 --   - provider_service_area: E2E City's zone (zone-wide, not pincode-pinned)
 --   - provider_skill_mapping: every category (whole-category, not
 --     service-pinned) - mirrors dev-category-city-mapping-seed.sql's
@@ -34,7 +48,7 @@ DECLARE
 BEGIN
     FOR pid IN
         SELECT id FROM provider
-        WHERE display_name IN ('Provider 1', 'Provider 2', 'Provider 5', 'Provider 6', 'Provider 7')
+        WHERE display_name IN ('E2E Test Provider', 'Provider 1', 'Provider 2', 'Provider 5', 'Provider 6', 'Provider 7')
     LOOP
         INSERT INTO provider_service_area (id, provider_id, city_id, zone_id, pincode_id, is_active)
         SELECT gen_random_uuid(), pid, c.id, z.id, NULL, true

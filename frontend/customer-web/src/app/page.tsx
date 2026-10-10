@@ -1,5 +1,6 @@
 import { CategoryQuickPicks } from "@/components/CategoryQuickPicks";
 import { CuratedHomeSections } from "@/components/CuratedHomeSections";
+import { GetTheAppSection } from "@/components/GetTheAppSection";
 import { HeroBanner } from "@/components/HeroBanner";
 import { LocationPrompt } from "@/components/LocationPrompt";
 import { TrustMarkers } from "@/components/TrustMarkers";
@@ -53,6 +54,10 @@ export default function Home() {
           </h2>
           <TrustMarkers />
         </section>
+      </div>
+
+      <div className="mx-auto w-full max-w-7xl px-4 sm:px-6">
+        <GetTheAppSection />
       </div>
     </main>
   );

@@ -65,6 +65,27 @@ public class Booking : AggregateRoot<Guid>
     public decimal PlatformFeeSnapshot { get; private set; }
     public decimal TotalPayableSnapshot { get; private set; }
 
+    /// <summary>
+    /// The largest cancellation fee this booking has ever actually owed,
+    /// per <see cref="CancellationFeeCalculator"/> evaluated against
+    /// whatever slot it held immediately before each <see cref="Reschedule"/>
+    /// call - never against the slot rescheduled TO. Zero until the first
+    /// late reschedule. Consulted by <c>CancellationService.ComputeOutcomeAsync</c>
+    /// as a floor under the fee a live cancellation would otherwise compute
+    /// against the *current* slot.
+    ///
+    /// Exists because <see cref="Reschedule"/> overwrites <see cref="SlotDate"/>/
+    /// <see cref="SlotStartTimeSnapshot"/> - the exact fields the cancellation
+    /// fee is timed against - with no memory of the slot given up. Without
+    /// this floor, a customer sitting inside the late-cancellation window
+    /// could reschedule to a slot far in the future and immediately cancel,
+    /// and the fee calculator would see only the new, distant slot and grant
+    /// a full refund: one free API call laundering away a fee already earned.
+    /// Monotonic (never decreases) so a second late reschedule cannot reset
+    /// what an earlier one already locked in.
+    /// </summary>
+    public decimal LockedCancellationFeeSnapshot { get; private set; }
+
     /// <summary>Null until Phase 4's coupon module exists - no coupon domain to validate against yet.</summary>
     public string? CouponCodeSnapshot { get; private set; }
     public decimal? CouponDiscountAmountSnapshot { get; private set; }
@@ -80,6 +101,28 @@ public class Booking : AggregateRoot<Guid>
     /// remains payable after any other discount.
     /// </summary>
     public decimal? WalletCreditAppliedSnapshot { get; private set; }
+
+    /// <summary>
+    /// The platform commission owed on <see cref="WalletCreditAppliedSnapshot"/>,
+    /// at the same rate <c>PaymentWebhookService.ApplySuccessfulPaymentAsync</c>
+    /// resolves and records on the booking's <c>PaymentTransaction</c> for its
+    /// gateway-funded share - recorded once, when the booking reaches
+    /// <see cref="BookingStatus.Confirmed"/> (see <c>WalletCreditEscrowHoldOnConfirmationHandler</c>),
+    /// so a later change to the configured commission rate can never drift
+    /// what a booking already confirmed actually owes. Null when no wallet
+    /// credit was applied, same convention as <see cref="WalletCreditAppliedSnapshot"/>
+    /// itself.
+    ///
+    /// Exists because escrow/commission/provider-payout were computed only
+    /// from the booking's <c>PaymentTransaction.Amount</c> - the
+    /// gateway-collected share alone - never the wallet-funded share, which
+    /// has no PaymentTransaction of its own to record a commission on (a
+    /// fully wallet-covered booking has no PaymentTransaction at all - task
+    /// 331). A provider who completed a partly-or-fully wallet-funded job
+    /// was paid only for whatever slice the customer's card covered, or
+    /// nothing at all if the wallet covered everything.
+    /// </summary>
+    public decimal? WalletCreditCommissionAmountSnapshot { get; private set; }
 
     /// <summary>
     /// Traceability only, same convention as <see cref="SlotWindowId"/> - not
@@ -116,6 +159,21 @@ public class Booking : AggregateRoot<Guid>
     /// frozen at generation time.
     /// </summary>
     public Guid? RecurringBookingPlanId { get; private set; }
+
+    /// <summary>
+    /// Recurring-booking payment-timing fix: how many off-session auto-charge
+    /// attempts <c>RecurringOccurrenceAutoChargeJob</c> has made against this
+    /// occurrence. Zero for every booking that is not a recurring occurrence
+    /// with auto-charge enabled - the job never touches any other booking.
+    /// Once it reaches <c>RecurringBookingOptions.AutoChargeRetryLimit</c> the
+    /// job stops retrying and falls back to the manual
+    /// "RecurringBookingPaymentDue" notification for whatever remains of the
+    /// booking's own payment window.
+    /// </summary>
+    public int AutoChargeAttemptCount { get; private set; }
+
+    /// <summary>When the most recent auto-charge attempt was made, so the job's retry backoff (<c>RecurringBookingOptions.AutoChargeRetryBackoffHours</c>) can be measured from it. Null before the first attempt.</summary>
+    public DateTime? LastAutoChargeAttemptAtUtc { get; private set; }
 
     /// <summary>
     /// docs/AMC.md: the <see cref="CustomerAmcContract"/> a visit-redemption
@@ -418,14 +476,23 @@ public class Booking : AggregateRoot<Guid>
     /// Eligibility (status/window/count-limit) and the new slot's own
     /// availability are the caller's responsibility (<c>IRescheduleService</c>)
     /// - this method only enforces the lifecycle transition itself.
+    ///
+    /// <paramref name="cancellationFeeOwedOnSlotGivenUp"/> is what
+    /// <see cref="CancellationFeeCalculator"/> computes the caller would have
+    /// charged to cancel the slot being given up, right now, instead of
+    /// rescheduling it - see <see cref="LockedCancellationFeeSnapshot"/> for
+    /// why that number must survive the move.
     /// </summary>
     public void Reschedule(
-        Guid newSlotWindowId, DateOnly newSlotDate, string newSlotWindowName, TimeSpan newSlotStartTime, TimeSpan newSlotEndTime, string? reason)
+        Guid newSlotWindowId, DateOnly newSlotDate, string newSlotWindowName, TimeSpan newSlotStartTime, TimeSpan newSlotEndTime, string? reason,
+        decimal cancellationFeeOwedOnSlotGivenUp)
     {
         if (!BookingLifecycle.IsValidTransition(Status, BookingStatus.Rescheduled))
         {
             throw new InvalidOperationException($"Cannot reschedule a booking in status {Status}.");
         }
+
+        LockedCancellationFeeSnapshot = Math.Max(LockedCancellationFeeSnapshot, cancellationFeeOwedOnSlotGivenUp);
 
         SlotWindowId = newSlotWindowId;
         SlotDate = newSlotDate;
@@ -449,6 +516,67 @@ public class Booking : AggregateRoot<Guid>
     /// only this field.
     /// </summary>
     public void AssignProvider(Guid? providerId) => AssignedProviderId = providerId;
+
+    /// <summary>
+    /// Records the commission owed on <see cref="WalletCreditAppliedSnapshot"/>
+    /// once, at confirmation time - see <see cref="WalletCreditCommissionAmountSnapshot"/>'s
+    /// doc comment for why this must not be recomputed later, at completion.
+    /// </summary>
+    public void RecordWalletCreditCommission(decimal amount)
+    {
+        if (amount < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(amount), "Wallet credit commission cannot be negative.");
+        }
+
+        WalletCreditCommissionAmountSnapshot = amount;
+    }
+
+    /// <summary>
+    /// Recurring-booking payment-timing fix: stamps one off-session
+    /// auto-charge attempt, regardless of whether it succeeded or failed -
+    /// both are "an attempt" for the retry-limit/backoff calculation.
+    /// A successful attempt's caller still transitions this booking to
+    /// <see cref="BookingStatus.Confirmed"/> in the same unit of work (via
+    /// the same payment-webhook path a customer's own "Pay now" uses), so
+    /// this counter simply stops mattering once that happens - the job never
+    /// reads it again for a booking that is no longer PaymentPending.
+    /// </summary>
+    public void RecordAutoChargeAttempt(DateTime attemptedAtUtc)
+    {
+        AutoChargeAttemptCount++;
+        LastAutoChargeAttemptAtUtc = attemptedAtUtc;
+    }
+
+    /// <summary>
+    /// Payment Management UX pass: an admin can stop
+    /// <c>RecurringOccurrenceAutoChargeJob</c> from ever attempting this
+    /// occurrence again, before its own retry limit would naturally do so -
+    /// e.g. the admin already knows the saved payment method is dead and
+    /// wants the customer moved to manual payment immediately rather than
+    /// waiting out however many backoff hours remain. Distinct from
+    /// <see cref="AutoChargeAttemptCount"/> reaching
+    /// <see cref="Nestly.Infrastructure.Options.RecurringBookingOptions.AutoChargeRetryLimit"/>
+    /// naturally - that counter must keep reflecting how many real gateway
+    /// attempts were actually made, not be inflated as a side effect of
+    /// stopping future ones.
+    /// </summary>
+    public bool AutoChargeCancelledByAdmin { get; private set; }
+
+    public void CancelAutoChargeRetries()
+    {
+        if (RecurringBookingPlanId is null)
+        {
+            throw new InvalidOperationException("Only a recurring occurrence has auto-charge retries to cancel.");
+        }
+
+        if (AutoChargeCancelledByAdmin)
+        {
+            throw new InvalidOperationException("Auto-charge retries were already cancelled for this booking.");
+        }
+
+        AutoChargeCancelledByAdmin = true;
+    }
 
     private void EnsureStillMutable()
     {

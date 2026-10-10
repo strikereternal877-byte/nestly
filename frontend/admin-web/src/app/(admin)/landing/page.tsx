@@ -295,7 +295,13 @@ function NewAndTrendingTab({
   onSave: (ids: string[]) => void;
 }) {
   const [selected, setSelected] = useState<string[]>(initialIds);
-  useEffect(() => setSelected(initialIds), [initialIds.join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Adjusting state when a prop changes (react.dev/learn/you-might-not-need-an-effect).
+  const initialKey = initialIds.join(",");
+  const [seededInitialKey, setSeededInitialKey] = useState(initialKey);
+  if (initialKey !== seededInitialKey) {
+    setSeededInitialKey(initialKey);
+    setSelected(initialIds);
+  }
 
   // Sub-categories first (that is what this section is for), each labelled
   // with its parent so the admin reads it as "Category → Sub-category".
@@ -355,7 +361,13 @@ function MostBookedTab({
   onSave: (ids: string[]) => void;
 }) {
   const [selected, setSelected] = useState<string[]>(initialIds);
-  useEffect(() => setSelected(initialIds), [initialIds.join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Adjusting state when a prop changes (react.dev/learn/you-might-not-need-an-effect).
+  const initialKey = initialIds.join(",");
+  const [seededInitialKey, setSeededInitialKey] = useState(initialKey);
+  if (initialKey !== seededInitialKey) {
+    setSeededInitialKey(initialKey);
+    setSelected(initialIds);
+  }
 
   const options: PickerOption[] = useMemo(
     () =>
@@ -416,6 +428,9 @@ function CategorySectionsTab({
 
   const [categoryId, setCategoryId] = useState("");
   useEffect(() => {
+    // Picking an initial default once the eligible list arrives, not a
+    // render-time prop change; self-disables once categoryId is set.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!categoryId && eligible.length > 0) setCategoryId(eligible[0].id);
   }, [eligible, categoryId]);
 
@@ -425,10 +440,13 @@ function CategorySectionsTab({
   );
 
   const [selected, setSelected] = useState<string[]>([]);
-  useEffect(
-    () => setSelected(configuredForCategory),
-    [categoryId, configuredForCategory.join(",")], // eslint-disable-line react-hooks/exhaustive-deps
-  );
+  // Adjusting state when a prop changes (react.dev/learn/you-might-not-need-an-effect).
+  const configuredKey = `${categoryId}:${configuredForCategory.join(",")}`;
+  const [seededConfiguredKey, setSeededConfiguredKey] = useState(configuredKey);
+  if (configuredKey !== seededConfiguredKey) {
+    setSeededConfiguredKey(configuredKey);
+    setSelected(configuredForCategory);
+  }
 
   const options: PickerOption[] = useMemo(
     () =>

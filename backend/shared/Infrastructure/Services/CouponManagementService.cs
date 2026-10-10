@@ -3,6 +3,7 @@ using Nestly.Application;
 using Nestly.Application.Abstractions.Auditing;
 using Nestly.Application.Coupons;
 using Nestly.Application.Serviceability;
+using Nestly.Application.Settings;
 using Nestly.BuildingBlocks.Results;
 using Nestly.Domain;
 using Nestly.Infrastructure.Persistence;
@@ -33,17 +34,40 @@ public class CouponManagementService : ICouponManagementService
     private readonly ICategoryRepository _categoryRepository;
     private readonly NestlyDbContext _context;
     private readonly IAuditLogWriter _auditLogWriter;
+    private readonly IPlatformRules _platformRules;
 
     public CouponManagementService(
         ICouponRepository couponRepository,
         ICategoryRepository categoryRepository,
         NestlyDbContext context,
-        IAuditLogWriter auditLogWriter)
+        IAuditLogWriter auditLogWriter,
+        IPlatformRules? platformRules = null)
     {
         _couponRepository = couponRepository;
         _categoryRepository = categoryRepository;
         _context = context;
         _auditLogWriter = auditLogWriter;
+        _platformRules = platformRules ?? NoPlatformRules.Instance;
+    }
+
+    /// <summary>
+    /// Coupon rules: the highest percentage discount a coupon may be given. A guard on what an admin configures, not on
+    /// redemption - coupons that already exist above it keep working, and can still be edited as long as their percentage
+    /// is not raised.
+    /// </summary>
+    private async Task<Error?> CheckDiscountWithinLimitAsync(CouponDiscountType type, decimal value, Coupon? existing)
+    {
+        if (type != CouponDiscountType.Percentage
+            || (await _platformRules.GetCouponAsync())?.MaxDiscountPercentagePerCoupon is not { } limit
+            || value <= limit)
+        {
+            return null;
+        }
+
+        bool unchanged = existing is { DiscountType: CouponDiscountType.Percentage } && existing.DiscountValue == value;
+        return unchanged
+            ? null
+            : Error.Validation("Coupon.DiscountAboveLimit", $"A percentage coupon can give at most {limit:0.##}% off.");
     }
 
     public async Task<IReadOnlyList<CategoryLookupResponse>> ListApplicableCategoriesAsync()
@@ -85,6 +109,11 @@ public class CouponManagementService : ICouponManagementService
 
     public async Task<Result<CouponAdminResponse>> CreateAsync(CouponCreateRequest request)
     {
+        if (await CheckDiscountWithinLimitAsync(request.DiscountType, request.DiscountValue, existing: null) is { } tooHigh)
+        {
+            return tooHigh;
+        }
+
         if (await _couponRepository.CodeExistsAsync(request.Code))
         {
             return Error.Conflict("Coupon.CodeAlreadyExists", "A coupon with this code already exists.");
@@ -125,6 +154,11 @@ public class CouponManagementService : ICouponManagementService
         if (coupon is null)
         {
             return Error.NotFound("Coupon.NotFound", "The specified coupon does not exist.");
+        }
+
+        if (await CheckDiscountWithinLimitAsync(request.DiscountType, request.DiscountValue, coupon) is { } tooHigh)
+        {
+            return tooHigh;
         }
 
         if (request.ApplicableCategoryId.HasValue)

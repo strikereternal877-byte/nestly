@@ -6,12 +6,14 @@ using Microsoft.AspNetCore.RateLimiting;
 using Nestly.Application;
 using Nestly.Application.Bookings;
 using Nestly.Application.ProviderManagement;
+using Nestly.Application.Amc;
 using Nestly.Application.Subscriptions;
 using Nestly.Application.Wallet;
 using Nestly.BuildingBlocks.Middleware;
 using Nestly.Infrastructure;
 using Nestly.Infrastructure.BackgroundJobs;
 using Nestly.Infrastructure.Options;
+using Nestly.Infrastructure.Persistence.Migrations;
 using Nestly.Infrastructure.Persistence.Readiness;
 using Nestly.Infrastructure.Persistence.Seed;
 using Nestly.Infrastructure.Realtime;
@@ -67,6 +69,12 @@ builder.Services.AddRateLimiter(options =>
 });
 
 var app = builder.Build();
+
+// Opt-in schema catch-up (Migrations:ApplyOnStartup) - off unless an
+// operator has explicitly switched it on for this run; see
+// StartupMigrationExtensions for why this runs before every other startup
+// step below, including the permission reconciliation right after it.
+app.ApplyPendingMigrationsIfConfigured();
 
 // Task 332 (QA-REPORT-2026-08-18 bug #5): fills in admin_permission rows for
 // any module added since the last seed migration, and the default-role grants
@@ -168,6 +176,16 @@ if (app.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<Backgr
         "subscription-billing-sweep",
         job => job.ProcessDueBillingAsync(CancellationToken.None),
         Cron.Daily);
+
+    // docs/AMC.md's scheduled expiry sweep: moves overdue Active contracts to
+    // Expired and raises the expiring-soon reminder. Daily, same cadence as
+    // subscription-billing-sweep - an AMC term runs on a months-long scale,
+    // so there is nothing to gain from a tighter cron. Same
+    // ServerEnabled-guarded, idempotent-by-design registration pattern.
+    RecurringJob.AddOrUpdate<IAmcContractExpirySweepJob>(
+        "amc-contract-expiry-sweep",
+        job => job.SweepAsync(CancellationToken.None),
+        Cron.Daily);
 }
 
 // Task 240: expires abandoned PaymentPending bookings and releases their slot
@@ -182,6 +200,16 @@ if (app.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<Backgr
         job => job.SweepAsync(CancellationToken.None),
         "*/5 * * * *");
 
+    // Wallet top-ups: the safety net under the gateway webhook. A pending top-up old enough to have been
+    // abandoned (or whose webhook never arrived) is checked directly with the gateway and given its real
+    // outcome. Every ten minutes - a lost callback is worth resolving within the hour, not the day, but there
+    // is no need to ask the gateway more often than that. Registered whether or not top-ups are enabled: with
+    // the feature off there are simply no pending rows and a pass is one empty indexed query.
+    RecurringJob.AddOrUpdate<IWalletTopUpSweepJob>(
+        "wallet-top-up-reconciliation",
+        job => job.SweepAsync(CancellationToken.None),
+        "*/10 * * * *");
+
     // Expires system-assigned BookingProviderAssignment rows a provider never
     // answered within AutoAssignmentOptions.ResponseWindowMinutes, and hands
     // the booking back to ProviderAutoAssignmentHandler for the next
@@ -193,6 +221,16 @@ if (app.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<Backgr
         "assignment-response-expiry-sweep",
         job => job.SweepAsync(CancellationToken.None),
         "*/5 * * * *");
+
+    // Recurring-booking payment-timing fix: attempts off-session auto-charge
+    // for recurring occurrences whose plan opted in. Every 15 minutes rather
+    // than the 5-minute sweeps above - attempts are gated by
+    // RecurringBookingOptions.AutoChargeInitialDelayHours/RetryBackoffHours
+    // (hours, not minutes), so a tighter cadence would only add empty ticks.
+    RecurringJob.AddOrUpdate<IRecurringOccurrenceAutoChargeJob>(
+        "recurring-occurrence-auto-charge",
+        job => job.ProcessDueAttemptsAsync(CancellationToken.None),
+        "*/15 * * * *");
 }
 
 // Task 333: promotes Confirmed bookings to AwaitingFulfilment as their slot

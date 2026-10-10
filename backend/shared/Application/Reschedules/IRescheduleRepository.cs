@@ -10,4 +10,7 @@ public interface IRescheduleRepository
 
     /// <summary>How many times this booking has already been rescheduled (task 82b count limit).</summary>
     Task<int> CountByBookingAsync(Guid bookingId);
+
+    /// <summary>What the customer has actually paid in late-reschedule fees on this booking (<see cref="BookingReschedule.FeeCollectedAmount"/> summed).</summary>
+    Task<decimal> SumCollectedFeesAsync(Guid bookingId);
 }

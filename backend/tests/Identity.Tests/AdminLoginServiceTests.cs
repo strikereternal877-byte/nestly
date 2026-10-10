@@ -54,12 +54,14 @@ public class AdminLoginServiceTests : IDisposable
     private AdminLoginService CreateService(NestlyDbContext context, AdminAccountOptions options) =>
         new(
             new AdminUserRepository(context),
+            new AdminSessionRepository(context),
             new AdminTokenService(Options.Create(new AdminJwtOptions
             {
                 SigningKey = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
                 Issuer = "Nestly",
                 Audience = "Nestly.AdminUsers",
-                AccessTokenMinutes = 10
+                AccessTokenMinutes = 10,
+                RefreshTokenHours = 12
             })),
             _mfaChallengeProvider.Object,
             new AdminRolePermissionQueryService(context),
@@ -236,6 +238,132 @@ public class AdminLoginServiceTests : IDisposable
             .SingleAsync(a => a.EntityName == "AdminUser" && a.EntityId == "nobody@example.com");
 
         entry.Action.Should().Be("AdminLoginFailed");
+    }
+
+    [Fact]
+    public async Task A_successful_login_issues_a_refresh_token_that_can_be_redeemed_for_a_new_session()
+    {
+        var loginResult = await AttemptLoginAsync(OptionsWith(maxAttempts: 5), CorrectPassword);
+        loginResult.IsSuccess.Should().BeTrue();
+        loginResult.Value.RefreshToken.Should().NotBeNullOrEmpty();
+
+        await using var context = _database.CreateContext();
+        var refreshResult = await CreateService(context, OptionsWith(maxAttempts: 5))
+            .RefreshAsync(new RefreshTokenRequest(loginResult.Value.RefreshToken));
+
+        refreshResult.IsSuccess.Should().BeTrue();
+        refreshResult.Value.AccessToken.Should().NotBeNullOrEmpty();
+        refreshResult.Value.RefreshToken.Should().NotBeNullOrEmpty();
+    }
+
+    [Fact]
+    public async Task Refreshing_rotates_the_session_so_the_old_refresh_token_can_no_longer_be_reused()
+    {
+        var loginResult = await AttemptLoginAsync(OptionsWith(maxAttempts: 5), CorrectPassword);
+        string originalRefreshToken = loginResult.Value.RefreshToken;
+
+        await using var context = _database.CreateContext();
+        var service = CreateService(context, OptionsWith(maxAttempts: 5));
+
+        var firstRefresh = await service.RefreshAsync(new RefreshTokenRequest(originalRefreshToken));
+        firstRefresh.IsSuccess.Should().BeTrue();
+        firstRefresh.Value.RefreshToken.Should().NotBe(originalRefreshToken);
+
+        // Replaying the now-rotated-away token must fail - this is what makes
+        // an intercepted refresh token a single-use liability rather than a
+        // standing one (SRS 28.3).
+        var replay = await service.RefreshAsync(new RefreshTokenRequest(originalRefreshToken));
+        replay.IsFailure.Should().BeTrue();
+        replay.Error.Code.Should().Be("AdminLogin.InvalidRefreshToken");
+
+        // The newly issued token, however, must still work.
+        var secondRefresh = await service.RefreshAsync(new RefreshTokenRequest(firstRefresh.Value.RefreshToken));
+        secondRefresh.IsSuccess.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task An_unknown_refresh_token_is_rejected()
+    {
+        await using var context = _database.CreateContext();
+        var result = await CreateService(context, OptionsWith(maxAttempts: 5))
+            .RefreshAsync(new RefreshTokenRequest("not-a-real-token"));
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be("AdminLogin.InvalidRefreshToken");
+    }
+
+    [Fact]
+    public async Task Logout_revokes_the_session_so_its_refresh_token_can_no_longer_be_used()
+    {
+        var loginResult = await AttemptLoginAsync(OptionsWith(maxAttempts: 5), CorrectPassword);
+        string refreshToken = loginResult.Value.RefreshToken;
+
+        await using var context = _database.CreateContext();
+        var service = CreateService(context, OptionsWith(maxAttempts: 5));
+
+        var logoutResult = await service.LogoutAsync(new LogoutRequest(refreshToken));
+        logoutResult.IsSuccess.Should().BeTrue();
+
+        var refreshAfterLogout = await service.RefreshAsync(new RefreshTokenRequest(refreshToken));
+        refreshAfterLogout.IsFailure.Should().BeTrue();
+        refreshAfterLogout.Error.Code.Should().Be("AdminLogin.InvalidRefreshToken");
+    }
+
+    [Fact]
+    public async Task Logging_out_an_already_invalid_token_is_treated_as_success()
+    {
+        // The end state (no active session for that token) already holds, so
+        // this must not be reported as an error to the caller.
+        await using var context = _database.CreateContext();
+        var result = await CreateService(context, OptionsWith(maxAttempts: 5))
+            .LogoutAsync(new LogoutRequest("not-a-real-token"));
+
+        result.IsSuccess.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task An_expired_session_cannot_be_refreshed()
+    {
+        var loginResult = await AttemptLoginAsync(OptionsWith(maxAttempts: 5), CorrectPassword);
+        string refreshToken = loginResult.Value.RefreshToken;
+
+        // Age the session's expiry into the past instead of waiting out the
+        // configured RefreshTokenHours window.
+        await using (var context = _database.CreateContext())
+        {
+            var session = await context.Set<AdminSession>().SingleAsync();
+            context.Entry(session).Property(nameof(AdminSession.ExpiresAt)).CurrentValue =
+                DateTime.UtcNow.AddHours(-1);
+            await context.SaveChangesAsync();
+        }
+
+        await using var refreshContext = _database.CreateContext();
+        var result = await CreateService(refreshContext, OptionsWith(maxAttempts: 5))
+            .RefreshAsync(new RefreshTokenRequest(refreshToken));
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be("AdminLogin.InvalidRefreshToken");
+    }
+
+    [Fact]
+    public async Task A_deactivated_admin_cannot_refresh_an_existing_session()
+    {
+        var loginResult = await AttemptLoginAsync(OptionsWith(maxAttempts: 5), CorrectPassword);
+        string refreshToken = loginResult.Value.RefreshToken;
+
+        await using (var context = _database.CreateContext())
+        {
+            var adminUser = await context.Set<AdminUser>().SingleAsync(a => a.Id == _adminUserId);
+            adminUser.Deactivate();
+            await context.SaveChangesAsync();
+        }
+
+        await using var refreshContext = _database.CreateContext();
+        var result = await CreateService(refreshContext, OptionsWith(maxAttempts: 5))
+            .RefreshAsync(new RefreshTokenRequest(refreshToken));
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be("AdminLogin.AccountNotActive");
     }
 
     private sealed class StubAuditContextProvider : IAuditContextProvider

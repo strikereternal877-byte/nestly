@@ -60,18 +60,19 @@ public sealed class EscrowReleaseOnCompletionHandler : INotificationHandler<Doma
 
         var booking = await _bookingRepository.GetByIdAsync(domainEvent.BookingId);
         var transaction = await _paymentRepository.GetByBookingIdAsync(domainEvent.BookingId);
+        decimal walletAmount = booking?.WalletCreditAppliedSnapshot ?? 0m;
 
-        if (transaction is null && booking is { TotalPayableSnapshot: <= 0 })
-        {
-            // Task 331: a booking with nothing payable (an AMC entitlement
-            // redemption, a fully wallet-covered checkout) is confirmed
-            // without a payment, so it never held any escrow and has no
-            // provider earning to credit. Silent, not warned about: unlike
-            // the branch below this is the designed outcome, not a gap.
-            return;
-        }
-
-        if (transaction is null || transaction.Status != PaymentTransactionStatus.Success || transaction.CommissionAmount is null)
+        // TotalPayableSnapshot > 0 means a gateway payment was actually
+        // required (it is the amount left over after wallet/coupon/
+        // subscription already reduced it - see WalletCreditAppliedSnapshot's
+        // doc comment) - so a booking that reached Confirmed without one is a
+        // data-integrity gap, never a business outcome. A booking with
+        // TotalPayableSnapshot <= 0 legitimately has no PaymentTransaction at
+        // all (task 331) - a wallet-covered remainder still has a genuine
+        // WalletCreditEscrowHoldOnConfirmationHandler hold to release below,
+        // handled by the walletAmount <= 0 check further down instead.
+        bool gatewayPaymentExpected = booking is not null && booking.TotalPayableSnapshot > 0;
+        if (gatewayPaymentExpected && (transaction is null || transaction.Status != PaymentTransactionStatus.Success || transaction.CommissionAmount is null))
         {
             // Data-integrity gap, not a business outcome - a booking cannot
             // legally reach Completed without having gone through Confirmed
@@ -85,10 +86,28 @@ public sealed class EscrowReleaseOnCompletionHandler : INotificationHandler<Doma
             return;
         }
 
+        if ((transaction is null || transaction.Status != PaymentTransactionStatus.Success) && walletAmount <= 0)
+        {
+            // Task 331: a booking with nothing payable by any means (an AMC
+            // entitlement redemption, or a coupon/subscription discount that
+            // took the total to zero with no wallet involved) never held any
+            // escrow and has no provider earning to credit. Silent, not
+            // warned about: unlike the branch above this is the designed
+            // outcome, not a gap.
+            return;
+        }
+
+        // Task 157/158's gateway-side commission, plus the wallet-side
+        // counterpart WalletCreditEscrowHoldOnConfirmationHandler records on
+        // the booking at confirmation time (Booking.WalletCreditCommissionAmountSnapshot's
+        // doc comment) - both already resolved at the same rate, at
+        // confirmation, so summing them here never redrifts what was
+        // actually confirmed against a since-changed commission rate.
+        decimal totalCommission = (transaction?.CommissionAmount ?? 0m) + (booking?.WalletCreditCommissionAmountSnapshot ?? 0m);
         var providerId = booking?.AssignedProviderId;
 
         var release = await _escrowService.ReleaseToProviderAsync(
-            domainEvent.BookingId, transaction.Id, providerId, transaction.CommissionAmount.Value);
+            domainEvent.BookingId, transaction?.Id, providerId, totalCommission);
 
         if (release is null || providerId is null)
         {

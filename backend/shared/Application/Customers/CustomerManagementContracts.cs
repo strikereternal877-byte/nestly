@@ -146,6 +146,19 @@ public sealed record CustomerProviderRatingsResponse(
 /// <summary>Block a customer's account (SRS 12.4.3, task 101c). A reason is required for the audit trail.</summary>
 public sealed record BlockCustomerRequest(string Reason);
 
+/// <summary>
+/// Admin-initiated manual wallet adjustment (Provider Management UX pass'
+/// customer-side counterpart to <c>RecordProviderEarningAdjustmentRequest</c>)
+/// - a goodwill credit or a correction/penalty debit, for when the wallet's
+/// normal sources (refund, coupon, referral, Nestly Coins) don't apply.
+/// Always recorded as <see cref="WalletSourceType.ManualAdjustment"/> with no
+/// source aggregate, via <see cref="Nestly.Application.Wallet.IWalletService"/>
+/// so the same balance/FIFO-consumption guarantees apply as every other
+/// wallet write. A reason is required for the audit trail, same as
+/// <see cref="BlockCustomerRequest"/>.
+/// </summary>
+public sealed record AdjustCustomerWalletRequest(WalletEntryType Direction, decimal Amount, string Reason);
+
 /// <summary>Add an internal note to a customer's record (SRS 12.4.3, task 101d).</summary>
 public sealed record AddCustomerNoteRequest(string Note);
 

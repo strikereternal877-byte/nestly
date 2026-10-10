@@ -33,4 +33,12 @@ public class ProviderKycDocumentRepository : IProviderKycDocumentRepository
             .Where(x => x.ProviderId == providerId)
             .OrderByDescending(x => x.SubmittedAt)
             .ToListAsync();
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<ProviderKycDocument>> ListPendingAsync(CancellationToken cancellationToken = default) =>
+        await _context.Set<ProviderKycDocument>()
+            .AsNoTracking()
+            .Where(x => x.VerificationStatus == ProviderKycVerificationStatus.Pending)
+            .OrderBy(x => x.SubmittedAt)
+            .ToListAsync(cancellationToken);
 }

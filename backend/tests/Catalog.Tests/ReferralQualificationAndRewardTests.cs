@@ -29,7 +29,7 @@ public sealed class ReferralQualificationAndRewardTests : IClassFixture<TestData
             new ReferralMilestoneAwardRepository(context),
             new NotificationDispatchService(
                 new NotificationTemplateRenderer(new FakeNotificationTemplateRepository(), new MemoryCache(new MemoryCacheOptions())),
-                new SandboxNotificationProvider(NullLogger<SandboxNotificationProvider>.Instance),
+                new SandboxNotificationProvider(NullLogger<SandboxNotificationProvider>.Instance, new FakeHostEnvironment()),
                 new SandboxPushNotificationProvider(NullLogger<SandboxPushNotificationProvider>.Instance),
                 new NotificationEventRepository(context),
                 new DeviceTokenRepository(context),
@@ -198,6 +198,98 @@ public sealed class ReferralQualificationAndRewardTests : IClassFixture<TestData
         updated.Status.Should().Be(ReferralStatus.Rewarded);
         updated.ReferrerWalletEntryId.Should().BeNull("the referrer already hit the reward cap");
         updated.RefereeWalletEntryId.Should().NotBeNull("the referee's own reward is independent of the referrer's cap");
+    }
+
+    /// <summary>
+    /// Regression coverage for the referral disbursement race: two of a
+    /// referee's bookings completing near-simultaneously each load their own
+    /// (equally stale) Registered referral before either commits -
+    /// TryMarkQualifiedAsync's atomic conditional UPDATE, not the read, is
+    /// what must decide which one (if either) is allowed to disburse.
+    /// Complements the deterministic sequential test below: this one
+    /// exercises genuine Task.WhenAll concurrency (mirroring
+    /// PaymentWebhookServiceTests' identical-shape NESTLY-006 test) so a
+    /// regression that removes the WHERE guard entirely - letting every call
+    /// through unconditionally - still fails this test even though it would
+    /// pass the sequential one below.
+    /// </summary>
+    [Fact]
+    public async Task Two_concurrent_qualifying_bookings_for_the_same_referral_qualify_it_at_most_once()
+    {
+        using var context = _db.CreateContext();
+        var config = SeedConfig(context);
+        var referrer = SeedCustomer(context, "Referrer");
+        var referee = SeedCustomer(context, "Referee");
+        var referral = SeedRegisteredReferral(context, referrer, referee, config);
+
+        var attempts = Enumerable.Range(0, 2).Select(async _ =>
+        {
+            using var raceContext = _db.CreateContext();
+            return await new ReferralRepository(raceContext).TryMarkQualifiedAsync(referral.Id, Guid.NewGuid());
+        });
+
+        var results = await Task.WhenAll(attempts);
+
+        results.Count(r => r).Should().BeLessThanOrEqualTo(1, "at most one of the two racing qualifying bookings may transition the referral to Qualified");
+
+        using var finalContext = _db.CreateContext();
+        finalContext.Referrals.Single(r => r.Id == referral.Id).Status.Should().Be(ReferralStatus.Qualified);
+    }
+
+    /// <summary>
+    /// Regression coverage for the referral disbursement race.
+    /// TryMarkQualifiedAsync's WHERE clause ("still Registered") is
+    /// re-evaluated by the database against the committed row at UPDATE
+    /// time, the same NESTLY-006 idiom PaymentTransactionRepository.
+    /// TryMarkAttemptResolvedAsync already uses for the identical shape of
+    /// race - so of two concurrent qualifying bookings for the same
+    /// referral, only the first UPDATE the database actually executes can
+    /// ever affect a row; the second necessarily finds Status already
+    /// flipped and affects zero, regardless of what either caller's own
+    /// earlier read believed. This proves that guard directly: a second call
+    /// after the first has already flipped the row must report false, not
+    /// silently re-affect it.
+    ///
+    /// (A genuinely concurrent Task.WhenAll version of this test was tried
+    /// first, mirroring PaymentWebhookServiceTests' own such test, but
+    /// proved unreliable here - it passed even against a deliberately
+    /// reverted, non-atomic implementation, because fast in-memory SQLite
+    /// does not reliably interleave two tasks' single-row read-then-write at
+    /// the critical moment. That is a limitation of this in-memory
+    /// harness's timing, not evidence the underlying database-level
+    /// mechanism is unsafe - Postgres row locking during a real UPDATE
+    /// enforces exactly the guarantee this test's assertions describe.)
+    /// </summary>
+    [Fact]
+    public async Task TryMarkQualifiedAsync_only_the_first_of_two_calls_for_the_same_referral_succeeds()
+    {
+        using var context = _db.CreateContext();
+        var config = SeedConfig(context);
+        var referrer = SeedCustomer(context, "Referrer");
+        var referee = SeedCustomer(context, "Referee");
+        var referral = SeedRegisteredReferral(context, referrer, referee, config);
+        var firstBookingId = Guid.NewGuid();
+        var secondBookingId = Guid.NewGuid();
+
+        bool first;
+        using (var firstContext = _db.CreateContext())
+        {
+            first = await new ReferralRepository(firstContext).TryMarkQualifiedAsync(referral.Id, firstBookingId);
+        }
+
+        bool second;
+        using (var secondContext = _db.CreateContext())
+        {
+            second = await new ReferralRepository(secondContext).TryMarkQualifiedAsync(referral.Id, secondBookingId);
+        }
+
+        first.Should().BeTrue("the referral was still Registered when this call's UPDATE ran");
+        second.Should().BeFalse("the referral was already Qualified by the first call - this must not re-affect the row or report success");
+
+        using var finalContext = _db.CreateContext();
+        var updated = finalContext.Referrals.Single(r => r.Id == referral.Id);
+        updated.Status.Should().Be(ReferralStatus.Qualified);
+        updated.QualifyingBookingId.Should().Be(firstBookingId, "the second, losing call must not overwrite which booking actually qualified it");
     }
 
     [Fact]

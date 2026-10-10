@@ -34,6 +34,7 @@ import { ProviderStatusBadge } from "@/components/status-badges";
 import { describeError } from "@/lib/api";
 import {
   activateProvider,
+  approveBankAccount,
   approveKycDocument,
   approveProviderPhoto,
   createPayoutBatch,
@@ -41,9 +42,11 @@ import {
   getProviderDetail,
   getProviderEarnings,
   getProviderPerformance,
+  payViaPayU,
   reactivateProvider,
   recordBackgroundCheck,
   recordEarningAdjustment,
+  rejectBankAccount,
   rejectKycDocument,
   rejectProviderPhoto,
   searchPayouts,
@@ -54,11 +57,13 @@ import {
 } from "@/lib/providers-api";
 import {
   ProviderBackgroundCheckStatus,
+  ProviderBankAccountVerificationStatus,
   ProviderEarningEntryType,
   ProviderEarningSourceType,
   ProviderKycDocumentType,
   ProviderKycVerificationStatus,
   ProviderOnboardingStatus,
+  ProviderPayoutChannel,
   ProviderPayoutStatus,
   ProviderPhotoModerationStatus,
   ProviderStatus,
@@ -150,6 +155,24 @@ const PAYOUT_STATUS_TONES: Record<ProviderPayoutStatus, BadgeTone> = {
   [ProviderPayoutStatus.Failed]: "danger",
 };
 
+const BANK_ACCOUNT_STATUS_LABELS: Record<ProviderBankAccountVerificationStatus, string> = {
+  [ProviderBankAccountVerificationStatus.Pending]: "Pending review",
+  [ProviderBankAccountVerificationStatus.Verified]: "Verified",
+  [ProviderBankAccountVerificationStatus.Rejected]: "Rejected",
+};
+
+const BANK_ACCOUNT_STATUS_TONES: Record<ProviderBankAccountVerificationStatus, BadgeTone> = {
+  [ProviderBankAccountVerificationStatus.Pending]: "warning",
+  [ProviderBankAccountVerificationStatus.Verified]: "success",
+  [ProviderBankAccountVerificationStatus.Rejected]: "danger",
+};
+
+/** Real PayU Payouts integration: admin-visibility label for which path processed a payout - shown once it has left Pending. */
+const PROCESSED_VIA_LABELS: Record<ProviderPayoutChannel, string> = {
+  [ProviderPayoutChannel.Manual]: "Manual",
+  [ProviderPayoutChannel.PayUAutomated]: "PayU",
+};
+
 /**
  * Admin provider detail (PROVIDER.md; tasks 150a-150c, 160, and the 148
  * financial views): profile edit and suspend/reactivate (150a), KYC document
@@ -186,7 +209,7 @@ export default function ProviderDetailPage() {
   });
   const payoutsQuery = useQuery({
     queryKey: ["admin-provider-payouts", providerId],
-    queryFn: () => searchPayouts(providerId),
+    queryFn: () => searchPayouts({ providerId }),
   });
   const capacityQuery = useQuery({
     queryKey: ["admin-provider-capacity", providerId],
@@ -208,6 +231,9 @@ export default function ProviderDetailPage() {
 
   const [rejectReasonByDoc, setRejectReasonByDoc] = useState<Record<string, string>>({});
   const [pendingKycRejection, setPendingKycRejection] = useState<{ id: string; label: string } | null>(null);
+
+  const [bankAccountRejectReason, setBankAccountRejectReason] = useState("");
+  const [isConfirmingBankAccountRejection, setIsConfirmingBankAccountRejection] = useState(false);
 
   const [photoRejectReason, setPhotoRejectReason] = useState("");
   const [isConfirmingPhotoRejection, setIsConfirmingPhotoRejection] = useState(false);
@@ -318,6 +344,23 @@ export default function ProviderDetailPage() {
     onError,
   });
 
+  const approveBankAccountMutation = useMutation({
+    mutationFn: (bankAccountId: string) => approveBankAccount(bankAccountId),
+    onSuccess: () => onSuccess("Bank account details verified."),
+    onError,
+  });
+
+  const rejectBankAccountMutation = useMutation({
+    mutationFn: ({ bankAccountId, reason }: { bankAccountId: string; reason: string }) =>
+      rejectBankAccount(bankAccountId, { reason }),
+    onSuccess: () => {
+      setIsConfirmingBankAccountRejection(false);
+      setBankAccountRejectReason("");
+      onSuccess("Bank account details rejected.");
+    },
+    onError,
+  });
+
   const backgroundCheckMutation = useMutation({
     mutationFn: () =>
       recordBackgroundCheck(providerId, { status: Number(bgStatus) as ProviderBackgroundCheckStatus, notes: bgNotes || undefined }),
@@ -361,6 +404,12 @@ export default function ProviderDetailPage() {
       setPendingPayoutFailure(null);
       onSuccess("Payout status updated.");
     },
+    onError,
+  });
+
+  const payViaPayUMutation = useMutation({
+    mutationFn: (payoutId: string) => payViaPayU(payoutId),
+    onSuccess: () => onSuccess("PayU transfer initiated - the payout will settle once PayU's webhook confirms it."),
     onError,
   });
 
@@ -706,6 +755,63 @@ export default function ProviderDetailPage() {
         )}
       </Card>
 
+      <Card
+        title="Bank account"
+        description="Structured payout details (docs/PROVIDER.md OPEN DECISIONS #3) - sits alongside the BankAccountProof KYC document above, which remains supporting evidence."
+      >
+        {provider.bankAccount === null ? (
+          <EmptyState
+            title="No bank account submitted yet"
+            description="The provider submits these from the provider app; payouts are not gated on this, but it is used to process one."
+          />
+        ) : (
+          <div className="rounded-xl border border-line p-3 text-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="font-medium text-fg">{provider.bankAccount.bankName}</span>
+              <Badge tone={BANK_ACCOUNT_STATUS_TONES[provider.bankAccount.verificationStatus]}>
+                {BANK_ACCOUNT_STATUS_LABELS[provider.bankAccount.verificationStatus]}
+              </Badge>
+            </div>
+            <p className="nums mt-1 text-xs text-fg-subtle">
+              {provider.bankAccount.accountHolderName} · {provider.bankAccount.accountNumber} · {provider.bankAccount.ifscCode}
+            </p>
+            <p className="mt-1 text-xs text-fg-subtle">
+              Last updated {formatDateTime(provider.bankAccount.updatedAt)}
+              {provider.bankAccount.verifiedAt ? ` · Reviewed ${formatDateTime(provider.bankAccount.verifiedAt)}` : ""}
+            </p>
+            {provider.bankAccount.rejectionReason ? (
+              <p className="mt-1.5 text-xs text-danger">Rejected: {provider.bankAccount.rejectionReason}</p>
+            ) : null}
+
+            {canWriteProvider && provider.bankAccount.verificationStatus === ProviderBankAccountVerificationStatus.Pending ? (
+              <div className="mt-3 flex flex-col gap-3 border-t border-line pt-3 sm:flex-row sm:items-end">
+                <Button
+                  variant="secondary"
+                  loading={approveBankAccountMutation.isPending}
+                  onClick={() => approveBankAccountMutation.mutate(provider.bankAccount!.id)}
+                >
+                  Approve
+                </Button>
+                <div className="flex-1">
+                  <Field
+                    label="Rejection reason"
+                    value={bankAccountRejectReason}
+                    onChange={(e) => setBankAccountRejectReason(e.target.value)}
+                  />
+                </div>
+                <Button
+                  variant="danger"
+                  disabled={!bankAccountRejectReason.trim()}
+                  onClick={() => setIsConfirmingBankAccountRejection(true)}
+                >
+                  Reject
+                </Button>
+              </div>
+            ) : null}
+          </div>
+        )}
+      </Card>
+
       <Card title="Background check" description="Distinct post-KYC step; required before activation (task 160)">
         {provider.backgroundChecks.length === 0 ? (
           <EmptyState
@@ -891,9 +997,29 @@ export default function ProviderDetailPage() {
                   <Badge tone={PAYOUT_STATUS_TONES[payout.status]}>{PAYOUT_STATUS_LABELS[payout.status]}</Badge>
                 </div>
                 <p className="nums mt-1 text-fg">{formatCurrency(payout.totalAmount)}</p>
+                {payout.status !== ProviderPayoutStatus.Pending ? (
+                  <p className="mt-1 text-xs text-fg-subtle">Processed via: {PROCESSED_VIA_LABELS[payout.processedVia]}</p>
+                ) : null}
                 {payout.payoutReference ? (
                   <p className="mt-1 text-xs text-fg-subtle">Reference: {payout.payoutReference}</p>
                 ) : null}
+
+                {/* Product decision: the bank account an admin needs to process
+                    this transfer, right here - no navigating to the
+                    Verification tab. */}
+                {payout.bankAccount ? (
+                  <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg bg-surface-2 px-2.5 py-1.5 text-xs text-fg-muted">
+                    <span className="nums">
+                      {payout.bankAccount.accountHolderName} · {payout.bankAccount.accountNumber} · {payout.bankAccount.ifscCode} ·{" "}
+                      {payout.bankAccount.bankName}
+                    </span>
+                    <Badge tone={BANK_ACCOUNT_STATUS_TONES[payout.bankAccount.verificationStatus]}>
+                      {BANK_ACCOUNT_STATUS_LABELS[payout.bankAccount.verificationStatus]}
+                    </Badge>
+                  </div>
+                ) : (
+                  <p className="mt-2 text-xs text-danger">No bank account on file for this provider yet.</p>
+                )}
 
                 {canWritePayout && payout.status === ProviderPayoutStatus.Pending ? (
                   <FormActions align="start" className="mt-3">
@@ -907,6 +1033,15 @@ export default function ProviderDetailPage() {
                     >
                       Mark processing
                     </Button>
+                    {payout.isGatewayConfigured ? (
+                      <Button
+                        size="sm"
+                        loading={payViaPayUMutation.isPending && payViaPayUMutation.variables === payout.id}
+                        onClick={() => payViaPayUMutation.mutate(payout.id)}
+                      >
+                        Pay via PayU
+                      </Button>
+                    ) : null}
                   </FormActions>
                 ) : null}
 
@@ -1002,6 +1137,26 @@ export default function ProviderDetailPage() {
             <span className="font-medium text-fg">{rejectReasonByDoc[pendingKycRejection.id] ?? ""}</span>
           </p>
         ) : null}
+      </ConfirmDialog>
+
+      <ConfirmDialog
+        open={isConfirmingBankAccountRejection}
+        title="Reject these bank account details?"
+        description="The provider must resubmit before these details can be trusted for a payout."
+        confirmLabel="Reject details"
+        cancelLabel="Keep pending"
+        loading={rejectBankAccountMutation.isPending}
+        error={rejectBankAccountMutation.isError ? describeError(rejectBankAccountMutation.error) : null}
+        onCancel={() => setIsConfirmingBankAccountRejection(false)}
+        onConfirm={() => {
+          if (!provider.bankAccount) return;
+          rejectBankAccountMutation.mutate({ bankAccountId: provider.bankAccount.id, reason: bankAccountRejectReason.trim() });
+        }}
+      >
+        <p className="text-sm text-fg-muted">
+          Reason shown to the provider —{" "}
+          <span className="font-medium text-fg">{bankAccountRejectReason}</span>
+        </p>
       </ConfirmDialog>
 
       <ConfirmDialog

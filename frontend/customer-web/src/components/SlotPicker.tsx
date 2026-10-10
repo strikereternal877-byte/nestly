@@ -144,6 +144,9 @@ export function SlotPicker({
   // server- and first-client-render markup identical (the strip is simply
   // empty on both) until this effect fills it in just after hydration.
   const [dates, setDates] = useState<string[]>([]);
+  // Not a lazy initializer: that runs during server-side prerendering too,
+  // defeating the exact hydration-mismatch avoidance described above.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => setDates(upcomingDates()), []);
 
   // One request for the whole strip. This used to be one query per visible

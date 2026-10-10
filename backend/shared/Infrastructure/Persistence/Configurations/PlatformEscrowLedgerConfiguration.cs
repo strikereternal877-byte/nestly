@@ -44,5 +44,20 @@ public class PlatformEscrowLedgerConfiguration : IEntityTypeConfiguration<Platfo
         builder.HasIndex(x => x.SourceReferenceId)
             .IsUnique()
             .HasFilter("entry_type = 'Hold'");
+
+        // Same NESTLY-006 reasoning, for the release side: EscrowService.
+        // ReleaseToProviderAsync's held<=0 check (read) and the entry it
+        // inserts (write) are not atomic, so two concurrent completions of
+        // the same booking can both pass the check before either commits -
+        // this makes a second BookingCompleted release structurally
+        // impossible regardless, the same backstop role
+        // ex_booking_provider_no_double_booking plays for a double
+        // assignment. Scoped to BookingCompleted specifically: a
+        // RefundIssued release legitimately repeats across several partial
+        // refunds of the same still-uncompleted booking (each releasing up
+        // to its own refund amount), which this index must not block.
+        builder.HasIndex(x => x.BookingId)
+            .IsUnique()
+            .HasFilter("entry_type = 'Release' AND source_type = 'BookingCompleted'");
     }
 }

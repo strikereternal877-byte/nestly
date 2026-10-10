@@ -82,15 +82,20 @@ public sealed class DisputeResolutionServiceTests : IClassFixture<TestDatabase>
     private static PaymentWebhookService BuildWebhookService(
         IPaymentTransactionRepository paymentRepository, IBookingRepository bookingRepository,
         Nestly.Infrastructure.Persistence.NestlyDbContext context, IPaymentGateway gateway) =>
-        new(
-            paymentRepository, bookingRepository, new ServiceRepository(context), gateway,
-            new CommissionService(Options.Create(new CommissionOptions())), new EscrowService(new PlatformEscrowLedgerRepository(context)),
-            context, new NoOpMetricsService(), NullLogger<PaymentWebhookService>.Instance);
+        new(paymentRepository,
+            new PaymentGroupRepository(context),
+            new RecurringBookingPlanRepository(context),
+            bookingRepository,
+            new ServiceRepository(context),
+            gateway,
+            new CommissionService(Options.Create(new CommissionOptions())),
+            new EscrowService(new PlatformEscrowLedgerRepository(context)),
+            context,
+            new NoOpMetricsService(),
+            NullLogger<PaymentWebhookService>.Instance);
 
     private static DisputeResolutionService BuildDisputeService(Nestly.Infrastructure.Persistence.NestlyDbContext context, IPaymentGateway gateway) =>
-        BuildDisputeService(context, new RefundService(
-            new BookingRepository(context), new PaymentTransactionRepository(context), new RefundTransactionRepository(context),
-            new WalletService(new WalletLedgerRepository(context), context), new EscrowService(new PlatformEscrowLedgerRepository(context)), gateway, context));
+        BuildDisputeService(context, TestServices.RefundService(context, gateway));
 
     private static DisputeResolutionService BuildDisputeService(Nestly.Infrastructure.Persistence.NestlyDbContext context, IRefundService refundService) =>
         new(
@@ -138,7 +143,7 @@ public sealed class DisputeResolutionServiceTests : IClassFixture<TestDatabase>
 
     private sealed record Fixture(Customer Customer, Guid BookingId, decimal Total);
 
-    private async Task<Fixture> SeedPaidBookingAsync(IPaymentGateway gateway, decimal servicePrice)
+    private async Task<Fixture> SeedPaidBookingAsync(SandboxPaymentGateway gateway, decimal servicePrice)
     {
         var futureDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(3));
         var pincodeCode = Guid.NewGuid().ToString("N")[..6];
@@ -189,10 +194,16 @@ public sealed class DisputeResolutionServiceTests : IClassFixture<TestDatabase>
         {
             var paymentRepository = new PaymentTransactionRepository(orderContext);
             var bookingRepository = new BookingRepository(orderContext);
-            var paymentService = new PaymentService(
-                paymentRepository, bookingRepository, gateway, (ISandboxPaymentSimulator)gateway,
-                BuildWebhookService(paymentRepository, bookingRepository, orderContext, gateway),
-                new AlwaysEligibleProviderSearchStub());
+            var paymentService = new PaymentService(paymentRepository,
+            bookingRepository,
+            gateway,
+            (ISandboxPaymentSimulator)gateway,
+            BuildWebhookService(paymentRepository, bookingRepository, orderContext, gateway),
+            new AlwaysEligibleProviderSearchStub(),
+            new PaymentGroupRepository(orderContext),
+            new RecurringBookingPlanRepository(orderContext),
+            new RecurringBookingOccurrenceRepository(orderContext),
+            null!);
             var order = await paymentService.CreateOrderAsync(customer.Id, new CreatePaymentOrderRequest(bookingId, null));
             gatewayOrderId = order.Value.GatewayOrderId;
         }

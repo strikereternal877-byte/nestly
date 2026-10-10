@@ -21,6 +21,15 @@ public class PaymentAttempt : Entity<Guid>
     /// <summary>Populated once the gateway callback identifies the actual payment made against this order.</summary>
     public string? GatewayPaymentRef { get; private set; }
 
+    /// <summary>
+    /// Set when this attempt is one member of a <see cref="PaymentGroup"/> -
+    /// several bookings paid through a single gateway order. Such an attempt's
+    /// <see cref="GatewayOrderId"/> is a synthetic per-member id; the id the
+    /// gateway actually knows belongs to the group. Null for an ordinary
+    /// one-booking payment.
+    /// </summary>
+    public Guid? PaymentGroupId { get; private set; }
+
     public PaymentAttemptStatus Status { get; private set; }
 
     public string? FailureReason { get; private set; }
@@ -31,9 +40,10 @@ public class PaymentAttempt : Entity<Guid>
 
     protected PaymentAttempt() { }
 
-    public PaymentAttempt(Guid id, Guid paymentTransactionId, int attemptNumber, string gatewayOrderId)
+    public PaymentAttempt(Guid id, Guid paymentTransactionId, int attemptNumber, string gatewayOrderId, Guid? paymentGroupId = null)
         : base(id)
     {
+        PaymentGroupId = paymentGroupId;
         PaymentTransactionId = paymentTransactionId;
         AttemptNumber = attemptNumber;
         GatewayOrderId = gatewayOrderId ?? throw new ArgumentException("Gateway order id is required.", nameof(gatewayOrderId));

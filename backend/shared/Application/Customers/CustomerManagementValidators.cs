@@ -39,6 +39,16 @@ public class AddCustomerNoteRequestValidator : AbstractValidator<AddCustomerNote
     }
 }
 
+/// <summary>Mirrors <c>RecordProviderEarningAdjustmentRequestValidator</c>'s own shape: a positive amount and a required reason for the audit trail.</summary>
+public class AdjustCustomerWalletRequestValidator : AbstractValidator<AdjustCustomerWalletRequest>
+{
+    public AdjustCustomerWalletRequestValidator()
+    {
+        RuleFor(x => x.Amount).GreaterThan(0);
+        RuleFor(x => x.Reason).NotEmpty().MaximumLength(300);
+    }
+}
+
 /// <summary>Bounds the Customer Analytics trend window (mirrors <c>ProviderPerformanceListRequestValidator</c>'s own <c>PeriodDays</c> bound).</summary>
 public class CustomerAnalyticsRequestValidator : AbstractValidator<CustomerAnalyticsRequest>
 {

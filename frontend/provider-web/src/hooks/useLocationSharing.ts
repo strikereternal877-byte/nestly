@@ -56,6 +56,11 @@ export function useLocationSharing(jobId: string, active: boolean): { status: Lo
 
   useEffect(() => {
     if (!active) {
+      // Part of the same subscribe-or-not decision as the watchPosition
+      // setup below, not a standalone prop-change adjustment - reporting
+      // "idle" here is this effect synchronizing status with whether the
+      // subscription it owns is running.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setStatus("idle");
       return;
     }

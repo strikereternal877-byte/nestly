@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 
 /**
  * Task #355: a provider standing at a job site with patchy signal needs to be
@@ -52,22 +52,25 @@ export function OfflineBanner() {
   );
 }
 
-/** True once the browser reports no network. Defaults to online during SSR/hydration - `navigator` doesn't exist on the server, and a false "offline" flash on every load would be worse than a brief miss on an actually-offline first paint. */
+function subscribeToOnlineStatus(onChange: () => void): () => void {
+  window.addEventListener("online", onChange);
+  window.addEventListener("offline", onChange);
+  return () => {
+    window.removeEventListener("online", onChange);
+    window.removeEventListener("offline", onChange);
+  };
+}
+
+function getClientOnlineStatus(): boolean {
+  return navigator.onLine;
+}
+
+/** Defaults to online during SSR/hydration - `navigator` doesn't exist on the server, and a false "offline" flash on every load would be worse than a brief miss on an actually-offline first paint. */
+function getServerOnlineStatus(): boolean {
+  return true;
+}
+
+/** True once the browser reports no network. */
 function useOnlineStatus(): boolean {
-  const [isOnline, setIsOnline] = useState(true);
-
-  useEffect(() => {
-    setIsOnline(navigator.onLine);
-
-    const goOnline = () => setIsOnline(true);
-    const goOffline = () => setIsOnline(false);
-    window.addEventListener("online", goOnline);
-    window.addEventListener("offline", goOffline);
-    return () => {
-      window.removeEventListener("online", goOnline);
-      window.removeEventListener("offline", goOffline);
-    };
-  }, []);
-
-  return isOnline;
+  return useSyncExternalStore(subscribeToOnlineStatus, getClientOnlineStatus, getServerOnlineStatus);
 }

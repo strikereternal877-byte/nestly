@@ -23,6 +23,9 @@ public static class RecurringBookingJobScheduleExtensions
     /// <summary>Job id Hangfire's storage tracks this recurring registration under - stable across deploys so re-registering on every startup updates the same entry rather than accumulating duplicates.</summary>
     private const string JobId = "recurring-booking-occurrence-scheduler";
 
+    /// <summary>Second registration for open-ended prepaid plans - see <see cref="IRecurringBookingSchedulerService.ProcessPrepaidRenewalsAsync"/>. Kept separate from the daily occurrence job so a failure in one never delays the other.</summary>
+    private const string PrepaidRenewalJobId = "recurring-prepaid-renewal-scheduler";
+
     /// <summary>
     /// Call only from the process that actually runs a Hangfire server
     /// (<see cref="BackgroundJobOptions.ServerEnabled"/> - today, only
@@ -50,6 +53,13 @@ public static class RecurringBookingJobScheduleExtensions
             JobId,
             scheduler => scheduler.ProcessDueOccurrencesAsync(CancellationToken.None),
             Cron.Daily(2));
+
+        // An hour after the occurrence job, once a day: a renewal only ever needs
+        // creating when a paid cycle is within PrepaidRenewalLeadDays of running out.
+        recurringJobManager.AddOrUpdate<IRecurringBookingSchedulerService>(
+            PrepaidRenewalJobId,
+            scheduler => scheduler.ProcessPrepaidRenewalsAsync(CancellationToken.None),
+            Cron.Daily(3));
 
         return app;
     }

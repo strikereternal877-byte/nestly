@@ -23,15 +23,26 @@ import { RequireAuth } from "@/components/RequireAuth";
 import { Alert, Button, Card, Skeleton, Spinner, cx, useToast } from "@/components/ui";
 import { API_V1, apiFetch, describeError, errorCode } from "@/lib/api";
 import { clearDraft } from "@/lib/booking-draft";
+import { submitToPayU } from "@/lib/payu-checkout";
 import { BookingStatus } from "@/lib/types";
 import type { BookingDetail, PaymentOrderResponse, PaymentTransactionResponse } from "@/lib/types";
 
 /**
- * Sandbox payment page (tasks 76a-c): initiates a gateway order for a
- * PaymentPending/PaymentFailed booking, lets the customer simulate completing
- * payment (there is no real gateway - see SandboxPaymentGateway on the
- * backend), and handles the outcome (success redirects to the confirmation
- * page, failure surfaces a retry affordance).
+ * Payment page (tasks 76a-c, PayU integration): initiates a gateway order
+ * for a PaymentPending/PaymentFailed booking, then either redirects to PayU
+ * Hosted Checkout (production - see submitToPayU) or lets the customer
+ * simulate completing payment (local/dev - there is no real gateway
+ * configured, see SandboxPaymentGateway on the backend), and handles the
+ * sandbox outcome inline (success redirects to the confirmation page,
+ * failure surfaces a retry affordance). Which path applies is decided
+ * entirely by whether the order response carries `checkoutRedirectUrl` -
+ * the backend's active gateway is itself environment/config-driven (see
+ * PaymentGatewayRegistration), so this page needs no environment check of
+ * its own.
+ *
+ * A real PayU checkout leaves this app entirely; the customer lands back on
+ * `/booking/payment/[id]/return` afterwards (both PayU's success and
+ * failure redirect to the same URL - see that page).
  *
  * Wrapped in Suspense for useSearchParams (see booking/summary/page.tsx for
  * the same pattern).
@@ -115,6 +126,18 @@ function BookingPaymentScreen() {
       }),
     enabled: !!booking && !isConfirmed,
   });
+
+  // Real gateway (PayU): a full-page redirect, not an API call - nothing
+  // here to await, the browser leaves this app until PayU sends it back to
+  // /booking/payment/[id]/return.
+  const handlePayViaGateway = () => {
+    if (!orderQuery.data?.checkoutRedirectUrl || !orderQuery.data.checkoutFormFields) return;
+    if (inFlight.current) return;
+    inFlight.current = true;
+    navigated.current = true;
+    setIsPaying(true);
+    submitToPayU(orderQuery.data.checkoutRedirectUrl, orderQuery.data.checkoutFormFields);
+  };
 
   const handlePay = async () => {
     if (!orderQuery.data) return;
@@ -234,6 +257,12 @@ function BookingPaymentScreen() {
 
   const amount = orderQuery.data?.amount ?? booking.price.totalPayable;
 
+  // A prepaid plan settles every one of its visits with this one payment: the order's amount is
+  // then the whole total, not this booking's own price.
+  const visitCount = orderQuery.data?.visitCount ?? 1;
+  const isPlanPayment = visitCount > 1;
+  const skippedDates = orderQuery.data?.skippedDates ?? [];
+
   return (
     <main className="flex w-full flex-col animate-rise">
       <PageBanner
@@ -273,7 +302,35 @@ function BookingPaymentScreen() {
           </DetailList>
         </Card>
 
-        <Card title="Price breakdown">
+        {isPlanPayment || skippedDates.length > 0 ? (
+          <Card
+            title="Your plan"
+            description={
+              isPlanPayment
+                ? `One payment covers all ${visitCount} visits.`
+                : "None of the planned repeat visits could be booked."
+            }
+          >
+            <div className="flex flex-col gap-3 text-sm leading-relaxed text-fg-muted">
+              {isPlanPayment ? (
+                <p>
+                  This booking is the first of <span className="nums font-medium text-fg">{visitCount}</span>{" "}
+                  visits. Each one is confirmed separately once you pay, and you can cancel any visit
+                  that hasn&apos;t happened yet — it&apos;s refunded as per the cancellation policy.
+                </p>
+              ) : null}
+              {skippedDates.length > 0 ? (
+                <Alert tone="warning" title="Some dates couldn't be booked">
+                  No professional is available on{" "}
+                  {skippedDates.map((date) => formatCalendarDate(date)).join(", ")}. You are not
+                  charged for {skippedDates.length === 1 ? "that date" : "those dates"}.
+                </Alert>
+              ) : null}
+            </div>
+          </Card>
+        ) : null}
+
+        <Card title={isPlanPayment ? "Price breakdown (this first visit)" : "Price breakdown"}>
           <PriceBreakdownList
             breakdown={booking.price}
             discount={
@@ -355,12 +412,16 @@ function BookingPaymentScreen() {
         ) : orderQuery.data ? (
           <Card
             title="Payment"
-            description="Sandbox simulation of the payment gateway — no real payment is processed."
+            description={
+              orderQuery.data.checkoutRedirectUrl
+                ? "You'll be taken to PayU to complete your payment securely."
+                : "Sandbox simulation of the payment gateway — no real payment is processed."
+            }
           >
             <div className="flex flex-col gap-4">
               <div className="rounded-xl border border-line bg-surface-2 px-4 py-3">
                 <p className="text-xs font-medium uppercase tracking-wide text-fg-muted">
-                  Amount payable
+                  {isPlanPayment ? `Total for ${visitCount} visits` : "Amount payable"}
                 </p>
                 <p className="nums mt-1 text-2xl font-semibold text-fg">
                   {inr(orderQuery.data.amount)}{" "}
@@ -391,18 +452,25 @@ function BookingPaymentScreen() {
           <StickyActionBar>
             <div className="flex items-baseline justify-between gap-3 md:hidden">
               <span className="text-xs font-medium uppercase tracking-wide text-fg-muted">
-                Amount payable
+                {isPlanPayment ? `Total for ${visitCount} visits` : "Amount payable"}
               </span>
               <span className="nums text-lg font-semibold text-fg">{inr(amount)}</span>
             </div>
 
-            {/* The accessible name is load-bearing for the E2E suite
-                (/Pay ₹.*\(Sandbox\)/), so it stays constant while the request
-                is in flight - the busy state is carried by the spinner and
-                aria-busy that `loading` adds, not by relabelling the button. */}
-            <Button type="button" size="lg" fullWidth loading={isPaying} onClick={handlePay}>
-              {`Pay ${inr(orderQuery.data.amount)} (Sandbox)`}
-            </Button>
+            {orderQuery.data.checkoutRedirectUrl ? (
+              <Button type="button" size="lg" fullWidth loading={isPaying} onClick={handlePayViaGateway}>
+                {`Pay ${inr(orderQuery.data.amount)}`}
+              </Button>
+            ) : (
+              // The accessible name is load-bearing for the E2E suite
+              // (/Pay ₹.*\(Sandbox\)/), so it stays constant while the
+              // request is in flight - the busy state is carried by the
+              // spinner and aria-busy that `loading` adds, not by
+              // relabelling the button.
+              <Button type="button" size="lg" fullWidth loading={isPaying} onClick={handlePay}>
+                {`Pay ${inr(orderQuery.data.amount)} (Sandbox)`}
+              </Button>
+            )}
 
             <p role="status" aria-live="polite" className="sr-only">
               {isPaying ? "Processing your payment, please wait." : ""}

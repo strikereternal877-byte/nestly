@@ -67,7 +67,10 @@ test.describe("Provider jobs list", () => {
     await page.getByRole("button", { name: "Search" }).click();
     await expect(card).toHaveCount(0, { timeout: 15_000 });
 
-    await page.getByRole("button", { name: "Clear" }).click();
+    // exact: true - a bare substring match also resolves the empty state's
+    // own "Clear filters" button (shown because the date filter above just
+    // produced zero results), a Playwright strict-mode violation.
+    await page.getByRole("button", { name: "Clear", exact: true }).click();
     await expect(card).toBeVisible({ timeout: 15_000 });
   });
 

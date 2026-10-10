@@ -138,3 +138,79 @@ export interface AdminPaymentReconciliationResponse {
 export interface AdminVoidPaymentTransactionRequest {
   reason?: string;
 }
+
+// ---- Wallet top-ups ----
+//
+// `WalletTopUpsController` (admin-api), mirroring `backend/shared/Application/Wallet/AdminWalletTopUpContracts.cs`.
+// Part of the Payments module: "payments.read" for the list and detail, "payments.write" for Reconcile now.
+
+/** Mirrors Nestly.Domain.WalletTopUpStatus's declaration order exactly. */
+export enum WalletTopUpStatus {
+  Pending = 0,
+  Success = 1,
+  Failed = 2,
+}
+
+/** Mirrors Nestly.Application.Wallet.AdminWalletTopUpAttention's declaration order exactly. */
+export enum AdminWalletTopUpAttention {
+  None = 0,
+  Stuck = 1,
+  NeedsReview = 2,
+}
+
+/** Mirrors Nestly.Application.Wallet.WalletTopUpReconcileOutcome's declaration order exactly. */
+export enum WalletTopUpReconcileOutcome {
+  Credited = 0,
+  MarkedFailed = 1,
+  StillPending = 2,
+  Unchanged = 3,
+}
+
+export interface AdminWalletTopUp {
+  id: string;
+  customerId: string;
+  customerName: string;
+  customerMobile: string;
+  amount: number;
+  currency: string;
+  status: WalletTopUpStatus;
+  gatewayOrderId: string;
+  gatewayPaymentRef: string | null;
+  failureReason: string | null;
+  walletLedgerEntryId: string | null;
+  createdAtUtc: string;
+  completedAtUtc: string | null;
+  /** Minutes since creation while the top-up is still Pending; null once it has resolved. */
+  ageMinutes: number | null;
+  attention: AdminWalletTopUpAttention;
+  attentionReason: string | null;
+}
+
+export interface PagedAdminWalletTopUpResponse {
+  items: AdminWalletTopUp[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+  /** The summary describes the whole table, not the current filter or page. */
+  pendingCount: number;
+  stuckCount: number;
+  needsReviewCount: number;
+  creditedLast24HoursCount: number;
+  creditedLast24HoursAmount: number;
+}
+
+export interface AdminWalletTopUpReconcileResponse {
+  outcome: WalletTopUpReconcileOutcome;
+  topUp: AdminWalletTopUp;
+}
+
+/** Query parameters for the admin wallet top-up list. All optional. */
+export interface AdminWalletTopUpSearchParams {
+  status?: WalletTopUpStatus;
+  needsAttention?: boolean;
+  search?: string;
+  fromUtc?: string;
+  toUtc?: string;
+  page?: number;
+  pageSize?: number;
+}
