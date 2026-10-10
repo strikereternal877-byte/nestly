@@ -160,14 +160,27 @@ public sealed class AmcServiceTests : IClassFixture<TestDatabase>
         var gateway = BuildGateway();
         var paymentRepository = new PaymentTransactionRepository(context);
         var bookingRepository = new BookingRepository(context);
-        var webhookService = new PaymentWebhookService(
-            paymentRepository, bookingRepository, new ServiceRepository(context), gateway,
+        var webhookService = new PaymentWebhookService(paymentRepository,
+            new PaymentGroupRepository(context),
+            new RecurringBookingPlanRepository(context),
+            bookingRepository,
+            new ServiceRepository(context),
+            gateway,
             new CommissionService(Options.Create(new CommissionOptions())),
             new EscrowService(new PlatformEscrowLedgerRepository(context)),
-            context, new NoOpMetricsService(), NullLogger<PaymentWebhookService>.Instance);
-        var paymentService = new PaymentService(
-            paymentRepository, bookingRepository, gateway, (ISandboxPaymentSimulator)gateway, webhookService,
-            new AlwaysEligibleProviderSearchStub());
+            context,
+            new NoOpMetricsService(),
+            NullLogger<PaymentWebhookService>.Instance);
+        var paymentService = new PaymentService(paymentRepository,
+            bookingRepository,
+            gateway,
+            (ISandboxPaymentSimulator)gateway,
+            webhookService,
+            new AlwaysEligibleProviderSearchStub(),
+            new PaymentGroupRepository(context),
+            new RecurringBookingPlanRepository(context),
+            new RecurringBookingOccurrenceRepository(context),
+            null!);
 
         var order = await paymentService.CreateOrderAsync(customerId, new CreatePaymentOrderRequest(bookingId, null));
         order.IsSuccess.Should().BeTrue();

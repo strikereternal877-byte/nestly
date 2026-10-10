@@ -17,5 +17,12 @@ public enum RecurringBookingRecurrenceFrequency
     Biweekly,
 
     /// <summary>Every calendar month, on <see cref="RecurringBookingPlan.RecurrenceDayOfMonth"/> (clamped to the shorter month, e.g. 31 -> 28/29 in February).</summary>
-    Monthly
+    Monthly,
+
+    /// <summary>
+    /// Every calendar day, starting on <see cref="RecurringBookingPlan.StartDate"/>; no day-of-week or day-of-month is set.
+    /// Appended after <see cref="Monthly"/> rather than listed first because the enum crosses the wire as its ordinal
+    /// (no JsonStringEnumConverter - see <c>BookingStatus</c>'s doc comment), so reordering would silently re-label existing plans.
+    /// </summary>
+    Daily
 }

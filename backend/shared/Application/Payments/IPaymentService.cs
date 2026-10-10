@@ -22,6 +22,14 @@ public interface IPaymentService
     Task<Result<PaymentTransactionResponse>> GetByBookingIdAsync(Guid customerId, Guid bookingId);
 
     /// <summary>
+    /// Customer-facing entry point for <see cref="IPaymentWebhookService.VerifyPendingAttemptAsync"/> -
+    /// same ownership check as every other method here, delegated to the
+    /// webhook service for the actual gateway call and resolution, since
+    /// that is where the real webhook-driven resolution logic already lives.
+    /// </summary>
+    Task<Result<PaymentTransactionResponse>> VerifyPendingAsync(Guid customerId, Guid bookingId);
+
+    /// <summary>
     /// Sandbox-only (task 68b): since there is no real gateway to complete
     /// payment and call our webhook, this simulates that round trip for an
     /// order the caller owns - determines the deterministic outcome, signs

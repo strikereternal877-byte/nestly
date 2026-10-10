@@ -34,47 +34,56 @@ public class ProvidersController : ControllerBase
     private readonly IProviderKycApprovalService _kycApprovalService;
     private readonly IProviderEarningLedgerService _earningLedgerService;
     private readonly IProviderPhotoModerationService _photoModerationService;
+    private readonly IProviderBankAccountService _bankAccountService;
     private readonly IValidator<ProviderSearchRequest> _searchValidator;
     private readonly IValidator<CreateProviderRequest> _createValidator;
     private readonly IValidator<UpdateProviderRequest> _updateValidator;
     private readonly IValidator<SuspendProviderRequest> _suspendValidator;
+    private readonly IValidator<DeleteProviderRequest> _deleteValidator;
     private readonly IValidator<RejectProviderKycDocumentRequest> _rejectKycValidator;
     private readonly IValidator<RejectProviderPhotoRequest> _rejectPhotoValidator;
     private readonly IValidator<RecordBackgroundCheckRequest> _backgroundCheckValidator;
     private readonly IValidator<RecordProviderEarningAdjustmentRequest> _earningAdjustmentValidator;
     private readonly IValidator<SetProviderCapacityRequest> _setCapacityValidator;
     private readonly IValidator<ProviderPerformanceListRequest> _performanceListValidator;
+    private readonly IValidator<RejectProviderBankAccountRequest> _rejectBankAccountValidator;
 
     public ProvidersController(
         IProviderManagementService providerManagementService,
         IProviderKycApprovalService kycApprovalService,
         IProviderEarningLedgerService earningLedgerService,
         IProviderPhotoModerationService photoModerationService,
+        IProviderBankAccountService bankAccountService,
         IValidator<ProviderSearchRequest> searchValidator,
         IValidator<CreateProviderRequest> createValidator,
         IValidator<UpdateProviderRequest> updateValidator,
         IValidator<SuspendProviderRequest> suspendValidator,
+        IValidator<DeleteProviderRequest> deleteValidator,
         IValidator<RejectProviderKycDocumentRequest> rejectKycValidator,
         IValidator<RejectProviderPhotoRequest> rejectPhotoValidator,
         IValidator<RecordBackgroundCheckRequest> backgroundCheckValidator,
         IValidator<RecordProviderEarningAdjustmentRequest> earningAdjustmentValidator,
         IValidator<SetProviderCapacityRequest> setCapacityValidator,
-        IValidator<ProviderPerformanceListRequest> performanceListValidator)
+        IValidator<ProviderPerformanceListRequest> performanceListValidator,
+        IValidator<RejectProviderBankAccountRequest> rejectBankAccountValidator)
     {
         _providerManagementService = providerManagementService;
         _kycApprovalService = kycApprovalService;
         _earningLedgerService = earningLedgerService;
         _photoModerationService = photoModerationService;
+        _bankAccountService = bankAccountService;
         _searchValidator = searchValidator;
         _createValidator = createValidator;
         _updateValidator = updateValidator;
         _suspendValidator = suspendValidator;
+        _deleteValidator = deleteValidator;
         _rejectKycValidator = rejectKycValidator;
         _rejectPhotoValidator = rejectPhotoValidator;
         _backgroundCheckValidator = backgroundCheckValidator;
         _earningAdjustmentValidator = earningAdjustmentValidator;
         _setCapacityValidator = setCapacityValidator;
         _performanceListValidator = performanceListValidator;
+        _rejectBankAccountValidator = rejectBankAccountValidator;
     }
 
     // ---- CRUD (task 150a) ----
@@ -215,11 +224,18 @@ public class ProvidersController : ControllerBase
     [HttpPost("{providerId:guid}/delete")]
     [Authorize(Policy = WritePolicy)]
     [ProducesResponseType(typeof(ProviderDetailResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status422UnprocessableEntity)]
-    public async Task<IActionResult> Delete(Guid providerId)
+    public async Task<IActionResult> Delete(Guid providerId, [FromBody] DeleteProviderRequest request)
     {
-        var result = await _providerManagementService.DeleteAsync(providerId);
+        var validation = await _deleteValidator.ValidateAsync(request);
+        if (!validation.IsValid)
+        {
+            return ValidationProblem(ToModelState(validation));
+        }
+
+        var result = await _providerManagementService.DeleteAsync(providerId, request);
         return result.IsSuccess ? Ok(result.Value) : result.ToProblemResult();
     }
 
@@ -271,6 +287,22 @@ public class ProvidersController : ControllerBase
 
     // ---- KYC approval and background check / activation (task 150b, 160) ----
 
+    /// <summary>
+    /// The KYC verification queue (Provider Management UX pass): every
+    /// document across every provider still awaiting a verdict, oldest
+    /// submission first. Before this, finding a pending document required
+    /// searching for a specific provider and opening their Verification tab -
+    /// this is the cross-provider worklist an admin actually works from.
+    /// Static route declared ahead of <see cref="ApproveKycDocument"/>'s
+    /// <c>{documentId:guid}</c> route, same non-clash reasoning as
+    /// <see cref="ListPerformance"/> above.
+    /// </summary>
+    [HttpGet("kyc-documents/pending")]
+    [Authorize(Policy = ReadPolicy)]
+    [ProducesResponseType(typeof(IReadOnlyList<ProviderKycDocumentQueueItemResponse>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> ListPendingKycDocuments(CancellationToken cancellationToken) =>
+        Ok(await _kycApprovalService.ListPendingDocumentsAsync(cancellationToken));
+
     /// <summary>Approves a submitted KYC document (task 150b, the admin-side counterpart to task 146c's submission flow).</summary>
     [HttpPost("kyc-documents/{documentId:guid}/approve")]
     [Authorize(Policy = WritePolicy)]
@@ -299,6 +331,53 @@ public class ProvidersController : ControllerBase
         }
 
         var result = await _kycApprovalService.RejectDocumentAsync(documentId, CurrentAdminUserId(), request);
+        return result.IsSuccess ? Ok(result.Value) : result.ToProblemResult();
+    }
+
+    // ---- Bank account verification (structured payout details, OPEN DECISIONS #3) ----
+
+    /// <summary>
+    /// The bank-account verification queue: every provider's submitted bank
+    /// account details still awaiting a verdict, oldest submission first -
+    /// same shape as <see cref="ListPendingKycDocuments"/>. Static route
+    /// declared ahead of <see cref="ApproveBankAccount"/>'s
+    /// <c>{bankAccountId:guid}</c> route, same non-clash reasoning as
+    /// <see cref="ListPerformance"/> below.
+    /// </summary>
+    [HttpGet("bank-accounts/pending")]
+    [Authorize(Policy = ReadPolicy)]
+    [ProducesResponseType(typeof(IReadOnlyList<ProviderBankAccountQueueItemResponse>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> ListPendingBankAccounts(CancellationToken cancellationToken) =>
+        Ok(await _bankAccountService.ListPendingAsync(cancellationToken));
+
+    /// <summary>Approves a provider's submitted bank account details.</summary>
+    [HttpPost("bank-accounts/{bankAccountId:guid}/approve")]
+    [Authorize(Policy = WritePolicy)]
+    [ProducesResponseType(typeof(ProviderBankAccountResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status422UnprocessableEntity)]
+    public async Task<IActionResult> ApproveBankAccount(Guid bankAccountId)
+    {
+        var result = await _bankAccountService.ApproveAsync(bankAccountId, CurrentAdminUserId());
+        return result.IsSuccess ? Ok(result.Value) : result.ToProblemResult();
+    }
+
+    /// <summary>Rejects a provider's submitted bank account details.</summary>
+    [HttpPost("bank-accounts/{bankAccountId:guid}/reject")]
+    [Authorize(Policy = WritePolicy)]
+    [ProducesResponseType(typeof(ProviderBankAccountResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status422UnprocessableEntity)]
+    public async Task<IActionResult> RejectBankAccount(Guid bankAccountId, [FromBody] RejectProviderBankAccountRequest request)
+    {
+        var validation = await _rejectBankAccountValidator.ValidateAsync(request);
+        if (!validation.IsValid)
+        {
+            return ValidationProblem(ToModelState(validation));
+        }
+
+        var result = await _bankAccountService.RejectAsync(bankAccountId, CurrentAdminUserId(), request);
         return result.IsSuccess ? Ok(result.Value) : result.ToProblemResult();
     }
 

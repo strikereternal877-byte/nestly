@@ -25,9 +25,9 @@
  */
 import { seedCatalog } from "../../../customer-web/e2e/setup/seed-catalog";
 import type { CatalogFixture } from "../../../customer-web/e2e/setup/seed-catalog";
+import { createPaidBooking } from "../../../customer-web/e2e/setup/seed-booking";
 
 const ADMIN_API = process.env.ADMIN_API_URL ?? "http://localhost:5177";
-const CONSUMER_API = process.env.CONSUMER_API_URL ?? "http://localhost:5257";
 const PROVIDER_API = process.env.PROVIDER_API_URL ?? "http://localhost:5337";
 
 /**
@@ -42,7 +42,6 @@ const DEV_PROVIDER_MOBILE = process.env.DEV_PROVIDER_MOBILE ?? "+919888888888";
 const DEV_AUTH_KEY = process.env.DEV_AUTH_KEY ?? "dev-only-provider-auth-key-local-1234567890";
 
 /** `BookingStatus.AwaitingFulfilment`'s ordinal - neither API registers a JsonStringEnumConverter, so enums cross the wire as numbers (see backend/shared/Domain/BookingStatus.cs). */
-const BOOKING_STATUS_CONFIRMED = 3;
 const BOOKING_STATUS_AWAITING_FULFILMENT = 4;
 
 /**
@@ -106,16 +105,6 @@ async function adminLogin(): Promise<string> {
     body: JSON.stringify({ email: "dev-admin@nestly.local", password: "E2eTest!Passw0rd" }),
   });
   if (!res.ok) throw new Error(`Admin login failed: ${await readError(res)}`);
-  return (await res.json()).accessToken;
-}
-
-async function customerLogin(): Promise<string> {
-  const res = await fetch(`${CONSUMER_API}/api/v1/auth/login/password`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email: "e2e-customer@nestly.local", password: "E2eCustomer!Passw0rd" }),
-  });
-  if (!res.ok) throw new Error(`Customer login failed: ${await readError(res)}`);
   return (await res.json()).accessToken;
 }
 
@@ -208,41 +197,16 @@ export async function seedAssignedJob(
   providerToken: string,
 ): Promise<{ bookingId: string; slotDate: string }> {
   const adminToken = await adminLogin();
-  const customerToken = await customerLogin();
   const providerId = await providerIdFor(providerToken);
   const slotDate = await pickFreeSlotDate(providerToken);
 
-  const booking = await post(`${CONSUMER_API}/api/v1/bookings`, customerToken, {
-    serviceId: catalog.serviceId,
-    cityId: catalog.cityId,
-    addressId: catalog.addressId,
-    localityId: catalog.localityId,
-    slotWindowId: catalog.slotWindowId,
-    slotDate,
-    quantity: 1,
-    addOns: [],
-    idempotencyKey: crypto.randomUUID(),
-  });
-
-  const order = await post(`${CONSUMER_API}/api/v1/payments/orders`, customerToken, {
-    bookingId: booking.id,
-    idempotencyKey: crypto.randomUUID(),
-  });
-  await post(`${CONSUMER_API}/api/v1/payments/orders/simulate`, customerToken, {
-    gatewayOrderId: order.gatewayOrderId,
-  });
+  // Booking creation plus sandbox payment is shared with admin-web's suite -
+  // see seed-booking.ts for why. catalog.customerAccessToken is what it logs
+  // in with, so this needs no separate customerLogin() call.
+  const booking = await createPaidBooking(catalog, adminToken, slotDate);
 
   const A = `${ADMIN_API}/api/v1/admin`;
-  const afterPayment = await get(`${A}/bookings/${booking.id}`, adminToken);
-  if (afterPayment.status !== BOOKING_STATUS_CONFIRMED) {
-    throw new Error(
-      `Expected booking ${booking.id} to be Confirmed after the sandbox payment, but it is ` +
-        `status ${afterPayment.status}. The sandbox gateway declines any amount whose paisa ` +
-        "component is exactly 13 - check the seeded service price.",
-    );
-  }
-
-  await post(`${A}/bookings/${booking.id}/status`, adminToken, {
+  await post(`${A}/bookings/${booking.bookingId}/status`, adminToken, {
     newStatus: BOOKING_STATUS_AWAITING_FULFILMENT,
     reason: "E2E test setup: releasing the booking into the fulfilment queue.",
   });
@@ -257,16 +221,16 @@ export async function seedAssignedJob(
   // provider holding two rows for one booking - one Reassigned, one
   // Assigned - and `GET /jobs` lists a row per assignment, showing the same
   // job twice.
-  const assignments: any[] = await get(`${A}/bookings/${booking.id}/assignments`, adminToken);
+  const assignments: any[] = await get(`${A}/bookings/${booking.bookingId}/assignments`, adminToken);
   const live = assignments.find((a) => LIVE_ASSIGNMENT_STATUSES.has(a.status));
   if (live?.providerId !== providerId) {
-    await post(`${A}/bookings/${booking.id}/assign-provider`, adminToken, {
+    await post(`${A}/bookings/${booking.bookingId}/assign-provider`, adminToken, {
       providerId,
       responseDeadline: new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString(),
     });
   }
 
-  return { bookingId: booking.id, slotDate };
+  return { bookingId: booking.bookingId, slotDate };
 }
 
 /**

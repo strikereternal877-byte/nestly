@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Nestly.Application;
 using Nestly.Application.Bookings;
@@ -26,6 +27,7 @@ public class ProviderPerformanceListServiceTests : IDisposable
         new ProviderRepository(context),
         new ProviderKycDocumentRepository(context),
         new ProviderBackgroundCheckRepository(context),
+        new ProviderBankAccountRepository(context),
         new BookingRepository(context),
         new BookingProviderAssignmentRepository(context),
         new ProviderEarningLedgerRepository(context),
@@ -37,11 +39,15 @@ public class ProviderPerformanceListServiceTests : IDisposable
             new CityRepository(context), new ServiceRepository(context), new PincodeRepository(context),
             TestServices.AuditLogWriter(context), TestServices.SystemSettings(context)),
         new ProviderAvailabilityWindowRepository(context),
-        new ReviewRepository(context));
+        new ReviewRepository(context),
+        new ProviderStatusHistoryRepository(context),
+        TestServices.ProviderNotificationPublisher(context),
+        new NoOpFileStorageService(),
+        NullLogger<ProviderManagementService>.Instance);
 
     private static BookingProviderAssignmentService CreateAssignmentService(NestlyDbContext context) => new(
         new BookingRepository(context), new ProviderRepository(context), new ServiceRepository(context), new BookingProviderAssignmentRepository(context), new ProviderScheduleConflictService(context, TestServices.Occupancy()),
-        Options.Create(new AutoAssignmentOptions()), context);
+        Options.Create(new AutoAssignmentOptions()), TestServices.ProviderNotificationPublisher(context), context);
 
     private static Provider NewActiveProvider(string legalName, string displayName, string phone)
     {

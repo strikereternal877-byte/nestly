@@ -9,6 +9,7 @@ import { BookingHelpLink } from "@/components/BookingHelpLink";
 import { CitySelector } from "@/components/CitySelector";
 import { LocalitySelector } from "@/components/LocalitySelector";
 import { PageBanner } from "@/components/PageBanner";
+import { PlanKindPicker } from "@/components/PlanKindPicker";
 import {
   AddOnGroupSelector,
   BannerBreadcrumb,
@@ -41,8 +42,9 @@ import {
 import { useSelectedCity } from "@/hooks/useSelectedCity";
 import { API_V1, ApiError, apiFetch, describeError, errorCode } from "@/lib/api";
 import { useFeatureFlags } from "@/lib/feature-flags";
-import { type BookingDraft, readDraft, writeDraft } from "@/lib/booking-draft";
-import { addRecurrenceInterval, todayIsoDate } from "@/lib/date";
+import { type BookingDraft, type RepeatPlanKind, readDraft, writeDraft } from "@/lib/booking-draft";
+import { addRecurrenceInterval, openEndedCycleVisitCount, todayIsoDate } from "@/lib/date";
+import { PAUSE_AFTER_UNPAID_VISITS, WALLET_LOW_BALANCE_VISITS } from "@/lib/recurring-plan";
 import { RecurringBookingRecurrenceFrequency } from "@/lib/types";
 import type {
   BookingSummary,
@@ -53,7 +55,9 @@ import type {
   RecurringBookingPlanResponse,
   ServiceDetail,
   SlotRevalidation,
+  WalletBalanceResponse,
 } from "@/lib/types";
+import { useWalletTopUpConfig } from "@/lib/wallet-topup";
 
 /**
  * Largest quantity the "+" control will reach.
@@ -131,6 +135,14 @@ function BookingSummaryScreen() {
     RecurringBookingRecurrenceFrequency.Weekly,
   );
   const [repeatCount, setRepeatCount] = useState("4");
+  const [repeatUntilCancelled, setRepeatUntilCancelled] = useState(false);
+  /**
+   * "daily": a visit every day, each one paid as it is booked (from the wallet). "prepaid": the visits are
+   * paid for now, in one payment. Prepaid is the default - it is what auto-scheduling always was.
+   */
+  const [repeatPlanKind, setRepeatPlanKind] = useState<RepeatPlanKind>("prepaid");
+  /** A daily plan's "pay from my wallet" choice; null until the customer decides (see `planPaysFromWallet`). */
+  const [planWalletAuto, setPlanWalletAuto] = useState<boolean | null>(null);
   const [recurringPlanId, setRecurringPlanId] = useState<string | null>(null);
   const [recurringPlanError, setRecurringPlanError] = useState<string | null>(null);
 
@@ -177,6 +189,19 @@ function BookingSummaryScreen() {
   const idempotencyRequestSignatureRef = useRef<string | null>(null);
 
   const { walletEnabled, couponsEnabled } = useFeatureFlags();
+
+  // The wallet matters to a daily plan (it pays each day's visit), so its balance is read here rather than
+  // only from the booking summary, which does not exist until an address and a slot are chosen. Same query
+  // key as the wallet page, so the two share one cache entry.
+  const walletBalanceQuery = useQuery({
+    queryKey: ["wallet-balance"],
+    queryFn: () => apiFetch<WalletBalanceResponse>(`${API_V1}/wallet/balance`, { authenticated: true }),
+    enabled: walletEnabled,
+  });
+  const walletBalance = walletBalanceQuery.data?.balance ?? null;
+  // Adding money is offered only when the server has top-ups switched on (they are off by default).
+  const topUpConfigQuery = useWalletTopUpConfig(walletEnabled);
+  const canAddMoney = walletEnabled && topUpConfigQuery.data?.enabled === true;
 
   // Coupon (task 77, SRS 11.10.3). appliedCouponCode is the code the backend
   // has confirmed - couponInput is just the text box's draft value, kept
@@ -241,6 +266,10 @@ function BookingSummaryScreen() {
       serviceable[0] ??
       addressesQuery.data.find((a) => a.isDefault) ??
       addressesQuery.data[0];
+    // Reacting to addressesQuery.data arriving from an async query, not a
+    // render-time prop change; see the doc comment above for why this can't
+    // pre-select before the data (and the serviceable area) are known.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (preferred) setSelectedAddressId(preferred.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [addressesQuery.data, selectedAddressId, locality?.pincodeId]);
@@ -265,6 +294,10 @@ function BookingSummaryScreen() {
     if (!serviceSlug) return;
     const draft = readDraft(serviceSlug);
     if (draft) {
+      // A once-per-serviceSlug restore, not a render-time sync; see the
+      // hasRestoredDraft doc comment above for why this must run (and land)
+      // strictly before the persist effect's own write.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setQuantity(draft.quantity);
       setSelectedAddOnIds(new Set(draft.addOnIds));
       setSelectedVariantId(draft.serviceVariantId ?? null);
@@ -277,6 +310,9 @@ function BookingSummaryScreen() {
         setRepeatFrequency(draft.repeatFrequency as RecurringBookingRecurrenceFrequency);
       }
       if (draft.repeatCount) setRepeatCount(draft.repeatCount);
+      setRepeatUntilCancelled(draft.repeatUntilCancelled ?? false);
+      setRepeatPlanKind(draft.repeatPlanKind ?? "prepaid");
+      setPlanWalletAuto(draft.planWalletAuto ?? null);
       setRecurringPlanId(draft.recurringPlanId ?? null);
     }
     setHasRestoredDraft(true);
@@ -289,6 +325,9 @@ function BookingSummaryScreen() {
   useEffect(() => {
     if (!hasRestoredDraft || selectedVariantId !== null || !serviceQuery.data) return;
     const firstVariant = serviceQuery.data.variants[0];
+    // Reacting to hasRestoredDraft settling and serviceQuery.data arriving,
+    // both async, not a render-time prop change.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (firstVariant) setSelectedVariantId(firstVariant.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasRestoredDraft, serviceQuery.data]);
@@ -303,6 +342,9 @@ function BookingSummaryScreen() {
   useEffect(() => {
     const newAddressId = searchParams.get("newAddressId");
     if (!newAddressId || !serviceSlug) return;
+    // A one-time mount action consuming a URL param handed off by
+    // /addresses/new, not a render-time sync (see the doc comment above).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSelectedAddressId(newAddressId);
     const cleaned = new URLSearchParams(searchParams.toString());
     cleaned.delete("newAddressId");
@@ -321,6 +363,9 @@ function BookingSummaryScreen() {
     repeatEnabled,
     repeatFrequency,
     repeatCount,
+    repeatUntilCancelled,
+    repeatPlanKind,
+    planWalletAuto,
     recurringPlanId,
   };
 
@@ -340,6 +385,9 @@ function BookingSummaryScreen() {
       repeatEnabled,
       repeatFrequency,
       repeatCount,
+      repeatUntilCancelled,
+      repeatPlanKind,
+      planWalletAuto,
       recurringPlanId,
     });
   }, [
@@ -355,6 +403,9 @@ function BookingSummaryScreen() {
     repeatEnabled,
     repeatFrequency,
     repeatCount,
+    repeatUntilCancelled,
+    repeatPlanKind,
+    planWalletAuto,
     recurringPlanId,
   ]);
 
@@ -400,11 +451,37 @@ function BookingSummaryScreen() {
    * before they commit, because "repeat every month" is ambiguous about
    * whether the next visit is in a month or on the 1st.
    */
-  const recurringPlanStartDate = addRecurrenceInterval(selectedDate, repeatFrequency);
+  const isDailyPlan = repeatPlanKind === "daily";
+  // A daily plan is always daily; a prepaid plan takes whatever cadence the customer picked.
+  const planFrequency = isDailyPlan
+    ? RecurringBookingRecurrenceFrequency.Daily
+    : repeatFrequency;
+  const recurringPlanStartDate = addRecurrenceInterval(selectedDate, planFrequency);
+  // Whether a daily plan draws each visit from the wallet. Undecided reads as "yes" once there is a balance
+  // to draw on - the point of the plan is that nobody has to pay by hand every day.
+  const planPaysFromWallet = walletEnabled && (planWalletAuto ?? (walletBalance ?? 0) > 0);
 
-  const repeatCountValue = Number(repeatCount.trim());
+  /**
+   * The number the customer types is the plan's total visits *including* the booking being
+   * placed now - "30 days", not "29 more" - because the whole lot is paid for together. The plan
+   * itself holds the repeats after that first booking.
+   */
+  const visitsTyped = Number(repeatCount.trim());
+  // "Until I cancel" has no visit count, so there is nothing to validate; it is bought one
+  // 30-day cycle at a time.
   const isRepeatCountValid =
-    repeatCount.trim() !== "" && Number.isInteger(repeatCountValue) && repeatCountValue > 0;
+    repeatUntilCancelled ||
+    (repeatCount.trim() !== "" && Number.isInteger(visitsTyped) && visitsTyped >= 2);
+  const isDailyRepeat = planFrequency === RecurringBookingRecurrenceFrequency.Daily;
+
+  /** Visits the customer is paying for in this checkout, or null while the input is not usable. */
+  const plannedVisits: number | null = repeatUntilCancelled
+    ? isDailyPlan
+      ? null // an open-ended daily plan is paid day by day, so there is no first-cycle count
+      : openEndedCycleVisitCount(selectedDate, planFrequency)
+    : isRepeatCountValid
+      ? visitsTyped
+      : null;
 
   /**
    * The plan to create alongside the booking, or null if the booking request
@@ -414,8 +491,9 @@ function BookingSummaryScreen() {
    */
   const buildRecurringPlanBody = (
     bookingRequest: BookingSummaryRequestBody,
+    leadBookingId: string,
   ): CreateRecurringBookingPlanRequestBody => {
-    const isMonthly = repeatFrequency === RecurringBookingRecurrenceFrequency.Monthly;
+    const isMonthly = planFrequency === RecurringBookingRecurrenceFrequency.Monthly;
     const anchor = new Date(`${recurringPlanStartDate}T00:00:00`);
 
     return {
@@ -425,16 +503,23 @@ function BookingSummaryScreen() {
       localityId: bookingRequest.localityId,
       slotWindowId: bookingRequest.slotWindowId,
       quantity: bookingRequest.quantity,
-      frequency: repeatFrequency,
-      recurrenceDayOfWeek: isMonthly ? null : anchor.getDay(),
+      frequency: planFrequency,
+      // A daily plan carries neither - the API rejects a day on it.
+      recurrenceDayOfWeek: isMonthly || isDailyRepeat ? null : anchor.getDay(),
       recurrenceDayOfMonth: isMonthly ? anchor.getDate() : null,
       startDate: recurringPlanStartDate,
-      // Bounded by a visit count rather than an end date: "four more cleans"
-      // is how customers describe this, and the plan aggregate requires one or
-      // the other. The standalone /recurring-bookings/new form still offers an
-      // end date for anyone who wants it.
+      // Bounded by a visit count rather than an end date. The plan holds the repeats after the
+      // booking placed now, hence one fewer than the total the customer chose. "Until I cancel"
+      // sends neither, which makes the plan open-ended (RecurringBookingPlan.IsOpenEnded): the
+      // API then sells one 30-day cycle and asks for a renewal payment before it runs out.
       endDate: null,
-      occurrenceCount: repeatCountValue,
+      occurrenceCount: repeatUntilCancelled ? null : visitsTyped - 1,
+      // A prepaid plan pays its whole first cycle in one checkout, from the booking placed right now. A
+      // daily plan pays only that booking now; each later day is paid as it is booked, from the wallet
+      // when the customer chose that (the API refuses a wallet choice on a prepaid plan).
+      prepaidUpfront: !isDailyPlan,
+      applyWalletCredit: isDailyPlan && planPaysFromWallet,
+      leadBookingId,
       // No couponCode: a coupon is a one-time redemption and is deliberately
       // absent from CreateRecurringBookingPlanRequest - see its doc comment.
       addOns: bookingRequest.addOns,
@@ -469,6 +554,9 @@ function BookingSummaryScreen() {
     if (!appliedCouponCode || !(error instanceof ApiError)) return;
     if (!errorCode(error)?.startsWith("Coupon.")) return;
 
+    // Reacting to a query error arriving from the server, not a render-time
+    // prop change.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setAppliedCouponCode(null);
     setCouponMessage(null);
     setCouponError(
@@ -513,7 +601,11 @@ function BookingSummaryScreen() {
 
     setRecurringPlanError(null);
     if (repeatEnabled && !recurringPlanId && !isRepeatCountValid) {
-      setRecurringPlanError("Tell us how many repeat visits you'd like — at least one.");
+      setRecurringPlanError(
+        isDailyRepeat
+          ? "Tell us for how many days you'd like this — at least two, counting today's booking."
+          : "Tell us how many visits you'd like in total — at least two, counting today's booking.",
+      );
       return;
     }
 
@@ -582,7 +674,7 @@ function BookingSummaryScreen() {
             {
               method: "POST",
               authenticated: true,
-              body: JSON.stringify(buildRecurringPlanBody(request)),
+              body: JSON.stringify(buildRecurringPlanBody(request, booking.id)),
             },
           );
           setRecurringPlanId(plan.id);
@@ -661,10 +753,32 @@ function BookingSummaryScreen() {
   // special-case "no coupon" here the way this used to.
   const payable = summary ? summary.finalPayable : null;
 
+  /**
+   * What the customer pays in this one checkout when they auto-schedule: this booking as priced
+   * (with any coupon or wallet credit, which apply to it alone) plus every repeat at the plain
+   * per-visit price. An estimate - a date with nobody available is left out of the purchase and
+   * the payment page shows the final figure - but it is the number that answers "how much will
+   * this take out of my account today".
+   */
+  const planTotal =
+    repeatEnabled && !recurringPlanId && !isDailyPlan && summary && plannedVisits !== null
+      ? {
+          visits: plannedVisits,
+          perVisit: summary.price.totalPayable,
+          total: summary.finalPayable + (plannedVisits - 1) * summary.price.totalPayable,
+        }
+      : null;
+
   // Carries this exact review page as the return trip for the "add a new
   // address" detour below - see the newAddressId effect above and
   // addresses/new/page.tsx's returnTo handling.
   const addNewAddressHref = `/addresses/new?returnTo=${encodeURIComponent(`/booking/summary?serviceSlug=${service.slug}`)}`;
+
+  // Adding money is a detour too: this page's draft survives it (see booking-draft.ts), and the wallet's
+  // result screen offers a way back here.
+  const addMoneyHref = canAddMoney
+    ? `/wallet?addMoney=1&returnTo=${encodeURIComponent(`/booking/summary?serviceSlug=${service.slug}`)}`
+    : null;
 
   return (
     <main className="flex w-full flex-col animate-rise">
@@ -909,14 +1023,18 @@ function BookingSummaryScreen() {
             slot it repeats, so the frequency and the day it lands on are read
             together. */}
         <Card
-          title="Repeat this booking"
-          description="Make it a standing visit and we'll book each one for you."
+          title="Auto-schedule this service"
+          description="Set it once — we book every visit for you. Pay day by day with a Daily plan, or all at once with a Prepaid plan."
         >
           <div className="flex flex-col gap-4">
           {recurringPlanId ? (
             <Alert tone="success" title="Repeat schedule set up">
-              We&apos;ll book {service.name} {recurringFrequencyLabel(repeatFrequency).toLowerCase()}{" "}
-              from <span className="nums">{formatCalendarDate(recurringPlanStartDate)}</span>.{" "}
+              We&apos;ll book {service.name} {recurringFrequencyLabel(planFrequency).toLowerCase()}{" "}
+              from <span className="nums">{formatCalendarDate(selectedDate)}</span>
+              {repeatUntilCancelled ? ", until you cancel" : ""}.{" "}
+              {isDailyPlan
+                ? "Today's booking is paid on the next screen; each following day is paid as it's booked."
+                : "You pay for all of it on the next screen."}{" "}
               <Link
                 href="/recurring-bookings"
                 className="font-medium text-brand-600 underline-offset-4 hover:underline dark:text-brand-400"
@@ -928,45 +1046,80 @@ function BookingSummaryScreen() {
           ) : (
             <div className="flex flex-col gap-4">
               <CheckboxField
-                label="Repeat this booking"
-                description="The booking you're placing now stays exactly as it is — repeats are added on top, starting one interval later."
+                label="Auto-schedule this service"
+                description="We book the visits for you. The booking you're placing now is the first one."
                 checked={repeatEnabled}
                 onChange={setRepeatEnabled}
               />
 
               {repeatEnabled ? (
                 <div className="flex flex-col gap-4 border-t border-line pt-4">
-                  <FrequencyPicker
-                    label="Repeat frequency"
-                    value={repeatFrequency}
-                    onChange={setRepeatFrequency}
+                  <PlanKindPicker value={repeatPlanKind} onChange={setRepeatPlanKind} />
+
+                  {isDailyPlan ? null : (
+                    <FrequencyPicker
+                      label="How often"
+                      value={repeatFrequency}
+                      onChange={setRepeatFrequency}
+                    />
+                  )}
+
+                  <CheckboxField
+                    label="Keep going until I cancel"
+                    description={
+                      isDailyPlan
+                        ? "We keep booking a visit every day until you pause or cancel. Each day is paid separately."
+                        : "You pay 30 days at a time. We'll ask you to renew before it ends — if you don't, the plan simply pauses."
+                    }
+                    checked={repeatUntilCancelled}
+                    onChange={setRepeatUntilCancelled}
                   />
 
-                  <Field
-                    id="repeat-count"
-                    label="Number of repeat visits"
-                    type="number"
-                    min={1}
-                    className="max-w-[10rem]"
-                    value={repeatCount}
-                    onChange={(e) => setRepeatCount(e.target.value)}
-                    hint="Not counting the booking you're placing now."
-                  />
+                  {repeatUntilCancelled ? null : (
+                    <Field
+                      id="repeat-count"
+                      label={isDailyRepeat ? "Total number of days" : "Total number of visits"}
+                      type="number"
+                      min={2}
+                      className="max-w-[10rem]"
+                      value={repeatCount}
+                      onChange={(e) => setRepeatCount(e.target.value)}
+                      hint="Counting the booking you're placing now."
+                    />
+                  )}
+
+                  {isDailyPlan ? (
+                    <DailyPlanPayment
+                      walletEnabled={walletEnabled}
+                      balance={walletBalance}
+                      perVisit={summary ? summary.price.totalPayable : null}
+                      autoPay={planPaysFromWallet}
+                      onAutoPayChange={setPlanWalletAuto}
+                      addMoneyHref={addMoneyHref}
+                    />
+                  ) : null}
 
                   <p className="text-xs leading-relaxed text-fg-subtle">
-                    First repeat visit:{" "}
+                    {recurringFrequencyLabel(planFrequency)}, from{" "}
                     <span className="nums font-medium text-fg-muted">
-                      {formatCalendarDate(recurringPlanStartDate)}
+                      {formatCalendarDate(selectedDate)}
                     </span>
-                    , in the same time window. Each visit is booked and paid for on its own — pause
-                    or cancel the schedule any time from{" "}
+                    {plannedVisits !== null
+                      ? `, ${plannedVisits} ${isDailyRepeat ? "day" : "visit"}${plannedVisits === 1 ? "" : "s"}${repeatUntilCancelled && !isDailyPlan ? " in this first 30-day payment" : ""}`
+                      : ""}
+                    , in the same time window.{" "}
+                    {isDailyPlan
+                      ? "Today's booking is paid on the next screen; each following day is paid as it's booked. Pause, skip days or cancel any time from "
+                      : "All of them are paid for in this one payment. A date with no professional available is left out and not charged. Cancel any time from "}
                     <Link
                       href="/recurring-bookings"
                       className="font-medium text-brand-600 underline-offset-4 hover:underline dark:text-brand-400"
                     >
                       Recurring bookings
                     </Link>
-                    .
+                    {isDailyPlan
+                      ? "."
+                      : " — visits not yet done are refunded as per the cancellation policy."}
                   </p>
                 </div>
               ) : null}
@@ -1035,18 +1188,34 @@ function BookingSummaryScreen() {
         {/* Wallet credit (task 310, SRS 11.7.2). Only shown once the summary
             has actually loaded and there is a balance to offer - a customer
             with nothing in their wallet has nothing to decide here. */}
-        {walletEnabled && summary && summary.wallet.balance > 0 ? (
+        {walletEnabled && summary && (summary.wallet.balance > 0 || addMoneyHref !== null) ? (
           <Card title="Wallet credit" description="Use your Glavyx wallet balance towards this booking.">
-            <CheckboxField
-              label={`Use my wallet balance (${inr(summary.wallet.balance)} available)`}
-              description={
-                applyWalletCredit && summary.wallet.appliedAmount > 0
-                  ? `${inr(summary.wallet.appliedAmount)} will be applied towards this booking.`
-                  : "Applied after any coupon or subscription discount, up to what's still payable."
-              }
-              checked={applyWalletCredit}
-              onChange={setApplyWalletCredit}
-            />
+            <div className="flex flex-col gap-3">
+              {summary.wallet.balance > 0 ? (
+                <CheckboxField
+                  label={`Use my wallet balance (${inr(summary.wallet.balance)} available)`}
+                  description={
+                    applyWalletCredit && summary.wallet.appliedAmount > 0
+                      ? `${inr(summary.wallet.appliedAmount)} will be applied towards this booking.`
+                      : "Applied after any coupon or subscription discount, up to what's still payable."
+                  }
+                  checked={applyWalletCredit}
+                  onChange={setApplyWalletCredit}
+                />
+              ) : (
+                <p className="text-sm leading-relaxed text-fg-muted">
+                  Your wallet is empty. Add money to pay for bookings and plans without entering payment
+                  details each time.
+                </p>
+              )}
+              {addMoneyHref ? (
+                <div>
+                  <LinkButton href={addMoneyHref} size="sm" variant="secondary">
+                    Add money to wallet
+                  </LinkButton>
+                </div>
+              ) : null}
+            </div>
           </Card>
         ) : null}
       </div>
@@ -1071,7 +1240,7 @@ function BookingSummaryScreen() {
             </Alert>
           </Card>
         ) : summary ? (
-          <BookingSummaryCard summary={summary} />
+          <BookingSummaryCard summary={summary} planTotal={planTotal} />
         ) : (
           <Card title="Price summary">
             <p className="text-sm leading-relaxed text-fg-muted">
@@ -1098,9 +1267,11 @@ function BookingSummaryScreen() {
           {payable !== null ? (
             <div className="flex items-baseline justify-between gap-3 md:hidden">
               <span className="text-xs font-medium uppercase tracking-wide text-fg-muted">
-                Total payable
+                {planTotal ? `Total for ${planTotal.visits} visits` : "Total payable"}
               </span>
-              <span className="nums text-lg font-semibold text-fg">{inr(payable)}</span>
+              <span className="nums text-lg font-semibold text-fg">
+                {inr(planTotal ? planTotal.total : payable)}
+              </span>
             </div>
           ) : null}
 
@@ -1168,13 +1339,90 @@ function QuantityButton({
 }
 
 /**
+ * The payment half of the "Daily plan" option: how each day's visit gets paid, and what happens when it isn't.
+ *
+ * A visit that is not paid is never carried out - no professional is sent to an unpaid booking - so the plan
+ * says plainly what the customer is signing up to, and nudges them to keep the wallet topped up instead of
+ * letting them find out from a missed visit.
+ */
+function DailyPlanPayment({
+  walletEnabled,
+  balance,
+  perVisit,
+  autoPay,
+  onAutoPayChange,
+  addMoneyHref,
+}: {
+  walletEnabled: boolean;
+  balance: number | null;
+  perVisit: number | null;
+  autoPay: boolean;
+  onAutoPayChange: (value: boolean) => void;
+  addMoneyHref: string | null;
+}) {
+  const visitsCovered =
+    balance !== null && perVisit !== null && perVisit > 0 ? Math.floor(balance / perVisit) : null;
+  const isLow = autoPay && visitsCovered !== null && visitsCovered < WALLET_LOW_BALANCE_VISITS;
+
+  return (
+    <div className="flex flex-col gap-3 rounded-xl border border-line bg-surface-2 p-4">
+      {walletEnabled ? (
+        <>
+          <CheckboxField
+            label="Pay each day's visit from my wallet automatically"
+            description={
+              balance === null
+                ? "The wallet pays what it can; anything left is yours to pay from My bookings."
+                : `${inr(balance)} in your wallet${perVisit !== null ? ` — each visit is ${inr(perVisit)}` : ""}. The wallet pays what it can; anything left is yours to pay from My bookings.`
+            }
+            checked={autoPay}
+            onChange={onAutoPayChange}
+          />
+
+          {isLow ? (
+            <Alert
+              tone="warning"
+              title={
+                visitsCovered === 0
+                  ? "Your wallet can't cover a visit yet"
+                  : `Your wallet covers only ${visitsCovered} ${visitsCovered === 1 ? "visit" : "visits"}`
+              }
+              action={
+                addMoneyHref ? (
+                  <LinkButton href={addMoneyHref} size="sm" variant="secondary">
+                    Add money
+                  </LinkButton>
+                ) : undefined
+              }
+            >
+              Keep it topped up so every day&apos;s visit is paid and nobody misses a visit.
+            </Alert>
+          ) : null}
+        </>
+      ) : null}
+
+      <p className="text-xs leading-relaxed text-fg-subtle">
+        A visit that isn&apos;t paid isn&apos;t carried out — no professional is sent for it. After{" "}
+        {PAUSE_AFTER_UNPAID_VISITS} unpaid visits in a row the plan pauses by itself; you can resume it any time.
+      </p>
+    </div>
+  );
+}
+
+/**
  * Price breakdown (task 62e) + policy summary (task 62f, SRS 11.7.2), with
  * the coupon discount, wallet credit (task 310) and recomputed final payable
  * folded in (task 77) - the discount lines and the total all visibly change
  * whenever a coupon or wallet credit is applied or removed, satisfying SRS
  * 11.10.3's "recompute" requirement.
  */
-function BookingSummaryCard({ summary }: { summary: BookingSummary }) {
+function BookingSummaryCard({
+  summary,
+  planTotal,
+}: {
+  summary: BookingSummary;
+  planTotal: { visits: number; perVisit: number; total: number } | null;
+}) {
   return (
     <Card title="Price summary">
       <div className="flex flex-col gap-4">
@@ -1188,6 +1436,22 @@ function BookingSummaryCard({ summary }: { summary: BookingSummary }) {
           walletCreditApplied={summary.wallet.appliedAmount}
           total={summary.finalPayable}
         />
+
+        {planTotal ? (
+          <div className="rounded-xl border border-brand-600/25 bg-brand-50 px-3.5 py-3 dark:bg-brand-600/10">
+            <p className="text-xs font-semibold uppercase tracking-wide text-fg-subtle">
+              Total for {planTotal.visits} visits
+            </p>
+            <p className="nums mt-1 text-2xl font-semibold text-fg">{inr(planTotal.total)}</p>
+            <p className="mt-1 text-xs leading-relaxed text-fg-muted">
+              {planTotal.visits} × {inr(planTotal.perVisit)}
+              {summary.coupon || summary.wallet.appliedAmount > 0
+                ? " (your coupon or wallet credit applies to today's booking only)"
+                : ""}
+              . Paid now, in one payment.
+            </p>
+          </div>
+        ) : null}
 
         {summary.coupon ? (
           <p className="rounded-lg bg-success-soft px-3 py-2 text-xs font-medium text-success">

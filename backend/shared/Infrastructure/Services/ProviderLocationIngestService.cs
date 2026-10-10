@@ -93,15 +93,27 @@ public class ProviderLocationIngestService : IProviderLocationIngestService
         // The booking sits in Assigned both before and after the provider
         // responds, so the trackable-state list alone would let the platform
         // start tracking someone who has merely been offered the job and may
-        // yet decline it. Consent to be located begins at accept, and - once
-        // given - is not withdrawn just because the job finished a moment ago;
-        // BookingLifecycle.IsTrackable below is what actually stops tracking a
-        // completed job, so it alone decides that, not this check.
+        // yet decline it. Consent to be located begins at accept.
         if (assignment.Status is not (BookingProviderAssignmentStatus.Accepted or BookingProviderAssignmentStatus.Completed))
         {
             return Error.Conflict(
                 "ProviderLocation.NotAccepted",
                 "Location may not be reported for a job that has not been accepted yet.");
+        }
+
+        // Completion no longer implies BookingLifecycle.IsTrackable(booking.Status)
+        // is false: the booking now stays InProgress until admin approves the
+        // completion proof (see BookingManagementService.ApproveCompletionProofAsync),
+        // so a provider who finished and moved on could otherwise keep reporting
+        // location against this booking for the entire admin-review window. The
+        // assignment - not the booking - is this endpoint's actual source of
+        // truth for "is the provider still on this job", so it is checked
+        // directly rather than only through BookingLifecycle.IsTrackable.
+        if (assignment.Status == BookingProviderAssignmentStatus.Completed)
+        {
+            return Error.Conflict(
+                "ProviderLocation.NotTrackable",
+                "This job is not in a state where location may be reported.");
         }
 
         // BookingLifecycle.IsTrackable, not a local copy of the same four

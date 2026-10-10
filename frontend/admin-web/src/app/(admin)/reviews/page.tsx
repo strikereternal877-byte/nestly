@@ -1,8 +1,10 @@
 "use client";
 
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
 import { Alert, Badge, Button, Card, EmptyState, Field, PageHeading, Select, Skeleton } from "@/components/ui";
+import { useResetOnChange } from "@/hooks/useResetOnChange";
 import {
   ConfirmDialog,
   FilterBar,
@@ -19,6 +21,7 @@ import {
   FLAGGED_FILTER_OPTIONS,
   REVIEW_STATUS_FILTER_OPTIONS,
   buildReviewModerationQuery,
+  reviewFiltersFromSearchParams,
   reviewStatusLabel,
 } from "@/lib/reviews";
 import type { ReviewModerationFilters } from "@/lib/reviews";
@@ -59,13 +62,30 @@ function ReviewStatusBadge({ status }: { status: ReviewStatus }) {
  *
  * Cards rather than a table: a review is a paragraph of free text plus tags
  * and a moderator note, which a row would have to truncate to be readable.
+ *
+ * Wrapped in Suspense: `useSearchParams` (reading the Customer 360 view's
+ * "Reviews written" click-through) opts the tree below it out of static
+ * rendering, and Next's App Router requires a Suspense boundary around that
+ * or the production build fails (same pattern providers/page.tsx uses).
  */
 export default function ReviewModerationPage() {
+  return (
+    <Suspense fallback={<div className="w-full max-w-5xl px-6 py-10" />}>
+      <ReviewModerationPageContent />
+    </Suspense>
+  );
+}
+
+function ReviewModerationPageContent() {
   const claims = useAdminClaims();
   const canWrite = canWriteModule(claims, "reviews");
   const queryClient = useQueryClient();
+  const searchParams = useSearchParams();
 
-  const [draft, setDraft] = useState<ReviewModerationFilters>(DEFAULT_REVIEW_MODERATION_FILTERS);
+  // Lazy initializer, read once on mount - see reviewFiltersFromSearchParams's
+  // own doc comment (same convention as providers/directory's own
+  // filtersFromSearchParams).
+  const [draft, setDraft] = useState<ReviewModerationFilters>(() => reviewFiltersFromSearchParams(searchParams));
   const [page, setPage] = useState(1);
   const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
   const [pendingHide, setPendingHide] = useState<ReviewModerationItem | null>(null);
@@ -127,18 +147,19 @@ export default function ReviewModerationPage() {
 
   // Any filter change resets to page 1 - staying on a now out-of-range page
   // would just show an empty result (same pattern as customers/page.tsx).
-  useEffect(() => {
-    setPage(1);
-  }, [
-    debouncedServiceId,
-    debouncedCategoryId,
-    debouncedMinRating,
-    debouncedMaxRating,
-    draft.status,
-    draft.flagged,
-    draft.fromDate,
-    draft.toDate,
-  ]);
+  useResetOnChange(
+    [
+      debouncedServiceId,
+      debouncedCategoryId,
+      debouncedMinRating,
+      debouncedMaxRating,
+      draft.status,
+      draft.flagged,
+      draft.fromDate,
+      draft.toDate,
+    ],
+    () => setPage(1),
+  );
 
   const query = useQuery({
     queryKey: ["admin-reviews", effectiveFilters, page],

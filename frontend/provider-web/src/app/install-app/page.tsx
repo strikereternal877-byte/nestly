@@ -87,6 +87,9 @@ function InstallScreen() {
       return;
     }
 
+    // One-time mount bootstrap alongside the redirect decision and the
+    // event listener below - not a continuously-synced external value.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setPlatform(detected);
     setStandalone(alreadyStandalone);
 

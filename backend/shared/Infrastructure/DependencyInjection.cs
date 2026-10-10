@@ -41,6 +41,7 @@ using Nestly.Application.ProviderIdentity;
 using Nestly.Application.ProviderJobs;
 using Nestly.Application.ProviderManagement;
 using Nestly.Application.ProviderProfile;
+using Nestly.Application.ProviderSupport;
 using Nestly.Application.NestlyCoins;
 using Nestly.Application.Referral;
 using Nestly.Application.ProviderReferral;
@@ -233,6 +234,21 @@ public static class DependencyInjection
         services
             .AddOptions<RecurringBookingOptions>()
             .Bind(configuration.GetSection(RecurringBookingOptions.SectionName))
+            .ValidateDataAnnotations();
+
+        // Letting customers add their own money to the wallet. Not a secret; defaults to OFF - see the
+        // options class for why it must stay off in production until the business groundwork is done.
+        services
+            .AddOptions<WalletTopUpOptions>()
+            .Bind(configuration.GetSection(WalletTopUpOptions.SectionName))
+            .ValidateDataAnnotations();
+
+        // docs/AMC.md's scheduled expiry sweep: not a secret, has a safe
+        // production-sensible default - same reasoning as
+        // SubscriptionBillingOptions above.
+        services
+            .AddOptions<AmcExpiryOptions>()
+            .Bind(configuration.GetSection(AmcExpiryOptions.SectionName))
             .ValidateDataAnnotations();
 
         // docs/MONTHLY-SERVICE.md: attendance windows, billing days - not
@@ -505,6 +521,18 @@ public static class DependencyInjection
         services.AddScoped<IProviderSessionRepository, ProviderSessionRepository>();
         services.AddScoped<IProviderLoginAttemptRepository, ProviderLoginAttemptRepository>();
         services.AddScoped<IProviderKycDocumentRepository, ProviderKycDocumentRepository>();
+        // Structured, admin-verifiable bank account details (docs/PROVIDER.md
+        // OPEN DECISIONS #3) - registered beside the KYC document repository
+        // since both back the provider's own onboarding/profile screens, and
+        // ahead of IProviderKycService below since ProviderManagementService/
+        // ProviderKycApprovalService (registered further down) both take a
+        // dependency on it for ProviderDetailResponse.BankAccount.
+        services.AddScoped<IProviderBankAccountRepository, ProviderBankAccountRepository>();
+        services.AddScoped<IProviderBankAccountService, ProviderBankAccountService>();
+        services.AddScoped<IProviderStatusHistoryRepository, ProviderStatusHistoryRepository>();
+        services.AddScoped<IProviderNotificationRepository, ProviderNotificationRepository>();
+        services.AddScoped<IProviderNotificationService, ProviderNotificationService>();
+        services.AddScoped<IProviderNotificationPublisher, ProviderNotificationPublisher>();
         services.AddScoped<IProviderOtpService, ProviderOtpService>();
         services.AddScoped<IProviderTokenService, ProviderTokenService>();
         services.AddScoped<IProviderRegistrationService, ProviderRegistrationService>();
@@ -558,7 +586,13 @@ public static class DependencyInjection
         // and one instance per scope is what caps a whole eligibility pass
         // rather than each candidate separately.
         services.AddScoped<IProviderTravelFeasibilityService, ProviderTravelFeasibilityService>();
-        services.AddScoped<IProviderAssignmentEligibilityService, ProviderAssignmentEligibilityService>();
+        // The gate every automatic path uses is the plan-reservation check wrapped around the existing eligibility
+        // rules (see PlanReservationAwareEligibilityService); the inner one stays registered as itself.
+        services.AddScoped<ProviderAssignmentEligibilityService>();
+        services.AddScoped<IProviderPlanReservationService, ProviderPlanReservationService>();
+        services.AddScoped<IProviderAssignmentEligibilityService>(sp => new PlanReservationAwareEligibilityService(
+            sp.GetRequiredService<ProviderAssignmentEligibilityService>(),
+            sp.GetRequiredService<IProviderPlanReservationService>()));
         // Provider-queue model: when a job overran, re-checks this provider's
         // other same-day queued jobs against the new, later "free from"
         // instant and returns any now-infeasible one for reassignment.
@@ -576,6 +610,11 @@ public static class DependencyInjection
         services.AddScoped<IProviderEarningLedgerRepository, ProviderEarningLedgerRepository>();
         services.AddScoped<IProviderEarningLedgerService, ProviderEarningLedgerService>();
         services.AddScoped<IProviderPayoutRepository, ProviderPayoutRepository>();
+        // Real PayU Payouts when PayUPayoutOptions is configured, a loudly-
+        // failing no-op otherwise - see ProviderPayoutGatewayRegistration.
+        // Manual bank transfer (UpdateStatusAsync) never depends on this;
+        // only the new PayViaPayUAsync/HandlePayUTransferWebhookAsync do.
+        services.AddProviderPayoutGateway(configuration);
         services.AddScoped<IProviderPayoutService, ProviderPayoutService>();
         services.AddScoped<IProviderBackgroundCheckRepository, ProviderBackgroundCheckRepository>();
         // Task 268: the append-only location trail behind Provider's single
@@ -625,6 +664,7 @@ public static class DependencyInjection
         // from the customer identity services above - see AdminLoginService's
         // doc comment for why this is its own type rather than shared code.
         services.AddScoped<IAdminUserRepository, AdminUserRepository>();
+        services.AddScoped<IAdminSessionRepository, AdminSessionRepository>();
         services.AddScoped<IAdminTokenService, AdminTokenService>();
         services.AddScoped<IAdminMfaChallengeProvider, NoOpAdminMfaChallengeProvider>();
         services.AddScoped<IAdminLoginService, AdminLoginService>();
@@ -668,13 +708,12 @@ public static class DependencyInjection
         services.AddScoped<IExportJobRepository, ExportJobRepository>();
         services.AddScoped<IExportJobService, ExportJobService>();
 
-        // Stateless - depends only on bound Options - so one shared instance
-        // safely serves both interfaces (SandboxPaymentGateway implements
-        // IPaymentGateway and the sandbox-only ISandboxPaymentSimulator).
-        services.AddSingleton<SandboxPaymentGateway>();
-        services.AddSingleton<IPaymentGateway>(sp => sp.GetRequiredService<SandboxPaymentGateway>());
-        services.AddSingleton<ISandboxPaymentSimulator>(sp => sp.GetRequiredService<SandboxPaymentGateway>());
+        // Real PayU Hosted Checkout when PayUOptions is configured, the
+        // sandbox otherwise - see PaymentGatewayRegistration.
+        services.AddPaymentGateway(configuration);
         services.AddScoped<IPaymentTransactionRepository, PaymentTransactionRepository>();
+        services.AddScoped<IPaymentGroupRepository, PaymentGroupRepository>();
+        services.AddScoped<IUnpaidBookingReleaseService, UnpaidBookingReleaseService>();
         services.AddScoped<IPaymentWebhookService, PaymentWebhookService>();
         services.AddScoped<IPaymentService, PaymentService>();
 
@@ -710,8 +749,14 @@ public static class DependencyInjection
 
         services.AddScoped<IWalletLedgerRepository, WalletLedgerRepository>();
         services.AddScoped<IWalletService, WalletService>();
+        services.AddScoped<IWalletTopUpRepository, WalletTopUpRepository>();
+        services.AddScoped<IWalletTopUpService, WalletTopUpService>();
+        services.AddScoped<IWalletTopUpSweepJob, WalletTopUpSweepJob>();
+        services.AddScoped<IAdminWalletTopUpService, AdminWalletTopUpService>();
+        services.AddScoped<IPaymentCallbackRouter, PaymentCallbackRouter>();
         services.AddScoped<IWalletCreditExpirySweepJob, WalletCreditExpirySweepJob>();
         services.AddScoped<IBookingExpirySweepJob, BookingExpirySweepJob>();
+        services.AddScoped<IRecurringOccurrenceAutoChargeJob, RecurringOccurrenceAutoChargeJob>();
         services.AddScoped<IAssignmentResponseExpirySweepJob, AssignmentResponseExpirySweepJob>();
         services.AddScoped<IBookingFulfilmentPromotionJob, BookingFulfilmentPromotionJob>();
         services.AddScoped<IServiceabilityAutoDisableSweepJob, ServiceabilityAutoDisableSweepJob>();
@@ -763,6 +808,12 @@ public static class DependencyInjection
         services.AddScoped<IMonthlyServiceAdminService, Services.MonthlyService.MonthlyServiceAdminService>();
         services.AddScoped<IMonthlyServiceDailyJob, Services.MonthlyService.MonthlyServiceDailyJob>();
 
+        // Scheduled expiry sweep (docs/AMC.md): moves overdue Active
+        // contracts to Expired and raises the expiring-soon reminder -
+        // registered as a Hangfire recurring job in admin-api Program.cs,
+        // the same pattern as ISubscriptionBillingJob.
+        services.AddScoped<IAmcContractExpirySweepJob, AmcContractExpirySweepJob>();
+
         // Tasks 184-186: recurring booking plans. IRecurringBookingPlanService
         // depends on the existing IBookingSummaryService/IBookingService
         // (registered above) - the create/pause/cancel API and the scheduler
@@ -771,6 +822,7 @@ public static class DependencyInjection
         services.AddScoped<IRecurringBookingPlanRepository, RecurringBookingPlanRepository>();
         services.AddScoped<IRecurringBookingOccurrenceRepository, RecurringBookingOccurrenceRepository>();
         services.AddScoped<IRecurringBookingPlanService, RecurringBookingPlanService>();
+        services.AddScoped<IRecurringPlanNotifier, RecurringPlanNotifier>();
         services.AddScoped<IRecurringBookingSchedulerService, RecurringBookingSchedulerService>();
         // Task 297: who a plan's standing provider is, derived from the plan's
         // own booking history (task 296's FK) rather than stored - read by
@@ -793,6 +845,14 @@ public static class DependencyInjection
             .ValidateDataAnnotations();
         services.AddScoped<IRescheduleRepository, BookingRescheduleRepository>();
         services.AddScoped<IRescheduleService, RescheduleService>();
+
+        // The cancellation/reschedule policy the engines enforce: what an admin saved in Settings, else the configuration
+        // bound above. Registered once for every host, since each of them builds these services.
+        services.AddScoped<IBookingPolicyProvider, BookingPolicyProvider>();
+
+        // The platform-wide rules an admin has saved for the groups with no configuration fallback of their own (booking, slot,
+        // tax, wallet, coupon). Null for an unsaved group, which every engine reads as "do what you always did".
+        services.AddScoped<IPlatformRules, PlatformRulesProvider>();
 
         // Tasks 115a-117c: admin booking management (SRS 12.11, 12.13.2-3) -
         // composes IBookingRepository plus the Cancellation/Reschedule/Refund
@@ -855,6 +915,14 @@ public static class DependencyInjection
         // assign/unassign, respond, escalate, resolve/close, link booking) -
         // gated behind "support.read"/"support.write" in SupportTicketsController.
         services.AddScoped<IAdminSupportTicketService, AdminSupportTicketService>();
+
+        // Provider Management UX pass: provider-web had no way for a
+        // provider to reach Glavyx support - a separate, smaller ticket
+        // module from the customer one above (see ProviderSupportTicket's
+        // doc comment for why it is not a retrofit of SupportTicket).
+        services.AddScoped<IProviderSupportTicketRepository, ProviderSupportTicketRepository>();
+        services.AddScoped<IProviderSupportTicketService, ProviderSupportTicketService>();
+        services.AddScoped<IAdminProviderSupportTicketService, AdminProviderSupportTicketService>();
 
         // Task 99: admin dashboard KPI widgets (SRS 12.3). Reads across the
         // Booking/Payment/Refund/Support aggregates directly - see
@@ -924,7 +992,7 @@ public static class DependencyInjection
         services.AddScoped<IEscrowService, EscrowService>();
 
         // SRS 30.2: email switches to real Gmail SMTP once Email:AppPassword
-        // is set, and SMS switches to real Twilio delivery once Twilio's
+        // is set, and SMS switches to real MSG91 delivery once MSG91's
         // credentials are set - independently of each other. See
         // NotificationRegistration for the swap conditions.
         services.AddNotifications(configuration);

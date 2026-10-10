@@ -54,7 +54,12 @@ jobs:
           ConnectionStrings__Database: Host=localhost;Port=5432;Database=nestly_test;Username=nestly;Password=nestly_test
         run: |
           if ls backend/**/*Tests*.csproj >/dev/null 2>&1 || ls backend/tests/**/*.csproj >/dev/null 2>&1; then
-            dotnet test Nestly.sln --no-build --configuration Release --verbosity normal
+            # ConcurrentSlotBookingLoadTests needs a real Postgres server of
+            # its own (a dedicated database, not this job's nestly_test) and
+            # is deliberately excluded here - it runs in ci.yml's own
+            # `load-test` job instead. See that job's header comment.
+            dotnet test Nestly.sln --no-build --configuration Release --verbosity normal \
+              --filter "FullyQualifiedName!~ConcurrentSlotBookingLoadTests"
           else
             echo "No test projects yet (first suite lands with T035)."
           fi
@@ -332,10 +337,23 @@ jobs:
           # shape, fix what it finds, then add the leg back here. The
           # lighthouse-mobile job below already drives customer-web against a
           # fresh CI database, so the shape is expected to work.
+          # apiUrl: each app's own backend, not a shared default - admin-web
+          # talks to admin-api and provider-web talks to provider-api, never
+          # consumer-api. NEXT_PUBLIC_API_URL is baked in at build time
+          # (`npm run build` below), so getting this wrong per-app silently
+          # points the built app at the wrong service for its entire run -
+          # every API call 404s against a real, live, but unrelated backend,
+          # which is indistinguishable from "the page never got its data" in
+          # the Playwright failures this produces (task: E2E jobs pointed at
+          # the wrong backend, found via a passing "database is bookable"
+          # health check alongside failing UI assertions - the seed data was
+          # never the problem here).
           - app: admin-web
             port: 3001
+            apiUrl: http://localhost:5177
           - app: provider-web
             port: 3002
+            apiUrl: http://localhost:5337
 
     services:
       postgres:
@@ -387,16 +405,16 @@ jobs:
           dotnet tool restore
           bash database/scripts/apply-migrations.sh
 
-      - name: Seed accounts, geography and provider capacity
+      - name: Seed admin, customer and provider accounts
         env:
           PGURL: postgresql://nestly:nestly_dev@localhost:5432/nestly
         run: |
           set -e
-          # Order matters: providers must exist before the capacity seed gives
-          # them service areas and skills, and the category-city mapping is
-          # what makes the seeded catalog visible in E2E City at all.
-          for f in dev-admin-seed dev-customer-seed dev-provider-seed \
-                   dev-category-city-mapping-seed dev-provider-e2e-capacity-seed; do
+          # These three don't touch E2E City - dev-provider-seed only
+          # bootstraps the provider row itself (no capacity yet). Kept ahead
+          # of the API start below since they're plain inserts with no
+          # dependency on anything the APIs would create.
+          for f in dev-admin-seed dev-customer-seed dev-provider-seed; do
             echo "--- $f"
             psql "$PGURL" -v ON_ERROR_STOP=1 -f "database/seed/$f.sql"
           done
@@ -423,6 +441,35 @@ jobs:
             done
           done
 
+      - name: Seed catalog fixture (creates E2E City)
+        # Reuses seed-catalog.ts's seedCatalog() through customer-web's own
+        # `seed:ci` entrypoint - the same call the lighthouse-mobile job above
+        # already makes, not a second/divergent seeding path. Needed here,
+        # ahead of the two SQL seeds below: both are keyed off a city literally
+        # named 'E2E City' (`WHERE name = 'E2E City'`), which only this call
+        # creates - a fresh database has no such row, so running them any
+        # earlier makes both silently match zero rows.
+        working-directory: frontend/customer-web
+        env:
+          ADMIN_API_URL: http://localhost:5177
+          CONSUMER_API_URL: http://localhost:5257
+        run: |
+          set -e
+          npm ci
+          npm run seed:ci
+
+      - name: Seed E2E City geography and provider capacity
+        env:
+          PGURL: postgresql://nestly:nestly_dev@localhost:5432/nestly
+        run: |
+          set -e
+          # Now safe: E2E City exists (previous step) and providers exist
+          # (Seed admin, customer and provider accounts, above).
+          for f in dev-category-city-mapping-seed dev-provider-e2e-capacity-seed; do
+            echo "--- $f"
+            psql "$PGURL" -v ON_ERROR_STOP=1 -f "database/seed/$f.sql"
+          done
+
       - name: Install ${{ matrix.app }} dependencies
         working-directory: frontend/${{ matrix.app }}
         run: npm ci
@@ -434,7 +481,7 @@ jobs:
       - name: Build and start ${{ matrix.app }}
         working-directory: frontend/${{ matrix.app }}
         env:
-          NEXT_PUBLIC_API_URL: http://localhost:5257
+          NEXT_PUBLIC_API_URL: ${{ matrix.apiUrl }}
         run: |
           set -e
           npm run build
@@ -477,6 +524,78 @@ jobs:
             frontend/${{ matrix.app }}/playwright-report
           retention-days: 14
           if-no-files-found: ignore
+
+  load-test:
+    # docs/PRODUCTION-READINESS.md §4.3: "concurrent slot booking under
+    # contention is precisely the scenario where this platform's correctness
+    # is most at risk and least observable... this needs a real load harness
+    # against a running stack, and a recorded baseline to regress against."
+    #
+    # ConcurrentSlotBookingPerformanceTests (in the `backend` job's regular
+    # `dotnet test` run) already proves SlotCapacityRepository's atomic
+    # reservation is logically correct under real concurrent connections -
+    # but against a file-based SQLite database, whose single-writer model
+    # cannot exercise Postgres's own row-locking, EF's provider-specific SQL
+    # translation, or Npgsql's connection pool under genuinely parallel
+    # requests. This job runs ConcurrentSlotBookingLoadTests - the identical
+    # invariant, against a real Postgres service container, at meaningfully
+    # higher concurrency, with every run's latency/throughput baseline
+    # (min/p50/p95/p99/max, req/s) printed to the job log via
+    # ITestOutputHelper - see PostgresPerfTestDatabase.cs and
+    # ConcurrentSlotBookingLoadTests.cs for why both suites exist and how
+    # isolation works without a CREATEDB-privileged role.
+    #
+    # A separate job, not folded into `backend`: this is deliberately the
+    # one test class that opens real concurrent connections at a scale (70)
+    # worth keeping visible in its own log rather than buried in the regular
+    # unit-test job's output, and worth being able to re-run or extend on its
+    # own cadence later without touching the fast unit-test gate everything
+    # else waits on.
+    name: Load test - concurrent slot booking (Postgres)
+    runs-on: ubuntu-latest
+    needs: backend
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          # Deliberately its own database (not backend job's nestly_test, not
+          # local dev's nestly): PostgresPerfTestDatabase isolates further by
+          # schema, but a dedicated database name keeps the intent visible in
+          # this job's own service definition rather than borrowed from an
+          # unrelated job's convention.
+          POSTGRES_DB: nestly_loadtest
+          POSTGRES_USER: nestly
+          POSTGRES_PASSWORD: nestly_loadtest
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nestly -d nestly_loadtest"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore Nestly.sln
+
+      - name: Build
+        run: dotnet build Nestly.sln --no-restore --configuration Release
+
+      - name: Run concurrent slot booking load tests against Postgres
+        env:
+          LOADTEST_POSTGRES_CONNECTION: Host=localhost;Port=5432;Database=nestly_loadtest;Username=nestly;Password=nestly_loadtest
+        run: |
+          dotnet test backend/tests/Performance.Tests --no-build --configuration Release \
+            --filter "FullyQualifiedName~ConcurrentSlotBookingLoadTests" \
+            --logger "console;verbosity=detailed"
 
   docker:
     name: Docker image build

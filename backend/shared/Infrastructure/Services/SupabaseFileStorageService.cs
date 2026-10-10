@@ -71,4 +71,42 @@ public sealed class SupabaseFileStorageService : IFileStorageService
 
         return $"{_options.ProjectUrl}/storage/v1/object/public/{_options.BucketName}/{objectPath}";
     }
+
+    public async Task DeleteAsync(string fileReference, CancellationToken cancellationToken = default)
+    {
+        // The inverse of SaveAsync's return value: only a reference shaped
+        // exactly like one this service itself minted can be turned back into
+        // an object path to delete - anything else (a LocalDiskFileStorageService
+        // reference left over from before this project had Supabase configured)
+        // is silently not this service's to touch, per IFileStorageService's contract.
+        var prefix = $"{_options.ProjectUrl}/storage/v1/object/public/{_options.BucketName}/";
+        if (!fileReference.StartsWith(prefix, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var objectPath = fileReference[prefix.Length..];
+
+        using var request = new HttpRequestMessage(HttpMethod.Delete, $"storage/v1/object/{_options.BucketName}/{objectPath}");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _options.ServiceRoleKey);
+        request.Headers.Add("apikey", _options.ServiceRoleKey);
+
+        var client = _httpClientFactory.CreateClient(HttpClientName);
+
+        try
+        {
+            using var response = await client.SendAsync(request, cancellationToken);
+            if (!response.IsSuccessStatusCode && response.StatusCode != System.Net.HttpStatusCode.NotFound)
+            {
+                // Status code only - see SaveAsync's same choice above.
+                _logger.LogError("Supabase Storage delete failed with status {StatusCode}.", (int)response.StatusCode);
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Best-effort per the interface contract: a network hiccup here
+            // must never fail the right-to-erasure operation that called this.
+            _logger.LogError(ex, "Supabase Storage delete threw for a request that never got a response.");
+        }
+    }
 }

@@ -34,19 +34,22 @@ public class CustomersController : ControllerBase
     private readonly IValidator<BlockCustomerRequest> _blockValidator;
     private readonly IValidator<AddCustomerNoteRequest> _addNoteValidator;
     private readonly IValidator<CustomerAnalyticsRequest> _analyticsValidator;
+    private readonly IValidator<AdjustCustomerWalletRequest> _adjustWalletValidator;
 
     public CustomersController(
         ICustomerManagementService customerManagementService,
         IValidator<CustomerSearchRequest> searchValidator,
         IValidator<BlockCustomerRequest> blockValidator,
         IValidator<AddCustomerNoteRequest> addNoteValidator,
-        IValidator<CustomerAnalyticsRequest> analyticsValidator)
+        IValidator<CustomerAnalyticsRequest> analyticsValidator,
+        IValidator<AdjustCustomerWalletRequest> adjustWalletValidator)
     {
         _customerManagementService = customerManagementService;
         _searchValidator = searchValidator;
         _blockValidator = blockValidator;
         _addNoteValidator = addNoteValidator;
         _analyticsValidator = analyticsValidator;
+        _adjustWalletValidator = adjustWalletValidator;
     }
 
     /// <summary>Search/filter customers (SRS 12.4.1, task 101a).</summary>
@@ -170,6 +173,31 @@ public class CustomersController : ControllerBase
         }
 
         var result = await _customerManagementService.DeleteAsync(customerId, CurrentAdminUserId(), request.Reason);
+        return result.IsSuccess ? Ok(result.Value) : result.ToProblemResult();
+    }
+
+    /// <summary>
+    /// Records a manual wallet credit/debit (SRS 12.4.3 gap: the wallet tab
+    /// was read-only) - a goodwill credit or a correction, for when none of
+    /// the wallet's normal sources (refund, coupon, referral, Nestly Coins)
+    /// apply. A debit fails with a business error rather than letting the
+    /// balance go negative (see <see cref="Nestly.Application.Wallet.IWalletService.DebitAsync"/>).
+    /// </summary>
+    [HttpPost("{customerId:guid}/wallet/adjust")]
+    [Authorize(Policy = CustomersWritePolicy)]
+    [ProducesResponseType(typeof(CustomerDetailResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status422UnprocessableEntity)]
+    public async Task<IActionResult> AdjustWallet(Guid customerId, [FromBody] AdjustCustomerWalletRequest request)
+    {
+        var validation = await _adjustWalletValidator.ValidateAsync(request);
+        if (!validation.IsValid)
+        {
+            return ValidationProblem(ToModelState(validation));
+        }
+
+        var result = await _customerManagementService.AdjustWalletAsync(customerId, CurrentAdminUserId(), request);
         return result.IsSuccess ? Ok(result.Value) : result.ToProblemResult();
     }
 

@@ -48,6 +48,8 @@ public sealed class NewOwnedChildEntityInterceptor : SaveChangesInterceptor
             await ReconcileBookingStatusHistoryAsync(context, cancellationToken);
             await ReconcilePaymentAttemptsAsync(context, cancellationToken);
             await ReconcileSupportTicketCommentsAsync(context, cancellationToken);
+            await ReconcileProviderStatusHistoryAsync(context, cancellationToken);
+            await ReconcileProviderSupportTicketCommentsAsync(context, cancellationToken);
         }
 
         return await base.SavingChangesAsync(eventData, result, cancellationToken);
@@ -121,6 +123,60 @@ public sealed class NewOwnedChildEntityInterceptor : SaveChangesInterceptor
         var candidateIds = modifiedEntries.Select(e => e.Entity.Id).ToList();
         var persistedIds = new HashSet<Guid>(
             await context.SupportTicketComments.AsNoTracking()
+                .Where(c => candidateIds.Contains(c.Id))
+                .Select(c => c.Id)
+                .ToListAsync(cancellationToken));
+
+        foreach (var entry in modifiedEntries)
+        {
+            if (!persistedIds.Contains(entry.Entity.Id))
+            {
+                entry.State = EntityState.Added;
+            }
+        }
+    }
+
+    private static async Task ReconcileProviderStatusHistoryAsync(NestlyDbContext context, CancellationToken cancellationToken)
+    {
+        var modifiedEntries = context.ChangeTracker.Entries<ProviderStatusHistory>()
+            .Where(e => e.State == EntityState.Modified)
+            .ToList();
+
+        if (modifiedEntries.Count == 0)
+        {
+            return;
+        }
+
+        var candidateIds = modifiedEntries.Select(e => e.Entity.Id).ToList();
+        var persistedIds = new HashSet<Guid>(
+            await context.ProviderStatusHistories.AsNoTracking()
+                .Where(h => candidateIds.Contains(h.Id))
+                .Select(h => h.Id)
+                .ToListAsync(cancellationToken));
+
+        foreach (var entry in modifiedEntries)
+        {
+            if (!persistedIds.Contains(entry.Entity.Id))
+            {
+                entry.State = EntityState.Added;
+            }
+        }
+    }
+
+    private static async Task ReconcileProviderSupportTicketCommentsAsync(NestlyDbContext context, CancellationToken cancellationToken)
+    {
+        var modifiedEntries = context.ChangeTracker.Entries<ProviderSupportTicketComment>()
+            .Where(e => e.State == EntityState.Modified)
+            .ToList();
+
+        if (modifiedEntries.Count == 0)
+        {
+            return;
+        }
+
+        var candidateIds = modifiedEntries.Select(e => e.Entity.Id).ToList();
+        var persistedIds = new HashSet<Guid>(
+            await context.ProviderSupportTicketComments.AsNoTracking()
                 .Where(c => candidateIds.Contains(c.Id))
                 .Select(c => c.Id)
                 .ToListAsync(cancellationToken));

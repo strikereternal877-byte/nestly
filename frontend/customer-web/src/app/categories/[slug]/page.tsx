@@ -22,9 +22,10 @@ import CategoryDetailClient from "./CategoryDetailClient";
 export async function generateMetadata({
   params,
 }: {
-  params: { slug: string };
+  params: Promise<{ slug: string }>;
 }): Promise<Metadata> {
-  const category = await serverJson<CategoryDetail>(`/categories/${params.slug}`);
+  const { slug } = await params;
+  const category = await serverJson<CategoryDetail>(`/categories/${slug}`);
   if (!category) return {};
 
   return {
@@ -43,9 +44,10 @@ export async function generateMetadata({
 export default async function CategoryDetailPage({
   params,
 }: {
-  params: { slug: string };
+  params: Promise<{ slug: string }>;
 }) {
-  const category = await serverJson<CategoryDetail>(`/categories/${params.slug}`);
+  const { slug } = await params;
+  const category = await serverJson<CategoryDetail>(`/categories/${slug}`);
 
   return (
     <main className="flex w-full flex-col">
@@ -59,7 +61,7 @@ export default async function CategoryDetailPage({
         />
       ) : null}
 
-      <CategoryDetailClient initialCategory={category} slug={params.slug} />
+      <CategoryDetailClient initialCategory={category} slug={slug} />
     </main>
   );
 }

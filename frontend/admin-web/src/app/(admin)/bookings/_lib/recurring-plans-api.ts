@@ -1,8 +1,10 @@
 import { API_V1, apiFetch } from "@/lib/api";
+import type { BookingStatus } from "@/lib/types";
 
 /**
  * Typed client for the admin recurring-plan surface (task 299):
- * `GET /admin/recurring-plans` and `GET /admin/recurring-plans/report`.
+ * `GET /admin/recurring-plans`, `GET /admin/recurring-plans/report`, `GET /admin/recurring-plans/{id}` and the
+ * pause / resume / cancel actions.
  *
  * Lives under `bookings/_lib` rather than `src/lib` for the same reason
  * `nestly-coins/_lib/coins-api.ts` does - nothing outside this module consumes
@@ -30,7 +32,27 @@ export enum RecurrenceFrequency {
   Weekly = 0,
   Biweekly = 1,
   Monthly = 2,
+  Daily = 3,
 }
+
+/**
+ * Mirrors Nestly.Domain.RecurringBookingPauseReason's declaration order - why a plan is Paused. Append-only on the
+ * server because it crosses the wire as its ordinal.
+ */
+export enum RecurringPlanPauseReason {
+  Customer = 0,
+  UnpaidVisits = 1,
+  PaymentFailure = 2,
+  Admin = 3,
+}
+
+/** Short wording for the status cell and the filter. */
+export const PAUSE_REASON_LABELS: Record<RecurringPlanPauseReason, string> = {
+  [RecurringPlanPauseReason.Customer]: "Paused by the customer",
+  [RecurringPlanPauseReason.UnpaidVisits]: "Paused - visits went unpaid",
+  [RecurringPlanPauseReason.PaymentFailure]: "Paused - auto-charge failed",
+  [RecurringPlanPauseReason.Admin]: "Paused by support",
+};
 
 export const PLAN_STATUS_LABELS: Record<RecurringPlanStatus, string> = {
   [RecurringPlanStatus.Active]: "Active",
@@ -43,6 +65,7 @@ export const FREQUENCY_LABELS: Record<RecurrenceFrequency, string> = {
   [RecurrenceFrequency.Weekly]: "Weekly",
   [RecurrenceFrequency.Biweekly]: "Every 2 weeks",
   [RecurrenceFrequency.Monthly]: "Monthly",
+  [RecurrenceFrequency.Daily]: "Every day",
 };
 
 const DAY_NAMES = [
@@ -93,6 +116,35 @@ export interface RecurringPlanListItem {
   nextOccurrenceDate: string;
   status: RecurringPlanStatus;
   createdAtUtc: string;
+  /** Paid for in advance (all visits up front) rather than visit by visit. */
+  prepaidUpfront: boolean;
+  autoChargeEnabled: boolean;
+  /** Each visit is paid from the customer's wallet as it is booked. */
+  applyWalletCredit: boolean;
+  /** A prepaid cycle has been started and is waiting for the customer to pay. */
+  isAwaitingPrepayment: boolean;
+  prepaidThroughDate: string | null;
+  /** Why the plan is Paused; null when it is not. */
+  pauseReason: RecurringPlanPauseReason | null;
+  /** The last "skip visits until" date the customer asked for. */
+  skipUntilDate: string | null;
+}
+
+export interface RecurringPlanVisit {
+  bookingId: string;
+  bookingReference: string;
+  slotDate: string;
+  status: BookingStatus;
+  statusLabel: string;
+  totalPayable: number;
+}
+
+/** One plan with the customer's contact and wallet balance and the visits it has generated (upcoming first, then the latest past ones). */
+export interface RecurringPlanDetail {
+  plan: RecurringPlanListItem;
+  customerMobile: string;
+  walletBalance: number;
+  visits: RecurringPlanVisit[];
 }
 
 export interface RecurringPlanSearchResponse {
@@ -131,6 +183,10 @@ export interface RecurringPlanReport {
 export interface RecurringPlanSearchParams {
   status?: string;
   frequency?: string;
+  /** A RecurringPlanPauseReason ordinal, as a string. */
+  pauseReason?: string;
+  /** "true" = prepaid plans only, "false" = pay-per-visit plans only. */
+  prepaidUpfront?: string;
   page: number;
   pageSize: number;
 }
@@ -146,6 +202,8 @@ export function searchRecurringPlans(
   });
   if (params.status) query.set("status", params.status);
   if (params.frequency) query.set("frequency", params.frequency);
+  if (params.pauseReason) query.set("pauseReason", params.pauseReason);
+  if (params.prepaidUpfront) query.set("prepaidUpfront", params.prepaidUpfront);
 
   return apiFetch<RecurringPlanSearchResponse>(`${BASE}?${query.toString()}`, {
     authenticated: true,
@@ -169,4 +227,45 @@ export function getRecurringPlanReport(
   const suffix = query.toString() ? `?${query.toString()}` : "";
 
   return apiFetch<RecurringPlanReport>(`${BASE}/report${suffix}`, { authenticated: true });
+}
+
+/**
+ * Cancels the whole standing instruction - no further occurrences are ever
+ * generated (Order/Booking Management UX pass: previously an admin could
+ * only stop recurring work by cancelling the individual bookings it had
+ * already produced, one at a time, via BookingsController). A reason is
+ * required for the audit trail.
+ */
+export function cancelRecurringPlan(planId: string, reason: string): Promise<RecurringPlanListItem> {
+  return apiFetch<RecurringPlanListItem>(`${BASE}/${planId}/cancel`, {
+    method: "POST",
+    authenticated: true,
+    body: JSON.stringify({ reason }),
+  });
+}
+
+/** One plan in full: wallet balance, customer contact and the visits it has produced (`GET /admin/recurring-plans/{id}`). */
+export function getRecurringPlan(planId: string): Promise<RecurringPlanDetail> {
+  return apiFetch<RecurringPlanDetail>(`${BASE}/${planId}`, { authenticated: true });
+}
+
+/**
+ * Pauses an active plan on the customer's behalf. Visits already booked are untouched; the customer is told support
+ * paused it and cannot resume it themselves. A reason is required for the audit trail.
+ */
+export function pauseRecurringPlan(planId: string, reason: string): Promise<RecurringPlanListItem> {
+  return apiFetch<RecurringPlanListItem>(`${BASE}/${planId}/pause`, {
+    method: "POST",
+    authenticated: true,
+    body: JSON.stringify({ reason }),
+  });
+}
+
+/** Resumes a paused plan, whoever or whatever paused it. The customer is told; a reason is required for the audit trail. */
+export function resumeRecurringPlan(planId: string, reason: string): Promise<RecurringPlanListItem> {
+  return apiFetch<RecurringPlanListItem>(`${BASE}/${planId}/resume`, {
+    method: "POST",
+    authenticated: true,
+    body: JSON.stringify({ reason }),
+  });
 }

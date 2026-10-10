@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 import {
   getThemePreference,
   resolveTheme,
@@ -8,26 +8,34 @@ import {
   subscribeToTheme,
 } from "@/lib/theme";
 
+function getClientTheme(): "light" | "dark" {
+  return resolveTheme(getThemePreference());
+}
+
+/**
+ * null, not a real theme: the server has no way to know which theme the
+ * pre-paint script chose, so this is what tells the placeholder branch below
+ * apart from a real, hydrated theme - rendering a guessed theme on the
+ * server would guarantee a hydration mismatch.
+ */
+function getServerTheme(): "light" | "dark" | null {
+  return null;
+}
+
 /**
  * Light/dark switch for the app chrome.
  *
- * Renders a fixed-size placeholder until mounted: the server has no way to
- * know which theme the pre-paint script chose, so rendering the real icon on
- * the server would guarantee a hydration mismatch. Reserving the space keeps
- * the header from shifting when the real control appears.
+ * useSyncExternalStore, not a mount-flag + effect: this is exactly the
+ * "external source that can genuinely differ between server and client"
+ * case it exists for, and it reads as one derived value instead of two
+ * pieces of state kept in sync by hand. Renders a fixed-size placeholder
+ * until the real (client) snapshot is available, so the header doesn't
+ * shift when the icon appears.
  */
 export function ThemeToggle({ className = "" }: { className?: string }) {
-  const [mounted, setMounted] = useState(false);
-  const [theme, setTheme] = useState<"light" | "dark">("light");
+  const theme = useSyncExternalStore(subscribeToTheme, getClientTheme, getServerTheme);
 
-  useEffect(() => {
-    const sync = () => setTheme(resolveTheme(getThemePreference()));
-    sync();
-    setMounted(true);
-    return subscribeToTheme(sync);
-  }, []);
-
-  if (!mounted) {
+  if (theme === null) {
     return <div className={`h-9 w-9 ${className}`} aria-hidden />;
   }
 

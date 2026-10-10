@@ -118,6 +118,7 @@ public sealed class ProviderReassignmentNotificationTests : IClassFixture<TestDa
         new BookingProviderAssignmentRepository(context),
         new ProviderScheduleConflictService(context, TestServices.Occupancy()),
         Options.Create(new AutoAssignmentOptions()),
+        TestServices.ProviderNotificationPublisher(context),
         context);
 
     private sealed record Fixture(Guid BookingId, Guid FirstProviderId, Guid SecondProviderId);

@@ -2,7 +2,8 @@
  * Typed fetch wrapper for the Admin API.
  * Base URL comes from NEXT_PUBLIC_API_URL (see .env.example).
  */
-import { clearSession, getAccessToken } from "./auth";
+import { clearSession, getAccessToken, getRefreshToken, storeSession } from "./auth";
+import type { AdminLoginResponse } from "./types";
 
 export const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5177";
@@ -91,12 +92,64 @@ export interface ApiFetchOptions extends RequestInit {
 }
 
 /**
- * Shared request/error-handling core behind both `apiFetch` (JSON) and
- * `apiFetchBlob` (raw bytes, e.g. a CSV export) - everything except how the
- * successful body is read back is identical, so that part alone is left to
- * each caller.
+ * Exchanges the stored refresh token for a new access/refresh pair.
+ *
+ * Module-level promise so a burst of concurrent 401s (several queries firing
+ * at once when the access token expires mid-session) triggers exactly one
+ * refresh call instead of one per request; every caller awaits the same
+ * in-flight promise, then it's cleared so the next expiry starts a fresh one.
+ * Mirrors customer-web/src/lib/api.ts's refreshAccessToken exactly.
  */
-async function performFetch(path: string, init: ApiFetchOptions | undefined, defaultHeaders: Record<string, string>): Promise<Response> {
+let refreshPromise: Promise<boolean> | null = null;
+
+/**
+ * Exported so `RequireAdminAuth` can call it directly: the access token is
+ * routinely expired by the time an admin reopens the panel after a short
+ * break, while the refresh token is very likely still good. `isAuthenticated()`
+ * alone can't tell the difference - it's a pure local expiry check - so
+ * without this the guard would bounce a returning admin to a full re-login
+ * on every page load past the access token's lifetime, even though a silent
+ * refresh would keep them signed in. The module-level `refreshPromise` above
+ * still applies here, so a guard refresh racing an in-flight `performFetch`
+ * refresh (e.g. a query firing during the same mount) shares one request
+ * rather than doubling up.
+ */
+export function refreshAccessToken(): Promise<boolean> {
+  if (!refreshPromise) {
+    refreshPromise = (async () => {
+      const refreshToken = getRefreshToken();
+      if (!refreshToken) return false;
+      try {
+        const response = await fetch(`${API_BASE_URL}${API_V1}/auth/refresh`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ refreshToken }),
+        });
+        if (!response.ok) return false;
+        storeSession((await response.json()) as AdminLoginResponse);
+        return true;
+      } catch {
+        return false;
+      }
+    })().finally(() => {
+      refreshPromise = null;
+    });
+  }
+  return refreshPromise;
+}
+
+/**
+ * Shared request/error-handling core behind `apiFetch` (JSON), `apiFetchBlob`
+ * (raw bytes, e.g. a CSV export) and `apiFetchUpload` (multipart) -
+ * everything except how the successful body is read back is identical, so
+ * that part alone is left to each caller.
+ */
+async function performFetch(
+  path: string,
+  init: ApiFetchOptions | undefined,
+  defaultHeaders: Record<string, string>,
+  isRetry = false,
+): Promise<Response> {
   const { authenticated, ...requestInit } = init ?? {};
 
   const headers: Record<string, string> = {
@@ -118,6 +171,19 @@ async function performFetch(path: string, init: ApiFetchOptions | undefined, def
   });
 
   if (!response.ok) {
+    // A 401 on an authenticated call usually just means the short-lived
+    // access token expired mid-session - silently refresh it and retry the
+    // request once before treating this as a real auth failure. Only
+    // authenticated calls attempt this (login/refresh itself never sets
+    // `authenticated`, so it can't recurse into itself). Mirrors
+    // customer-web/src/lib/api.ts's apiFetch retry logic.
+    if (authenticated && response.status === 401 && !isRetry) {
+      const refreshed = await refreshAccessToken();
+      if (refreshed) {
+        return performFetch(path, init, defaultHeaders, true);
+      }
+    }
+
     let problem: ProblemDetails | null = null;
     try {
       problem = (await response.json()) as ProblemDetails;
@@ -125,11 +191,11 @@ async function performFetch(path: string, init: ApiFetchOptions | undefined, def
       // Non-JSON error body; keep problem null.
     }
 
-    // Session handling (SRS 25.2): a 401 on an authenticated call means the
-    // token the caller had is no longer valid (expired, revoked, or the
-    // account was deactivated after login) - clear it so every mounted
-    // guard (RequireAdminAuth) reacts to the auth-changed event and sends
-    // the admin back to /login. An unauthenticated call rejecting with 401
+    // Session handling (SRS 25.2): a 401 on an authenticated call (after the
+    // refresh attempt above has already failed or been skipped) means the
+    // session truly can't continue - clear it so every mounted guard
+    // (RequireAdminAuth) reacts to the auth-changed event and sends the
+    // admin back to /login. An unauthenticated call rejecting with 401
     // (e.g. a bad login attempt) must NOT clear anything - there is nothing
     // to clear, and this is the expected "invalid credentials" outcome.
     if (authenticated && response.status === 401) {

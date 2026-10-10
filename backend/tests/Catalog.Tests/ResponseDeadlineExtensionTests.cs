@@ -90,6 +90,7 @@ public sealed class ResponseDeadlineExtensionTests : IClassFixture<TestDatabase>
         new BookingProviderAssignmentRepository(context),
         new ProviderScheduleConflictService(context, TestServices.Occupancy()),
         Options.Create(new AutoAssignmentOptions { ResponseWindowMinutes = responseWindowMinutes }),
+        TestServices.ProviderNotificationPublisher(context),
         context);
 
     private Task<(Guid BookingId, Guid ProviderId)> SeedAssignedJobAsync()

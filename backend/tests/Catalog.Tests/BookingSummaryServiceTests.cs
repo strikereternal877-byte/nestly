@@ -1,3 +1,4 @@
+using Nestly.Application.Settings;
 using FluentAssertions;
 using Nestly.Application;
 using Nestly.Application.Bookings;
@@ -18,7 +19,8 @@ public sealed class BookingSummaryServiceTests : IClassFixture<TestDatabase>
 
     private BookingSummaryService BuildService(
         Nestly.Infrastructure.Persistence.NestlyDbContext context,
-        Microsoft.Extensions.Options.IOptions<Nestly.Infrastructure.Options.BookingOptions>? bookingOptions = null) => new(
+        Microsoft.Extensions.Options.IOptions<Nestly.Infrastructure.Options.BookingOptions>? bookingOptions = null,
+        IPlatformRules? rules = null) => new(
         new ServiceRepository(context),
         new ServiceAddOnRepository(context),
         new ServiceGroupRepository(context),
@@ -45,7 +47,8 @@ public sealed class BookingSummaryServiceTests : IClassFixture<TestDatabase>
         new SubscriptionBenefitService(new CustomerSubscriptionRepository(context)),
         new WalletService(new WalletLedgerRepository(context), context),
         new ServiceabilityRepository(context),
-        bookingOptions ?? TestServices.BookingOptions());
+        bookingOptions ?? TestServices.BookingOptions(),
+        rules);
 
     private sealed record Fixture(
         Customer Customer, CustomerAddress Address, State State, City City, Pincode Pincode,
@@ -404,5 +407,51 @@ public sealed class BookingSummaryServiceTests : IClassFixture<TestDatabase>
 
         result.IsFailure.Should().BeTrue();
         result.Error.Code.Should().Be("Booking.SlotNotAvailable");
+    }
+
+    private static IPlatformRules WalletCap(decimal percentage) =>
+        TestServices.Rules(wallet: new WalletSettings(50000m, percentage, null, true));
+
+    /// <summary>Wallet rules: the share of one booking the wallet may pay for. The seeded 100 is no cap; below that the gateway covers the rest.</summary>
+    [Theory]
+    [InlineData(40, 200)]
+    [InlineData(100, 500)]
+    [InlineData(0, 0)]
+    public async Task ApplyWalletCredit_is_capped_at_the_saved_share_of_the_booking(int percentage, int expectedApplied)
+    {
+        Fixture fixture;
+        using (var context = _db.CreateContext())
+        {
+            fixture = Seed(context);
+            await new WalletService(new WalletLedgerRepository(context), context)
+                .CreditAsync(fixture.Customer.Id, 900m, WalletSourceType.PromotionalCredit, null, "Promo");
+        }
+
+        using var readContext = _db.CreateContext();
+        var result = await BuildService(readContext, rules: WalletCap(percentage)).GetSummaryAsync(
+            fixture.Customer.Id, RequestFor(fixture) with { ApplyWalletCredit = true });
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Wallet.AppliedAmount.Should().Be(expectedApplied);
+        result.Value.FinalPayable.Should().Be(500m - expectedApplied, "what the wallet does not cover is left for the gateway");
+        result.Value.Wallet.Balance.Should().Be(900m);
+    }
+
+    [Fact]
+    public async Task The_saved_wallet_cap_never_pushes_the_applied_amount_above_the_balance()
+    {
+        Fixture fixture;
+        using (var context = _db.CreateContext())
+        {
+            fixture = Seed(context);
+            await new WalletService(new WalletLedgerRepository(context), context)
+                .CreditAsync(fixture.Customer.Id, 50m, WalletSourceType.PromotionalCredit, null, "Promo");
+        }
+
+        using var readContext = _db.CreateContext();
+        var result = await BuildService(readContext, rules: WalletCap(40)).GetSummaryAsync(
+            fixture.Customer.Id, RequestFor(fixture) with { ApplyWalletCredit = true });
+
+        result.Value.Wallet.AppliedAmount.Should().Be(50m, "40% of the booking is 200, but only 50 is there");
     }
 }

@@ -19,10 +19,10 @@ internal static class NotificationRegistration
     /// <summary>
     /// Registers real email delivery - Brevo when <see cref="BrevoOptions"/>
     /// is configured, else Gmail SMTP once <c>Email:AppPassword</c> is set -
-    /// and real Twilio SMS once every <see cref="TwilioOptions"/> credential
-    /// is set. Email and SMS are chosen independently of each other, since
-    /// one channel being real says nothing about the other. Any or all fall
-    /// back to the sandbox provider's simulated behaviour when unconfigured.
+    /// and real MSG91 SMS once every <see cref="Msg91Options"/> credential is
+    /// set. Email and SMS are chosen independently of each other, since one
+    /// channel being real says nothing about the other. Any or all fall back
+    /// to the sandbox provider's simulated behaviour when unconfigured.
     /// </summary>
     internal static IServiceCollection AddNotifications(this IServiceCollection services, IConfiguration configuration)
     {
@@ -43,8 +43,8 @@ internal static class NotificationRegistration
             .Bind(configuration.GetSection(BrevoOptions.SectionName));
 
         services
-            .AddOptions<TwilioOptions>()
-            .Bind(configuration.GetSection(TwilioOptions.SectionName));
+            .AddOptions<Msg91Options>()
+            .Bind(configuration.GetSection(Msg91Options.SectionName));
 
         services.AddHttpClient(BrevoNotificationProvider.HttpClientName, client =>
         {
@@ -52,16 +52,18 @@ internal static class NotificationRegistration
             client.Timeout = TimeSpan.FromSeconds(15);
         });
 
-        services.AddHttpClient(TwilioNotificationProvider.HttpClientName, client =>
+        // No BaseAddress - Msg91NotificationProvider sends a fully-qualified
+        // URL itself, same reasoning as PayUPaymentGateway's own HttpClient
+        // registration.
+        services.AddHttpClient(Msg91NotificationProvider.HttpClientName, client =>
         {
-            client.BaseAddress = new Uri("https://api.twilio.com/2010-04-01/");
             client.Timeout = TimeSpan.FromSeconds(15);
         });
 
         services.AddScoped<SandboxNotificationProvider>();
         services.AddScoped<SmtpNotificationProvider>();
         services.AddScoped<BrevoNotificationProvider>();
-        services.AddScoped<TwilioNotificationProvider>();
+        services.AddScoped<Msg91NotificationProvider>();
 
         services.AddScoped<INotificationProvider>(serviceProvider =>
         {
@@ -95,18 +97,18 @@ internal static class NotificationRegistration
                 emailProvider = serviceProvider.GetRequiredService<SandboxNotificationProvider>();
             }
 
-            var twilioOptions = serviceProvider.GetRequiredService<IOptions<TwilioOptions>>().Value;
+            var msg91Options = serviceProvider.GetRequiredService<IOptions<Msg91Options>>().Value;
             INotificationProvider smsProvider;
-            if (twilioOptions.IsConfigured)
+            if (msg91Options.IsConfigured)
             {
-                logger.LogInformation("SMS notifications will use Twilio.");
-                smsProvider = serviceProvider.GetRequiredService<TwilioNotificationProvider>();
+                logger.LogInformation("SMS notifications will use MSG91.");
+                smsProvider = serviceProvider.GetRequiredService<Msg91NotificationProvider>();
             }
             else
             {
                 logger.LogInformation(
-                    "SMS notifications will use the sandbox provider: Twilio is {State}.",
-                    twilioOptions.Enabled ? "missing an account SID, auth token, or sender number" : "disabled by configuration");
+                    "SMS notifications will use the sandbox provider: MSG91 is {State}.",
+                    msg91Options.Enabled ? "missing an auth key or sender id" : "disabled by configuration");
                 smsProvider = serviceProvider.GetRequiredService<SandboxNotificationProvider>();
             }
 

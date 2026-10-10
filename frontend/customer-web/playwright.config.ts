@@ -12,7 +12,12 @@ export default defineConfig({
   testDir: "./e2e",
   globalSetup: "./e2e/setup/global-setup.ts",
   fullyParallel: false,
-  retries: 0,
+  // 2 retries in CI only: shared CI runners occasionally lose a race against
+  // cold JIT/EF-query-compilation on first hit and time out - not a flaky
+  // assertion, a flaky *environment*. Local runs get the immediate,
+  // no-retry failure a real bug should produce. Mirrors admin-web's and
+  // provider-web's configs.
+  retries: process.env.CI ? 2 : 0,
   workers: 1,
   reporter: [["list"]],
   use: {

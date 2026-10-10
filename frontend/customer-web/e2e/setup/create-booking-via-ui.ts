@@ -3,13 +3,24 @@ import { expect } from "@playwright/test";
 import type { CatalogFixture } from "./seed-catalog";
 
 /**
- * The "repeat this booking" opt-in on the summary page (task 298), when the
- * caller wants the booking to also set up a standing plan. `frequency` is the
- * picker button's visible label.
+ * The "Auto-schedule this service" opt-in on the summary page (task 298), when
+ * the caller wants the booking to also set up a standing plan.
+ *
+ * `kind` is the plan-type tile: a "daily" plan pays each day's visit as it is
+ * booked (and is always every day); a "prepaid" plan - the default - pays all
+ * of its visits in the one checkout. `frequency` is the frequency picker's
+ * visible label and only exists for a prepaid plan. `visits` is the *total*,
+ * counting the booking being placed.
  */
 export interface RepeatOptIn {
-  frequency: "Every week" | "Every 2 weeks" | "Every month";
+  kind?: "daily" | "prepaid";
+  frequency?: "Every day" | "Every week" | "Every 2 weeks" | "Every month";
   visits: number;
+  /**
+   * A daily plan's "pay each day's visit from my wallet" box. Left undefined the page decides (on when the
+   * wallet has a balance); a test that asserts on how the plan is paid sets it explicitly.
+   */
+  payFromWallet?: boolean;
 }
 
 /** Which day of the date strip this helper books - see the comment on the click below. */
@@ -59,13 +70,28 @@ export async function createBookingViaUi(
   await expect(slotButton).toHaveAttribute("aria-pressed", "true");
 
   if (repeat) {
-    await page.getByRole("checkbox", { name: "Repeat this booking" }).check();
-    const frequencyButton = page.getByRole("radio", { name: repeat.frequency });
-    await expect(frequencyButton).toBeVisible({ timeout: 15_000 });
-    await frequencyButton.click();
-    await expect(frequencyButton).toHaveAttribute("aria-checked", "true");
+    await page.getByRole("checkbox", { name: "Auto-schedule this service" }).check();
 
-    const visitsField = page.getByLabel("Number of repeat visits");
+    const kind = repeat.kind ?? "prepaid";
+    const kindTile = page.getByRole("radio", { name: kind === "daily" ? /^Daily plan/ : /^Prepaid plan/ });
+    await expect(kindTile).toBeVisible({ timeout: 15_000 });
+    await kindTile.click();
+    await expect(kindTile).toHaveAttribute("aria-checked", "true");
+
+    if (kind === "prepaid" && repeat.frequency) {
+      const frequencyButton = page.getByRole("radio", { name: repeat.frequency, exact: true });
+      await expect(frequencyButton).toBeVisible({ timeout: 15_000 });
+      await frequencyButton.click();
+      await expect(frequencyButton).toHaveAttribute("aria-checked", "true");
+    }
+
+    if (kind === "daily" && repeat.payFromWallet !== undefined) {
+      await page
+        .getByRole("checkbox", { name: "Pay each day's visit from my wallet automatically" })
+        .setChecked(repeat.payFromWallet);
+    }
+
+    const visitsField = page.getByLabel(/Total number of (visits|days)/);
     await visitsField.fill(String(repeat.visits));
   }
 

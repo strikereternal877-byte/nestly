@@ -649,6 +649,20 @@ export enum RecurringBookingRecurrenceFrequency {
   Weekly = 0,
   Biweekly = 1,
   Monthly = 2,
+  /** Appended last because the enum crosses the wire as its ordinal. Shown first in pickers - see RECURRING_FREQUENCY_OPTIONS. */
+  Daily = 3,
+}
+
+/**
+ * Mirrors Nestly.Domain.RecurringBookingPauseReason's declaration order exactly - why a plan is Paused, so the
+ * customer is told whether they paused it or the system did (and what to do about it).
+ */
+export enum RecurringBookingPauseReason {
+  Customer = 0,
+  UnpaidVisits = 1,
+  PaymentFailure = 2,
+  /** Paused by our support team: only support can resume it, so the card offers no Resume. */
+  Admin = 3,
 }
 
 /** Mirrors Nestly.Domain.RecurringBookingPlanStatus's declaration order exactly. */
@@ -698,6 +712,13 @@ export interface CreateRecurringBookingPlanRequestBody {
   addOns: AddOnSelection[];
   /** Whether every occurrence this plan generates should apply the customer's wallet balance (task 370). Defaults to false server-side if omitted. */
   applyWalletCredit?: boolean;
+  /**
+   * Pay for the plan's whole first cycle in one checkout. The booking the customer has just placed
+   * (`leadBookingId`) is visit 1 of the purchase; the API creates every remaining visit right away
+   * as an unpaid booking, and that booking's payment page charges for all of them at once.
+   */
+  prepaidUpfront?: boolean;
+  leadBookingId?: string;
 }
 
 export interface RecurringBookingPlanResponse {
@@ -718,6 +739,51 @@ export interface RecurringBookingPlanResponse {
   nextOccurrenceDate: string;
   status: RecurringBookingPlanStatus;
   createdAtUtc: string;
+  /** True for a plan paid for a cycle at a time, up front. */
+  prepaidUpfront: boolean;
+  /** Set while a prepaid cycle still has to be paid; that booking's payment page settles the whole cycle. */
+  pendingPrepaymentBookingId: string | null;
+  /** Last date covered by a paid prepaid cycle. */
+  prepaidThroughDate: string | null;
+  /** Dates of a prepaid purchase that could not be booked - the customer is not charged for them. */
+  skippedDates: string[] | null;
+  /** Why the plan is Paused; null when it is not. */
+  pauseReason: RecurringBookingPauseReason | null;
+  /** The last "skip visits until" date asked for (the plan is Active throughout). */
+  skipUntilDate: string | null;
+  /** How many "skip visits until" requests the plan has used. */
+  skipRangesUsed: number;
+  /** What the "change time" screen needs to look up the plan's available windows. */
+  cityId: string | null;
+  localityId: string | null;
+  /** The plan's time window, so the card can say when a visit is, not just which day. */
+  slotWindowName: string | null;
+  /** `hh:mm:ss` (a .NET TimeSpan). */
+  slotStartTime: string | null;
+  slotEndTime: string | null;
+  /** What a visit costs, from the plan's newest real visit (including any wallet credit used); null until one exists. */
+  visitAmount: number | null;
+  /** Dates of visits already booked and still ahead, soonest first. A pause or a time change leaves these as they are. */
+  upcomingBookedVisitDates: string[] | null;
+  /** A pay-as-you-go visit that was created but is not paid yet (for example the wallet ran short). */
+  visitAwaitingPayment: PlanVisitAwaitingPayment | null;
+  /** The platform's cancellation policy for one booked visit: free this many hours before it starts... */
+  cancellationFreeWindowHours: number | null;
+  /** ...and after that, this percentage of what was paid is kept. */
+  lateCancellationFeePercentage: number | null;
+}
+
+export interface PlanVisitAwaitingPayment {
+  bookingId: string;
+  slotDate: string;
+  amountDue: number;
+}
+
+/** Body of POST /recurring-booking-plans/{id}/skip-visits. */
+export interface SkipVisitsRequestBody {
+  resumeOn: string;
+  /** Also cancel the visits already booked before that date, through the ordinary cancellation policy. */
+  cancelBookedVisits: boolean;
 }
 
 export interface UpcomingOccurrenceResponse {
@@ -757,6 +823,12 @@ export enum PaymentAttemptStatus {
   Failed = 2,
 }
 
+/**
+ * checkoutRedirectUrl/checkoutFormFields are populated only when the active
+ * gateway is a hosted-checkout style one (PayU) that needs the browser
+ * redirected there to actually pay - both null for the sandbox, whose flow
+ * is the separate /payments/orders/simulate endpoint instead.
+ */
 export interface PaymentOrderResponse {
   paymentTransactionId: string;
   attemptId: string;
@@ -765,6 +837,12 @@ export interface PaymentOrderResponse {
   currency: string;
   attemptNumber: number;
   createdAtUtc: string;
+  checkoutRedirectUrl: string | null;
+  checkoutFormFields: Record<string, string> | null;
+  /** Bookings this one payment covers: 1 for an ordinary booking, more for a prepaid plan checkout (then `amount` is the total). */
+  visitCount: number;
+  /** Dates of a prepaid purchase that were not booked (nobody available); not charged for. */
+  skippedDates: string[] | null;
 }
 
 export interface PaymentAttemptResponse {
@@ -788,6 +866,9 @@ export interface PaymentTransactionResponse {
   attempts: PaymentAttemptResponse[];
   createdAtUtc: string;
   updatedAtUtc: string;
+  /** Set when this booking was paid together with others in one prepaid checkout: the single payment's total and how many bookings it covered. */
+  prepaidCheckoutTotal: number | null;
+  prepaidCheckoutVisitCount: number | null;
 }
 
 /**
@@ -854,6 +935,12 @@ export enum WalletSourceType {
   BookingWalletCredit = 8,
   /** Credited back when a booking that consumed wallet balance is fully refunded (task 310). */
   BookingWalletCreditReversal = 9,
+  /** Credited because the customer added their own money through the payment gateway (it never expires). */
+  TopUp = 10,
+  /** Debited as the late-reschedule fee when a booking was moved inside the late-reschedule window. */
+  RescheduleFee = 11,
+  /** Credited back when a late-reschedule fee was taken but the reschedule could not be saved. */
+  RescheduleFeeReversal = 12,
 }
 
 export interface WalletBalanceResponse {
@@ -911,6 +998,16 @@ export interface CancellationPolicyResponse {
   refundMethod: RefundMethod;
   freeCancellationWindowHours: number;
   lateCancellationFeePercentage: number;
+  /** When free cancellation stops, as business-local wall-clock time with no zone suffix (slot start minus the free window). */
+  freeCancellationEndsAt: string | null;
+  /** The amount the late-cancellation percentage applies to - what was paid and stands to be refunded. */
+  feeBasisAmount: number;
+  /** A charge carried over from an earlier late reschedule that pushed the fee above what the clock alone owes (0 if none). */
+  earlierRescheduleCharge: number;
+  /** The fee the policy sets, before any late-reschedule fee already paid is counted against it. `cancellationFeeAmount` is what is left. */
+  cancellationFeeBeforeCredit: number;
+  /** The part of that fee the customer already paid as a late-reschedule fee (0 if none). */
+  rescheduleFeeCredited: number;
 }
 
 export interface CancelBookingRequestBody {
@@ -927,6 +1024,12 @@ export interface CancellationOutcomeResponse {
   refundMethod: RefundMethod | null;
   refundTransactionId: string | null;
   cancelledAtUtc: string;
+  /** Same three explanation fields as {@link CancellationPolicyResponse}, fixed at the moment of cancelling. */
+  freeCancellationEndsAt: string | null;
+  feeBasisAmount: number;
+  earlierRescheduleCharge: number;
+  cancellationFeeBeforeCredit: number;
+  rescheduleFeeCredited: number;
 }
 
 /**
@@ -939,7 +1042,35 @@ export interface RescheduleEligibilityResponse {
   ineligibilityReason: string | null;
   reschedulesUsed: number;
   maxReschedulesPerBooking: number;
+  /** A reschedule is not allowed at all with fewer hours than this to go. */
   minHoursBeforeSlot: number;
+  /** A reschedule with fewer hours than this to go is "late". Filled in only when the booking is eligible. */
+  lateFeeThresholdHours: number;
+  lateRescheduleFeePercentage: number;
+  /** When a reschedule stops being free, as business-local wall-clock time with no zone suffix. */
+  freeRescheduleEndsAt: string | null;
+  /** The moment after which no reschedule is allowed at all (same format). */
+  lastRescheduleAt: string | null;
+  /** Whether a reschedule made right now would be late, and the fee it would be recorded with. */
+  isLateNow: boolean;
+  lateFeeIfRescheduledNow: number;
+  /** The paid amount the fee is a percentage of. */
+  feeBasisAmount: number;
+  /** The cancellation fee a reschedule made now would lock in as a floor under any later cancellation. */
+  cancellationFeeLockedIn: number;
+  /** The wallet balance - filled in only when a reschedule now would be late, because the late fee comes out of the wallet. */
+  walletBalance: number;
+  /** What the wallet is short of the late fee by. 0 when it covers it or no fee is due; above 0 the reschedule is refused. */
+  lateFeeShortfall: number;
+  /** Whether a late fee is taken from the wallet at all. Off, it is only recorded on the booking and no wallet is needed. */
+  lateFeeIsCollected: boolean;
+}
+
+/** Mirrors Nestly.Application.Reschedules.ProfessionalAfterReschedule - the API serialises enums as numbers. */
+export enum ProfessionalAfterReschedule {
+  NoneAssigned = 0,
+  Kept = 1,
+  Released = 2,
 }
 
 export interface RescheduleBookingRequestBody {
@@ -960,6 +1091,17 @@ export interface RescheduleOutcomeResponse {
   reschedulesUsed: number;
   maxReschedulesPerBooking: number;
   rescheduledAtUtc: string;
+  /** The rules as they applied to the slot that was given up, fixed at the moment of rescheduling. */
+  lateFeeThresholdHours: number;
+  lateRescheduleFeePercentage: number;
+  freeRescheduleEndedAt: string | null;
+  feeBasisAmount: number;
+  /** The cancellation fee now locked in as a floor under any later cancellation of this booking (0 if none). */
+  cancellationFeeLockedIn: number;
+  /** Whether the professional already on the job stays, goes, or there was none yet. */
+  professional: ProfessionalAfterReschedule;
+  /** What was actually taken from the wallet for this reschedule (0 when it was not late). `feeAmount` is what the late fee was. */
+  feeCollected: number;
 }
 
 /**

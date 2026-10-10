@@ -299,10 +299,12 @@ public sealed class PostBookingQaSuiteTests : IClassFixture<TestDatabase>
         using var context = _db.CreateContext();
         var service = new CancellationService(
             new BookingRepository(context), new PaymentTransactionRepository(context), new RefundTransactionRepository(context),
-            new RefundService(
-                new BookingRepository(context), new PaymentTransactionRepository(context), new RefundTransactionRepository(context),
-                new WalletService(new WalletLedgerRepository(context), context), new EscrowService(new PlatformEscrowLedgerRepository(context)), BuildGateway(), context),
-            new BookingCancellationRepository(context), new BookingProviderAssignmentRepository(context), TestServices.SlotAvailability(context), TestServices.Clock(), TimeProvider.System, Options.Create(new CancellationPolicyOptions()));
+            TestServices.RefundService(context, BuildGateway()),
+            new BookingCancellationRepository(context), new BookingProviderAssignmentRepository(context), TestServices.SlotAvailability(context),
+            new CouponService(new CouponRepository(context), new CouponRedemptionRepository(context), new BookingRepository(context), TimeProvider.System),
+            new CustomerSubscriptionRepository(context),
+            new EscrowService(new PlatformEscrowLedgerRepository(context)),
+            TestServices.Clock(), TimeProvider.System, TestServices.Policies(), TestServices.ProviderNotificationPublisher(context), new BookingRescheduleRepository(context));
 
         var result = await service.GetPolicyAsync(customer.Id, bookingId);
 
@@ -317,10 +319,12 @@ public sealed class PostBookingQaSuiteTests : IClassFixture<TestDatabase>
         using var context = _db.CreateContext();
         var service = new CancellationService(
             new BookingRepository(context), new PaymentTransactionRepository(context), new RefundTransactionRepository(context),
-            new RefundService(
-                new BookingRepository(context), new PaymentTransactionRepository(context), new RefundTransactionRepository(context),
-                new WalletService(new WalletLedgerRepository(context), context), new EscrowService(new PlatformEscrowLedgerRepository(context)), BuildGateway(), context),
-            new BookingCancellationRepository(context), new BookingProviderAssignmentRepository(context), TestServices.SlotAvailability(context), TestServices.Clock(), TimeProvider.System, Options.Create(new CancellationPolicyOptions()));
+            TestServices.RefundService(context, BuildGateway()),
+            new BookingCancellationRepository(context), new BookingProviderAssignmentRepository(context), TestServices.SlotAvailability(context),
+            new CouponService(new CouponRepository(context), new CouponRedemptionRepository(context), new BookingRepository(context), TimeProvider.System),
+            new CustomerSubscriptionRepository(context),
+            new EscrowService(new PlatformEscrowLedgerRepository(context)),
+            TestServices.Clock(), TimeProvider.System, TestServices.Policies(), TestServices.ProviderNotificationPublisher(context), new BookingRescheduleRepository(context));
 
         var result = await service.GetPolicyAsync(customer.Id, bookingId);
 
@@ -339,7 +343,7 @@ public sealed class PostBookingQaSuiteTests : IClassFixture<TestDatabase>
                 new ServiceabilityRepository(context),
                 new ServiceabilityValidationService(new ServiceabilityRepository(context), new InMemoryCacheService()),
                 new SlotWindowRepository(context), new SlotBlackoutRepository(context), new SlotBookingPolicyRepository(context), new SlotCapacityRepository(context), TestServices.Clock()),
-            new BookingRescheduleRepository(context), new BookingProviderAssignmentRepository(context), new ProviderScheduleConflictService(context, TestServices.Occupancy()), context, TestServices.Clock(), TimeProvider.System, Options.Create(new ReschedulePolicyOptions()));
+            new BookingRescheduleRepository(context), new BookingProviderAssignmentRepository(context), new ProviderScheduleConflictService(context, TestServices.Occupancy()), context, TestServices.Clock(), TimeProvider.System, TestServices.Policies(), TestServices.ProviderNotificationPublisher(context), TestServices.PlanReservations(context), TestServices.Wallet(context), TestServices.Escrow(context), Microsoft.Extensions.Logging.Abstractions.NullLogger<RescheduleService>.Instance);
 
         var result = await service.GetEligibilityAsync(customer.Id, bookingId);
 
@@ -358,7 +362,7 @@ public sealed class PostBookingQaSuiteTests : IClassFixture<TestDatabase>
                 new ServiceabilityRepository(context),
                 new ServiceabilityValidationService(new ServiceabilityRepository(context), new InMemoryCacheService()),
                 new SlotWindowRepository(context), new SlotBlackoutRepository(context), new SlotBookingPolicyRepository(context), new SlotCapacityRepository(context), TestServices.Clock()),
-            new BookingRescheduleRepository(context), new BookingProviderAssignmentRepository(context), new ProviderScheduleConflictService(context, TestServices.Occupancy()), context, TestServices.Clock(), TimeProvider.System, Options.Create(new ReschedulePolicyOptions()));
+            new BookingRescheduleRepository(context), new BookingProviderAssignmentRepository(context), new ProviderScheduleConflictService(context, TestServices.Occupancy()), context, TestServices.Clock(), TimeProvider.System, TestServices.Policies(), TestServices.ProviderNotificationPublisher(context), TestServices.PlanReservations(context), TestServices.Wallet(context), TestServices.Escrow(context), Microsoft.Extensions.Logging.Abstractions.NullLogger<RescheduleService>.Instance);
 
         var result = await service.GetEligibilityAsync(customer.Id, bookingId);
 

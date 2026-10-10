@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Alert, Badge, Button, Field, PageHeading, Textarea, cx } from "@/components/ui";
 import type { BadgeTone } from "@/components/ui";
+import { useResetOnChange } from "@/hooks/useResetOnChange";
 import {
   ConfirmDialog,
   DataTable,
@@ -104,9 +105,7 @@ export default function PaymentReconciliationPage() {
 
   // Any filter change resets to page 1 - staying on page 3 of a now-smaller
   // result set would just show an empty page.
-  useEffect(() => {
-    setPage(1);
-  }, [categoryFilter, debouncedSearch]);
+  useResetOnChange([categoryFilter, debouncedSearch], () => setPage(1));
 
   const query = useQuery({
     queryKey: ["admin-payments-reconciliation", page, categoryFilter, debouncedSearch] as const,

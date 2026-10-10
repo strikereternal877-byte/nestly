@@ -95,8 +95,8 @@ export default function ProviderOnboardingOverviewPage() {
       label: "Document verification",
       tone: "warning",
       value: query.data?.documentVerificationCount,
-      href: tileHref({ onboardingStatus: String(ProviderOnboardingStatus.KycSubmitted) }),
-      hint: "KYC submitted, awaiting an admin verdict.",
+      href: "/providers/verification",
+      hint: "KYC submitted, awaiting an admin verdict - opens the verification queue to act on them.",
     },
     {
       key: "verified",

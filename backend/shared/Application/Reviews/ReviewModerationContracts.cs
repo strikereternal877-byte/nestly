@@ -18,7 +18,8 @@ public sealed record ReviewModerationCriteria(
     DateTime? FromUtc,
     DateTime? ToUtc,
     Guid? ServiceId,
-    Guid? CategoryId);
+    Guid? CategoryId,
+    Guid? CustomerId = null);
 
 /// <summary>One review joined with the customer/service/category names the moderation screen displays - the review itself is never denormalized, only read alongside its related names.</summary>
 public sealed record ReviewModerationRow(Review Review, string CustomerName, string ServiceName, Guid CategoryId, string CategoryName);
@@ -26,7 +27,16 @@ public sealed record ReviewModerationRow(Review Review, string CustomerName, str
 /// <summary>A page of <see cref="ReviewModerationRow"/> plus the total match count, for pagination.</summary>
 public sealed record ReviewModerationSearchResult(IReadOnlyList<ReviewModerationRow> Rows, int TotalCount);
 
-/// <summary>Query-string shape of an admin review search request (task 122).</summary>
+/// <summary>
+/// Query-string shape of an admin review search request (task 122).
+/// <see cref="CustomerId"/> has no visible filter input on the moderation
+/// screen itself (SRS 12.15 lists no such filter) - it exists purely so the
+/// Customer 360 view's "Reviews written" link can deep-link here scoped to
+/// one customer (Provider Management UX pass gap: there was previously no
+/// way anywhere in admin-web to see reviews authored by a given customer),
+/// same "backend-supported, no visible input" convention as
+/// CustomerSearchRequest's own RegisteredFromUtc/MinBookingCount.
+/// </summary>
 public sealed record ReviewModerationSearchRequest(
     ReviewStatus? Status,
     bool? IsFlagged,
@@ -36,10 +46,11 @@ public sealed record ReviewModerationSearchRequest(
     DateTime? ToUtc,
     Guid? ServiceId,
     Guid? CategoryId,
+    Guid? CustomerId = null,
     int Page = 1,
     int PageSize = 20)
 {
-    public ReviewModerationCriteria ToCriteria() => new(Status, IsFlagged, MinRating, MaxRating, FromUtc, ToUtc, ServiceId, CategoryId);
+    public ReviewModerationCriteria ToCriteria() => new(Status, IsFlagged, MinRating, MaxRating, FromUtc, ToUtc, ServiceId, CategoryId, CustomerId);
 }
 
 /// <summary>One review row as shown on the admin moderation screen (SRS 12.15, task 122).</summary>

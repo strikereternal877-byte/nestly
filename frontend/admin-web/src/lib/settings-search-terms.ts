@@ -38,7 +38,7 @@ export interface SettingsSearchTerms {
 
 export const BOOKING_SEARCH_TERMS: SettingsSearchTerms = {
   title: "Booking rules",
-  description: "How far ahead, and how close to a slot, a booking may be created (SRS 12.19).",
+  description: "How far ahead, and how close to a slot, a booking may be created, and how many active bookings one customer may hold (SRS 12.19). Nothing here applies until you save it; saving applies every value on this card to the next booking straight away. These are limits that sit underneath a city's own slot booking policy - they only ever tighten it.",
   fields: [
     "Minimum lead time (hours)",
     "Max advance booking (days)",
@@ -49,7 +49,7 @@ export const BOOKING_SEARCH_TERMS: SettingsSearchTerms = {
 
 export const SLOT_SEARCH_TERMS: SettingsSearchTerms = {
   title: "Slot rules",
-  description: "How slots are generated and offered: duration, same-day cutoff, and capacity (SRS 15.2).",
+  description: "How slots are offered (SRS 15.2). Same-day cutoff, booking horizon and \"allow overbooking\" apply to the next booking once saved (limits only tighten a city's own policy). Default slot duration and default capacity are recorded but not applied - slots are created one at a time with their own times and capacity.",
   fields: [
     "Default slot duration (minutes)",
     "Same-day cutoff (hours)",
@@ -61,24 +61,25 @@ export const SLOT_SEARCH_TERMS: SettingsSearchTerms = {
 
 export const CANCELLATION_SEARCH_TERMS: SettingsSearchTerms = {
   title: "Cancellation policy",
-  description: "Free cancellation window and the late-cancellation fee (SRS 11.14.1).",
+  description: "Free cancellation window and the late-cancellation fee (SRS 11.14.1). Once saved, these apply to the next cancellation straight away. A late-reschedule fee a customer already paid counts toward the cancellation fee.",
   fields: ["Free cancellation window (hours)", "Late cancellation fee (%)", "Allow admin override of the late fee"],
 };
 
 export const RESCHEDULE_SEARCH_TERMS: SettingsSearchTerms = {
   title: "Reschedule policy",
-  description: "Reschedule blocking window, count limit, and the late-reschedule fee (SRS 11.15.1).",
+  description: "Reschedule blocking window, count limit, and the late-reschedule fee (SRS 11.15.1). Once saved, these apply to the next reschedule straight away. The late fee is only recorded on the booking unless you turn on collecting it, which takes it from the customer's wallet.",
   fields: [
     "Blocked within (hours before slot)",
     "Max reschedules per booking",
     "Late fee threshold (hours before slot)",
     "Late reschedule fee (%)",
+    "Collect the late fee from the customer's wallet",
   ],
 };
 
 export const TAX_SEARCH_TERMS: SettingsSearchTerms = {
   title: "Tax settings",
-  description: "Default tax rate and registration details shown on customer invoices.",
+  description: "Default tax rate (SRS 12.19). Once saved, the default rate is charged in a city that has no pricing policy of its own; a city's own tax rate always wins. \"Prices include tax\" and the registration number are recorded but not applied yet - there is no tax invoice, and tax-inclusive pricing needs a tax-treatment decision first (docs/GST.md).",
   fields: [
     "Default tax rate (%)",
     "Tax registration number (blank = not configured)",
@@ -88,7 +89,7 @@ export const TAX_SEARCH_TERMS: SettingsSearchTerms = {
 
 export const WALLET_SEARCH_TERMS: SettingsSearchTerms = {
   title: "Wallet settings",
-  description: "Balance cap, how much of a booking wallet may cover, and credit expiry (SRS 14.5).",
+  description: "Wallet rules (SRS 14.5). Adding money and the balance cap already follow this card. Once saved, \"share of a booking the wallet may pay\" applies to the next checkout. Credit expiry is recorded but not applied - money added, refunds and manual adjustments never expire, and coins and referral credits have their own programme expiry.",
   fields: [
     "Max wallet balance",
     "Max wallet usage per booking (%)",
@@ -102,7 +103,7 @@ export const COUPONS_ENABLED_DESCRIPTION =
 
 export const COUPON_SEARCH_TERMS: SettingsSearchTerms = {
   title: "Coupon settings",
-  description: "Platform-wide guardrails applied across every coupon, plus the coupons feature flag (SRS 14.2).",
+  description: "Platform-wide coupon rules (SRS 14.2). Once saved: the coupons switch refuses every code when off, \"different coupons per customer\" caps coupons held across upcoming bookings, and the maximum discount % limits what a coupon can be set to (existing coupons keep working). Stacking is recorded but not applied - a booking takes one coupon.",
   fields: [
     "Max discount per coupon (%)",
     "Max active coupons per customer (blank = unlimited)",

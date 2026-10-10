@@ -1,3 +1,4 @@
+using Nestly.Application.Settings;
 using FluentAssertions;
 using Nestly.Application;
 using Nestly.Application.Abstractions.Auditing;
@@ -18,12 +19,13 @@ public sealed class CouponManagementServiceTests : IClassFixture<TestDatabase>
 
     public CouponManagementServiceTests(TestDatabase db) => _db = db;
 
-    private static CouponManagementService BuildService(NestlyDbContext context) =>
+    private static CouponManagementService BuildService(NestlyDbContext context, IPlatformRules? rules = null) =>
         new(
             new CouponRepository(context),
             new CategoryRepository(context),
             context,
-            new AuditLogWriter(context, new StubAuditContextProvider()));
+            new AuditLogWriter(context, new StubAuditContextProvider()),
+            rules);
 
     private sealed class StubAuditContextProvider : IAuditContextProvider
     {
@@ -305,4 +307,64 @@ public sealed class CouponManagementServiceTests : IClassFixture<TestDatabase>
             new AddressSnapshot("Home", "12 Main St", null, null, "560001", "Bengaluru", "Karnataka", 12.9m, 77.5m, "Test Customer", "9000000000"),
             new SlotSnapshot(Guid.NewGuid(), DateOnly.FromDateTime(DateTime.UtcNow.AddDays(1)), "Morning", TimeSpan.FromHours(9), TimeSpan.FromHours(11)),
             new PriceSnapshot(500m, 1, 500m, 0m, 0m, 500m, 18m, 90m, 10m, 600m));
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Coupon rules (Settings -> Coupons): the highest percentage a coupon may give.
+    // ---------------------------------------------------------------------------------------------------------------
+
+    private static IPlatformRules MaxPercent(decimal percentage) =>
+        TestServices.Rules(coupon: new CouponSettings(percentage, null, AllowCouponStacking: false, CouponsEnabled: true));
+
+    [Fact]
+    public async Task CreateAsync_refuses_a_percentage_above_the_saved_maximum()
+    {
+        using var context = _db.CreateContext();
+        var result = await BuildService(context, MaxPercent(20)).CreateAsync(ValidCreateRequest() with { DiscountValue = 30 });
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be("Coupon.DiscountAboveLimit");
+        result.Error.Message.Should().Contain("20");
+    }
+
+    [Fact]
+    public async Task CreateAsync_allows_a_percentage_at_the_saved_maximum_and_any_flat_amount()
+    {
+        using var context = _db.CreateContext();
+        var service = BuildService(context, MaxPercent(20));
+
+        (await service.CreateAsync(ValidCreateRequest() with { DiscountValue = 20 })).IsSuccess.Should().BeTrue();
+        (await service.CreateAsync(ValidCreateRequest() with { DiscountType = CouponDiscountType.Flat, DiscountValue = 900 })).IsSuccess.Should().BeTrue(
+            "the maximum is a percentage; a flat amount is not one");
+    }
+
+    [Fact]
+    public async Task CreateAsync_with_no_coupon_rules_saved_allows_what_it_always_did()
+    {
+        using var context = _db.CreateContext();
+        (await BuildService(context, TestServices.Rules()).CreateAsync(ValidCreateRequest() with { DiscountValue = 90 })).IsSuccess.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task UpdateAsync_refuses_raising_a_percentage_above_the_maximum_but_lets_a_legacy_coupon_be_edited_otherwise()
+    {
+        Guid legacyId, modestId;
+        using (var context = _db.CreateContext())
+        {
+            // Created before any maximum was saved.
+            legacyId = (await BuildService(context).CreateAsync(ValidCreateRequest() with { DiscountValue = 60 })).Value.Id;
+            modestId = (await BuildService(context).CreateAsync(ValidCreateRequest() with { DiscountValue = 10 })).Value.Id;
+        }
+
+        CouponUpdateRequest Update(decimal value, string description) => new(
+            description, CouponDiscountType.Percentage, value, 200, 500, DateTime.UtcNow.AddDays(-1), DateTime.UtcNow.AddDays(30), 100, 1, null, CouponCustomerSegment.All);
+
+        using var editContext = _db.CreateContext();
+        var service = BuildService(editContext, MaxPercent(50));
+
+        (await service.UpdateAsync(legacyId, Update(60, "Legacy, new wording"))).IsSuccess.Should().BeTrue(
+            "its percentage is not being raised, so a coupon that already exceeds the maximum can still have its text changed");
+        (await service.UpdateAsync(legacyId, Update(70, "Legacy, raised"))).Error.Code.Should().Be("Coupon.DiscountAboveLimit");
+        (await service.UpdateAsync(modestId, Update(55, "Modest, pushed past"))).Error.Code.Should().Be("Coupon.DiscountAboveLimit");
+        (await service.UpdateAsync(modestId, Update(40, "Modest, within"))).IsSuccess.Should().BeTrue();
+    }
 }

@@ -41,6 +41,12 @@ npx playwright test 140a-discovery.spec.ts # one file
 npx playwright test --headed --debug      # interactive
 ```
 
+`wallet-topup.spec.ts` needs wallet top-ups switched on, which they are not by
+default (they hold customers' money): start consumer-api with
+`WalletTopUp__Enabled=true`. It drives the sandbox gateway, so there is no real
+checkout page; the admin setting "Allow wallet top-up" must also be on (it is in
+the seeded settings).
+
 `playwright.config.ts`'s `globalSetup` (`e2e/setup/global-setup.ts`) seeds a
 full geography -> category -> service -> serviceability -> slot-window chain
 through real admin-api calls before any spec runs (`e2e/setup/seed-catalog.ts`)

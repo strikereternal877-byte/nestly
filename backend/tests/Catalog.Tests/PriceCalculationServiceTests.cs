@@ -1,3 +1,4 @@
+using Nestly.Application.Settings;
 using FluentAssertions;
 using Nestly.Application.Pricing;
 using Nestly.Domain;
@@ -17,7 +18,7 @@ public sealed class PriceCalculationServiceTests : IClassFixture<TestDatabase>
     // - callers that build two services in the same test (rare, but see below)
     // get independent caches, exactly like two different requests would in
     // production with a shared Redis but different cache keys.
-    private PriceCalculationService BuildService(Nestly.Infrastructure.Persistence.NestlyDbContext context) => new(
+    private PriceCalculationService BuildService(Nestly.Infrastructure.Persistence.NestlyDbContext context, IPlatformRules? rules = null) => new(
         new ServiceRepository(context),
         new ServiceAddOnRepository(context),
         new ServiceabilityRepository(context),
@@ -25,7 +26,8 @@ public sealed class PriceCalculationServiceTests : IClassFixture<TestDatabase>
         new CityPricingPolicyRepository(context),
         new ServiceVariantRepository(context),
         new ServiceAddOnGroupRepository(context),
-        new InMemoryCacheService());
+        new InMemoryCacheService(),
+        rules);
 
     private (Category category, Service service, State state, City city) SeedServiceAndCity(Nestly.Infrastructure.Persistence.NestlyDbContext context, decimal basePrice = 500m)
     {
@@ -533,5 +535,48 @@ public sealed class PriceCalculationServiceTests : IClassFixture<TestDatabase>
         // cached failure might have left behind.
         var second = await priceService.CalculateAsync(request with { Quantity = 1 });
         second.IsSuccess.Should().BeTrue();
+    }
+
+    private static IPlatformRules DefaultTax(decimal percentage) =>
+        TestServices.Rules(tax: new TaxSettings(percentage, null, TaxInclusivePricing: false));
+
+    [Fact]
+    public async Task A_city_without_a_pricing_policy_is_charged_the_saved_default_tax()
+    {
+        using var context = _db.CreateContext();
+        var (_, service, _, city) = SeedServiceAndCity(context, 500m);
+
+        var result = await BuildService(context, DefaultTax(18m)).CalculateAsync(new PriceCalculationRequest(service.Id, city.Id, 1, []));
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.TaxPercentage.Should().Be(18m);
+        result.Value.TaxAmount.Should().Be(90m);
+        result.Value.TotalPayable.Should().Be(590m);
+    }
+
+    [Fact]
+    public async Task A_citys_own_pricing_policy_tax_wins_over_the_saved_default()
+    {
+        using var context = _db.CreateContext();
+        var (_, service, _, city) = SeedServiceAndCity(context, 500m);
+        context.CityPricingPolicies.Add(new CityPricingPolicy(Guid.NewGuid(), city.Id, 0m, 5m, 0m));
+        context.SaveChanges();
+
+        var result = await BuildService(context, DefaultTax(18m)).CalculateAsync(new PriceCalculationRequest(service.Id, city.Id, 1, []));
+
+        result.Value.TaxPercentage.Should().Be(5m, "the platform default only fills in where a city has no policy of its own");
+        result.Value.TaxAmount.Should().Be(25m);
+    }
+
+    [Fact]
+    public async Task With_no_tax_group_saved_a_city_without_a_policy_is_still_charged_no_tax()
+    {
+        using var context = _db.CreateContext();
+        var (_, service, _, city) = SeedServiceAndCity(context, 500m);
+
+        var result = await BuildService(context, TestServices.Rules()).CalculateAsync(new PriceCalculationRequest(service.Id, city.Id, 1, []));
+
+        result.Value.TaxPercentage.Should().Be(0m);
+        result.Value.TotalPayable.Should().Be(500m);
     }
 }

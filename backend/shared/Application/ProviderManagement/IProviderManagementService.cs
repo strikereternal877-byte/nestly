@@ -31,9 +31,10 @@ public interface IProviderManagementService
     /// <summary>
     /// Support-initiated account deletion (right-to-erasure request handled
     /// on the provider's behalf). Terminal and irreversible - unlike
-    /// Suspend/Reactivate there is no "undelete".
+    /// Suspend/Reactivate there is no "undelete". The reason is recorded to
+    /// <see cref="Domain.ProviderStatusHistory"/>, mirroring <see cref="SuspendAsync"/>.
     /// </summary>
-    Task<Result<ProviderDetailResponse>> DeleteAsync(Guid providerId);
+    Task<Result<ProviderDetailResponse>> DeleteAsync(Guid providerId, DeleteProviderRequest request);
 
     /// <summary>Job-fulfilment performance summary (task 150c).</summary>
     Task<Result<ProviderPerformanceResponse>> GetPerformanceAsync(Guid providerId);

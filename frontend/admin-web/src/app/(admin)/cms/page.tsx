@@ -4,6 +4,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tansta
 import { useEffect, useState } from "react";
 import { Button, Card, Field, PageHeading, Select } from "@/components/ui";
 import { FilterBar, Pagination, countActiveFilters } from "@/components/data-table";
+import { useResetOnChange } from "@/hooks/useResetOnChange";
 import { describeError } from "@/lib/api";
 import { createCmsPage, searchCmsPages, setCmsPagePublished, updateCmsPage } from "@/lib/cms-api";
 import { CmsContentStatus, type CmsPageCreateRequest, type CmsPageResponse, type CmsPageUpdateRequest } from "@/lib/cms-types";
@@ -52,9 +53,7 @@ export default function CmsPagesPage() {
 
   // Any filter change resets to page 1 - staying on a now out-of-range page
   // would just show an empty result (same pattern as customers/page.tsx).
-  useEffect(() => {
-    setPage(1);
-  }, [debouncedTitle, filters.status]);
+  useResetOnChange([debouncedTitle, filters.status], () => setPage(1));
 
   const titleSuggestionsQuery = useQuery({
     queryKey: ["cms", "pages", "title-suggestions", debouncedTitle] as const,

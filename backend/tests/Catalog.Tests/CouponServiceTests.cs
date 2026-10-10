@@ -1,3 +1,4 @@
+using Nestly.Application.Settings;
 using FluentAssertions;
 using Nestly.Application;
 using Nestly.Application.Bookings;
@@ -16,8 +17,9 @@ public sealed class CouponServiceTests : IClassFixture<TestDatabase>
 
     public CouponServiceTests(TestDatabase db) => _db = db;
 
-    private static CouponService BuildCouponService(Nestly.Infrastructure.Persistence.NestlyDbContext context, TimeProvider? timeProvider = null) =>
-        new(new CouponRepository(context), new CouponRedemptionRepository(context), new BookingRepository(context), timeProvider ?? TimeProvider.System);
+    private static CouponService BuildCouponService(
+        Nestly.Infrastructure.Persistence.NestlyDbContext context, TimeProvider? timeProvider = null, IPlatformRules? rules = null) =>
+        new(new CouponRepository(context), new CouponRedemptionRepository(context), new BookingRepository(context), timeProvider ?? TimeProvider.System, rules);
 
     private static BookingService BuildBookingService(Nestly.Infrastructure.Persistence.NestlyDbContext context)
     {
@@ -443,5 +445,119 @@ public sealed class CouponServiceTests : IClassFixture<TestDatabase>
         using var readContext = _db.CreateContext();
         var coupon2 = await new CouponRepository(readContext).GetByIdAsync(couponId);
         coupon2!.RedemptionCount.Should().Be(1);
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Coupon rules (Settings -> Coupons).
+    // ---------------------------------------------------------------------------------------------------------------
+
+    private static IPlatformRules CouponRules(bool enabled = true, int? maxActive = null) =>
+        TestServices.Rules(coupon: new CouponSettings(50m, maxActive, AllowCouponStacking: false, CouponsEnabled: enabled));
+
+    /// <summary>A booking of the customer's, in the given state, holding a redemption of <paramref name="coupon"/> - what the active-coupon cap counts.</summary>
+    private static void AddBookingHoldingCoupon(
+        Nestly.Infrastructure.Persistence.NestlyDbContext context, Fixture fixture, Coupon coupon, bool cancelled = false)
+    {
+        var booking = new Booking(
+            Guid.NewGuid(), fixture.Customer.Id, new CustomerSnapshot(fixture.Customer.Name, fixture.Customer.Mobile), fixture.Address.Id,
+            new AddressSnapshot("Home", "221B Baker Street", null, null, "560001", "Bengaluru", "Karnataka", 12.9716m, 77.5946m, "Asha Rao", "9876543210"),
+            new SlotSnapshot(fixture.Window.Id, fixture.Date, fixture.Window.Name, fixture.Window.StartTime, fixture.Window.EndTime),
+            new PriceSnapshot(1000m, 1, 1000m, 0m, 0m, 1000m, 0m, 0m, 0m, 1000m));
+        booking.AddItem(Guid.NewGuid(), fixture.Service.Id, fixture.Service.Name, fixture.Service.Slug, 1000m, 1);
+        booking.TransitionTo(BookingStatus.PaymentPending);
+        booking.TransitionTo(BookingStatus.Confirmed);
+        if (cancelled)
+        {
+            booking.TransitionTo(BookingStatus.CancelledByCustomer);
+        }
+
+        context.Bookings.Add(booking);
+        context.SaveChanges();
+        context.CouponRedemptions.Add(new CouponRedemption(Guid.NewGuid(), coupon.Id, fixture.Customer.Id, booking.Id, 100m));
+        context.SaveChanges();
+    }
+
+    [Fact]
+    public async Task Switching_coupons_off_in_Settings_refuses_every_code()
+    {
+        Fixture fixture;
+        using (var seedContext = _db.CreateContext())
+        {
+            fixture = Seed(seedContext);
+            seedContext.Coupons.Add(FlatCoupon("OFFSWITCH"));
+            seedContext.SaveChanges();
+        }
+
+        using var context = _db.CreateContext();
+        var off = await BuildCouponService(context, rules: CouponRules(enabled: false))
+            .ValidateAsync(fixture.Customer.Id, "OFFSWITCH", fixture.Category.Id, 1000m);
+        off.IsFailure.Should().BeTrue();
+        off.Error.Code.Should().Be("Coupon.Disabled");
+
+        (await BuildCouponService(context, rules: CouponRules(enabled: true)).ValidateAsync(fixture.Customer.Id, "OFFSWITCH", fixture.Category.Id, 1000m))
+            .IsSuccess.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task The_saved_active_coupon_cap_refuses_a_further_different_coupon_but_not_one_already_held()
+    {
+        Fixture fixture;
+        Coupon held, another;
+        using (var seedContext = _db.CreateContext())
+        {
+            fixture = Seed(seedContext);
+            held = FlatCoupon("HELD", usageLimitPerCustomer: null);
+            another = FlatCoupon("ANOTHER", usageLimitPerCustomer: null);
+            seedContext.Coupons.AddRange(held, another);
+            seedContext.SaveChanges();
+            AddBookingHoldingCoupon(seedContext, fixture, held);
+        }
+
+        using var context = _db.CreateContext();
+        var capOfOne = BuildCouponService(context, rules: CouponRules(maxActive: 1));
+
+        var different = await capOfOne.ValidateAsync(fixture.Customer.Id, "ANOTHER", fixture.Category.Id, 1000m);
+        different.IsFailure.Should().BeTrue();
+        different.Error.Code.Should().Be("Coupon.ActiveLimitReached");
+
+        (await capOfOne.ValidateAsync(fixture.Customer.Id, "HELD", fixture.Category.Id, 1000m)).IsSuccess.Should().BeTrue(
+            "using the coupon they already hold adds no new one");
+
+        (await BuildCouponService(context, rules: CouponRules(maxActive: 2)).ValidateAsync(fixture.Customer.Id, "ANOTHER", fixture.Category.Id, 1000m))
+            .IsSuccess.Should().BeTrue("one held, cap of two");
+    }
+
+    [Fact]
+    public async Task A_coupon_held_on_a_cancelled_booking_does_not_count_toward_the_cap()
+    {
+        Fixture fixture;
+        using (var seedContext = _db.CreateContext())
+        {
+            fixture = Seed(seedContext);
+            var gone = FlatCoupon("GONE", usageLimitPerCustomer: null);
+            seedContext.Coupons.AddRange(gone, FlatCoupon("FRESH", usageLimitPerCustomer: null));
+            seedContext.SaveChanges();
+            AddBookingHoldingCoupon(seedContext, fixture, gone, cancelled: true);
+        }
+
+        using var context = _db.CreateContext();
+        (await BuildCouponService(context, rules: CouponRules(maxActive: 1)).ValidateAsync(fixture.Customer.Id, "FRESH", fixture.Category.Id, 1000m))
+            .IsSuccess.Should().BeTrue("the earlier booking was cancelled, so that coupon is no longer held");
+    }
+
+    [Fact]
+    public async Task With_no_coupon_rules_saved_coupons_behave_as_they_always_did()
+    {
+        Fixture fixture;
+        using (var seedContext = _db.CreateContext())
+        {
+            fixture = Seed(seedContext);
+            seedContext.Coupons.Add(FlatCoupon("PLAIN"));
+            seedContext.SaveChanges();
+        }
+
+        using var context = _db.CreateContext();
+        (await BuildCouponService(context, rules: TestServices.Rules()).ValidateAsync(fixture.Customer.Id, "PLAIN", fixture.Category.Id, 1000m))
+            .IsSuccess.Should().BeTrue();
     }
 }

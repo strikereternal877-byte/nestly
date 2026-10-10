@@ -1,7 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { cx } from "@/components/ui";
+import { listNotifications, markAllNotificationsRead, markNotificationRead } from "@/lib/notifications-api";
+import { ProviderNotificationType, type ProviderNotification } from "@/lib/notifications-types";
+import { formatRelativeDate } from "@/lib/format";
 
 /**
  * Header notification bell + popup, matched to the MatDash reference
@@ -9,29 +14,37 @@ import { cx } from "@/components/ui";
  * 360px panel, "N new" pill next to the title, 44px tinted icon chips per
  * row, title/description/time layout, "See all" footer.
  *
- * There is no backend concept yet of a notification feed belonging to the
- * signed-in admin/provider (only customer-facing `NotificationTemplate`s
- * exist - see NotificationTemplatesController). Rather than invent one or
- * fabricate placeholder rows, this ships as the UI shell only: the badge
- * only renders once `unreadCount` is genuinely nonzero, and the panel shows
- * an honest empty state until a real feed is wired in via `notifications`.
+ * Provider Management UX pass: this used to be a UI shell only - there was
+ * no backend concept of a notification feed belonging to the signed-in
+ * provider (only customer-facing `NotificationTemplate`s existed). Now backed
+ * by `/api/v1/notifications` (`ProviderNotificationService`), populated by
+ * `ProviderNotificationPublisher` at the moments a provider needs to know
+ * about *now* - a new job offer, a KYC rejection, a suspension, a payout
+ * going through.
  */
-export interface HeaderNotification {
-  id: string;
-  title: string;
-  description: string;
-  time: string;
-  href?: string;
-  tone?: "brand" | "success" | "warning" | "danger" | "info";
-}
-
 const TONE_CHIP = {
   brand: "bg-brand-50 text-brand-600 dark:bg-brand-500/15 dark:text-brand-300",
   success: "bg-success-soft text-success",
-  warning: "bg-warning-soft text-warning",
   danger: "bg-danger-soft text-danger",
-  info: "bg-info-soft text-info",
+  warning: "bg-warning-soft text-warning",
 } as const;
+
+function toneFor(type: ProviderNotificationType): keyof typeof TONE_CHIP {
+  switch (type) {
+    case ProviderNotificationType.PayoutProcessed:
+      return "success";
+    case ProviderNotificationType.KycRejected:
+    case ProviderNotificationType.Suspended:
+    case ProviderNotificationType.JobUnassigned:
+    case ProviderNotificationType.JobCancelled:
+      return "danger";
+    case ProviderNotificationType.JobRescheduled:
+      return "warning";
+    case ProviderNotificationType.JobOffered:
+    default:
+      return "brand";
+  }
+}
 
 function BellIcon({ className }: { className?: string }) {
   return (
@@ -52,15 +65,33 @@ function BellIcon({ className }: { className?: string }) {
   );
 }
 
-export function NotificationBell({
-  notifications = [],
-  unreadCount = 0,
-}: {
-  notifications?: HeaderNotification[];
-  unreadCount?: number;
-}) {
+export function NotificationBell() {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const router = useRouter();
+  const queryClient = useQueryClient();
+
+  // Polled rather than pushed - same tradeoff the "Offers"/"Active" nav
+  // badges already make (see ProviderSidebar's usePendingOfferCount doc
+  // comment): no SignalR channel exists for this feed, and a real push
+  // already reached the device via ProviderNotificationPublisher regardless
+  // of whether this panel is open.
+  const query = useQuery({
+    queryKey: ["provider-notifications", "recent"],
+    queryFn: () => listNotifications(1, 8),
+    refetchInterval: 60_000,
+    retry: false,
+  });
+
+  const markReadMutation = useMutation({
+    mutationFn: markNotificationRead,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["provider-notifications"] }),
+  });
+
+  const markAllReadMutation = useMutation({
+    mutationFn: markAllNotificationsRead,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["provider-notifications"] }),
+  });
 
   useEffect(() => {
     if (!open) return;
@@ -79,6 +110,19 @@ export function NotificationBell({
       document.removeEventListener("keydown", onKeyDown);
     };
   }, [open]);
+
+  const notifications = query.data?.items ?? [];
+  const unreadCount = query.data?.unreadCount ?? 0;
+
+  const handleOpenNotification = (notification: ProviderNotification) => {
+    if (!notification.isRead) {
+      markReadMutation.mutate(notification.id);
+    }
+    setOpen(false);
+    if (notification.deepLinkPath) {
+      router.push(notification.deepLinkPath);
+    }
+  };
 
   return (
     <div ref={ref} className="relative">
@@ -106,11 +150,22 @@ export function NotificationBell({
         >
           <div className="flex items-center justify-between px-6">
             <h3 className="text-lg font-semibold text-fg">Notifications</h3>
-            {unreadCount > 0 ? (
-              <span className="rounded-full bg-brand-600 px-2.5 py-0.5 text-xs font-semibold text-fg-on-brand">
-                {unreadCount} new
-              </span>
-            ) : null}
+            <div className="flex items-center gap-2">
+              {unreadCount > 0 ? (
+                <span className="rounded-full bg-brand-600 px-2.5 py-0.5 text-xs font-semibold text-fg-on-brand">
+                  {unreadCount} new
+                </span>
+              ) : null}
+              {unreadCount > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => markAllReadMutation.mutate()}
+                  className="text-xs font-medium text-brand-600 hover:underline dark:text-brand-400"
+                >
+                  Mark all read
+                </button>
+              ) : null}
+            </div>
           </div>
 
           <div className="mt-3 max-h-80 overflow-y-auto">
@@ -118,16 +173,20 @@ export function NotificationBell({
               <p className="px-6 py-10 text-center text-sm text-fg-muted">No notifications yet</p>
             ) : (
               notifications.map((item) => (
-                <a
+                <button
                   key={item.id}
-                  href={item.href ?? "#"}
+                  type="button"
                   role="menuitem"
-                  className="flex w-full items-center gap-4 px-6 py-3 transition-colors duration-fast ease-out hover:bg-surface-2"
+                  onClick={() => handleOpenNotification(item)}
+                  className={cx(
+                    "flex w-full items-center gap-4 px-6 py-3 text-left transition-colors duration-fast ease-out hover:bg-surface-2",
+                    !item.isRead && "bg-brand-50/40 dark:bg-brand-500/5",
+                  )}
                 >
                   <span
                     className={cx(
                       "flex h-11 w-11 shrink-0 items-center justify-center rounded-full",
-                      TONE_CHIP[item.tone ?? "brand"],
+                      TONE_CHIP[toneFor(item.type)],
                     )}
                   >
                     <BellIcon className="h-5 w-5" />
@@ -135,13 +194,23 @@ export function NotificationBell({
                   <span className="flex w-full items-start justify-between gap-2">
                     <span className="min-w-0">
                       <span className="block text-[0.9375rem] font-semibold text-fg">{item.title}</span>
-                      <span className="line-clamp-1 block text-sm text-fg-muted">{item.description}</span>
+                      <span className="line-clamp-1 block text-sm text-fg-muted">{item.body}</span>
                     </span>
-                    <span className="shrink-0 pt-0.5 text-xs text-fg-subtle">{item.time}</span>
+                    <span className="shrink-0 pt-0.5 text-xs text-fg-subtle">{formatRelativeDate(item.createdAtUtc)}</span>
                   </span>
-                </a>
+                </button>
               ))
             )}
+          </div>
+
+          <div className="mt-2 border-t border-line px-6 pt-3">
+            <a
+              href="/notifications"
+              className="block text-center text-sm font-medium text-brand-600 hover:underline dark:text-brand-400"
+              onClick={() => setOpen(false)}
+            >
+              See all
+            </a>
           </div>
         </div>
       ) : null}

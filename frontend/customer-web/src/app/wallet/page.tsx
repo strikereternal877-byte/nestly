@@ -2,9 +2,12 @@
 
 import { useQuery } from "@tanstack/react-query";
 import type { UseQueryResult } from "@tanstack/react-query";
-import { BannerBreadcrumb, formatInstant, inr } from "@/components/patterns";
+import { useSearchParams } from "next/navigation";
+import { Suspense } from "react";
+import { BannerBreadcrumb, ScreenSkeleton, formatInstant, inr } from "@/components/patterns";
 import { PageBanner } from "@/components/PageBanner";
 import { RequireAuth } from "@/components/RequireAuth";
+import { WalletAddMoney } from "@/components/WalletAddMoney";
 import {
   Alert,
   Badge,
@@ -23,17 +26,30 @@ import {
 } from "@/components/ui";
 import type { BadgeTone } from "@/components/ui";
 import { API_V1, apiFetch, describeError } from "@/lib/api";
+import { isSafeReturnPath } from "@/lib/return-to";
 import { WalletEntryType, WalletSourceType } from "@/lib/types";
 import type { WalletBalanceResponse, WalletLedgerEntryResponse } from "@/lib/types";
+import { useWalletTopUpConfig } from "@/lib/wallet-topup";
 
 /**
- * Wallet balance and ledger (tasks 78a-b, SRS 11.17).
+ * Wallet balance and ledger (tasks 78a-b, SRS 11.17), and - when the server has it switched on - adding money.
+ *
+ * Wrapped in Suspense for useSearchParams (see booking/summary/page.tsx for why).
  */
 export default function WalletPage() {
   return (
-    <RequireAuth>
-      <WalletScreen />
-    </RequireAuth>
+    <Suspense
+      fallback={
+        <main className="flex w-full flex-col">
+          <div className="listing-banner h-[13.5rem] w-full sm:h-[15.5rem]" aria-hidden />
+          <ScreenSkeleton cards={2} className="mx-auto w-full max-w-7xl px-4 py-10 sm:px-6 sm:py-14" />
+        </main>
+      }
+    >
+      <RequireAuth>
+        <WalletScreen />
+      </RequireAuth>
+    </Suspense>
   );
 }
 
@@ -67,6 +83,12 @@ function sourceLabel(sourceType: WalletSourceType): string {
       return "Applied to booking";
     case WalletSourceType.BookingWalletCreditReversal:
       return "Wallet credit reversed - booking refunded";
+    case WalletSourceType.TopUp:
+      return "Money added";
+    case WalletSourceType.RescheduleFee:
+      return "Late reschedule fee";
+    case WalletSourceType.RescheduleFeeReversal:
+      return "Late reschedule fee returned";
     default:
       return "Wallet";
   }
@@ -93,6 +115,16 @@ function sourceTone(sourceType: WalletSourceType): BadgeTone {
 }
 
 function WalletScreen() {
+  const params = useSearchParams();
+  // Set when the customer came here from a booking summary to top up: the add-money panel is brought into view,
+  // and the summary is remembered so the result screen can send them back to it.
+  const rawReturnTo = params.get("returnTo");
+  const returnTo = isSafeReturnPath(rawReturnTo) ? rawReturnTo : null;
+  const wantsAddMoney = params.get("addMoney") === "1";
+
+  const topUpConfigQuery = useWalletTopUpConfig();
+  const topUpConfig = topUpConfigQuery.data?.enabled ? topUpConfigQuery.data : null;
+
   const balanceQuery = useQuery({
     queryKey: ["wallet-balance"],
     queryFn: () =>
@@ -115,7 +147,10 @@ function WalletScreen() {
 
       <div className="mx-auto w-full max-w-7xl px-4 py-10 sm:px-6 sm:py-14">
         <div className="flex animate-rise flex-col gap-6">
-          <BalanceCard query={balanceQuery} />
+          <BalanceCard query={balanceQuery} canAddMoney={topUpConfig !== null} />
+          {topUpConfig ? (
+            <WalletAddMoney config={topUpConfig} returnTo={returnTo} autoFocus={wantsAddMoney} />
+          ) : null}
           <LedgerCard query={ledgerQuery} />
         </div>
       </div>
@@ -125,8 +160,10 @@ function WalletScreen() {
 
 function BalanceCard({
   query,
+  canAddMoney,
 }: {
   query: UseQueryResult<WalletBalanceResponse>;
+  canAddMoney: boolean;
 }) {
   if (query.isPending) {
     return (
@@ -167,6 +204,7 @@ function BalanceCard({
       <p className="mt-1.5 text-sm leading-relaxed text-fg-muted">
         Use it at checkout: turn on &ldquo;Use my wallet balance&rdquo; on your booking summary to
         put it towards that booking, after any coupon or subscription discount.
+        {canAddMoney ? " It can also pay a daily plan's visits automatically." : ""}
       </p>
     </Card>
   );

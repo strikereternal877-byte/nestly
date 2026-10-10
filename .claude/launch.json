@@ -4,10 +4,9 @@
     {
       "name": "customer-web",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": ["run", "dev", "--", "-p", "3010"],
       "cwd": "frontend/customer-web",
-      "port": 3000,
-      "autoPort": true
+      "port": 3010
     },
     {
       "name": "admin-web",

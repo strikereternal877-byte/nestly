@@ -26,7 +26,18 @@ public class BookingReschedule : Entity<Guid>
     public TimeSpan ToSlotEndTime { get; private set; }
 
     public bool IsLate { get; private set; }
+
+    /// <summary>The late fee this reschedule carried under the policy of the day - what it <em>would</em> cost, whoever ends up paying it.</summary>
     public decimal FeeAmount { get; private set; }
+
+    /// <summary>
+    /// The part of <see cref="FeeAmount"/> actually taken from the customer (their wallet), at the moment of the
+    /// reschedule. Zero when nothing was taken: an admin's reschedule, a reschedule that was not late, and every one made
+    /// before late fees were collected. A later cancellation of the booking counts this amount against its own fee, so it
+    /// must only ever hold money that really moved.
+    /// </summary>
+    public decimal FeeCollectedAmount { get; private set; }
+
     public DateTime CreatedAtUtc { get; private set; }
 
     protected BookingReschedule() { }
@@ -45,12 +56,18 @@ public class BookingReschedule : Entity<Guid>
         TimeSpan toSlotStartTime,
         TimeSpan toSlotEndTime,
         bool isLate,
-        decimal feeAmount)
+        decimal feeAmount,
+        decimal feeCollectedAmount = 0m)
         : base(id)
     {
         if (feeAmount < 0)
         {
             throw new ArgumentOutOfRangeException(nameof(feeAmount), "Reschedule fee cannot be negative.");
+        }
+
+        if (feeCollectedAmount < 0 || feeCollectedAmount > feeAmount)
+        {
+            throw new ArgumentOutOfRangeException(nameof(feeCollectedAmount), "The collected fee must be between zero and the fee.");
         }
 
         BookingId = bookingId;
@@ -66,6 +83,7 @@ public class BookingReschedule : Entity<Guid>
         ToSlotEndTime = toSlotEndTime;
         IsLate = isLate;
         FeeAmount = feeAmount;
+        FeeCollectedAmount = feeCollectedAmount;
         CreatedAtUtc = DateTime.UtcNow;
     }
 }

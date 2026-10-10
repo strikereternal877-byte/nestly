@@ -45,6 +45,7 @@ export type NavModuleKey =
   | "bookings"
   | "coupons"
   | "support"
+  | "provider-support"
   | "chat"
   | "reviews"
   | "cms"
@@ -97,6 +98,12 @@ export const NAV_MODULES: readonly NavModule[] = [
   { key: "monthly-service", label: "Monthly Service", href: "/monthly-service", srsRef: "docs/MONTHLY-SERVICE.md", requiredPermission: "bookings.read" },
   { key: "coupons", label: "Coupons & Campaigns", href: "/coupons", srsRef: "SRS 12.12", requiredPermission: "coupons.read" },
   { key: "support", label: "Support Tickets", href: "/support", srsRef: "SRS 12.14", requiredPermission: "support.read" },
+  // Provider Management UX pass: a provider had no way to reach Glavyx
+  // support at all. A separate ticket queue from the customer one above
+  // (see ProviderSupportTicket's doc comment for why), but the same admin
+  // support function - reuses "support.read"/"support.write" rather than a
+  // new permission code and role-grant migration.
+  { key: "provider-support", label: "Provider Support", href: "/provider-support", srsRef: "Provider Management UX pass", requiredPermission: "support.read" },
   { key: "chat", label: "Chat", href: "/chat", srsRef: "PRODUCT-ENHANCEMENTS.md IN-APP CHAT", requiredPermission: "chat.read" },
   { key: "reviews", label: "Review Moderation", href: "/reviews", srsRef: "SRS 12.15", requiredPermission: "reviews.read" },
   { key: "cms", label: "CMS & Content", href: "/cms", srsRef: "SRS 12.16", requiredPermission: "cms.read" },
@@ -144,9 +151,9 @@ export function canWriteModule(claims: AdminSessionClaims | null, moduleKey: Nav
  */
 const ROLE_MODULE_FALLBACK: Record<string, NavModuleKey[] | "*"> = {
   "Super Admin": "*",
-  "Operations Admin": ["dashboard", "overview", "fulfilment", "customers", "bookings", "serviceability", "slots", "support", "chat", "provider", "payments", "provider-referral", "monthly-service"],
+  "Operations Admin": ["dashboard", "overview", "fulfilment", "customers", "bookings", "serviceability", "slots", "support", "provider-support", "chat", "provider", "payments", "provider-referral", "monthly-service"],
   "Booking Admin": ["dashboard", "overview", "fulfilment", "bookings", "slots", "serviceability", "monthly-service"],
-  "Support Admin": ["dashboard", "overview", "support", "chat", "customers", "reviews"],
+  "Support Admin": ["dashboard", "overview", "support", "provider-support", "chat", "customers", "reviews"],
   "Catalog Admin": ["dashboard", "overview", "catalog", "pricing"],
   "Pricing Admin": ["dashboard", "overview", "pricing", "coupons"],
   "Marketing Admin": ["dashboard", "overview", "coupons", "cms", "landing", "notifications", "reviews", "referral", "nestly-coins", "subscription"],

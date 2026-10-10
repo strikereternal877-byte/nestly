@@ -31,15 +31,18 @@ public class PayoutsController : ControllerBase
     private readonly IProviderPayoutService _payoutService;
     private readonly IValidator<CreateProviderPayoutRequest> _createValidator;
     private readonly IValidator<UpdateProviderPayoutStatusRequest> _updateStatusValidator;
+    private readonly IValidator<PayUPayoutWebhookPayload> _payUWebhookValidator;
 
     public PayoutsController(
         IProviderPayoutService payoutService,
         IValidator<CreateProviderPayoutRequest> createValidator,
-        IValidator<UpdateProviderPayoutStatusRequest> updateStatusValidator)
+        IValidator<UpdateProviderPayoutStatusRequest> updateStatusValidator,
+        IValidator<PayUPayoutWebhookPayload> payUWebhookValidator)
     {
         _payoutService = payoutService;
         _createValidator = createValidator;
         _updateStatusValidator = updateStatusValidator;
+        _payUWebhookValidator = payUWebhookValidator;
     }
 
     /// <summary>Search/filter payouts by provider and/or status.</summary>
@@ -102,6 +105,64 @@ public class PayoutsController : ControllerBase
 
         var result = await _payoutService.UpdateStatusAsync(payoutId, request);
         return result.IsSuccess ? Ok(result.Value) : result.ToProblemResult();
+    }
+
+    /// <summary>
+    /// The automated counterpart to <see cref="UpdateStatus"/>'s manual
+    /// Pending -&gt; Processing move: triggers a real PayU Payouts transfer
+    /// (PayU Payouts task brief). Same <see cref="WritePolicy"/> as
+    /// <see cref="UpdateStatus"/> - both are equally sensitive admin write
+    /// actions on the same payout. A Business/NotFound error (never a
+    /// silent no-op) when PayU is not configured, the payout is not
+    /// Pending, the provider has no admin-verified bank account on file, or
+    /// PayU declines the transfer outright.
+    /// </summary>
+    [HttpPost("{payoutId:guid}/pay-via-payu")]
+    [Authorize(Policy = WritePolicy)]
+    [ProducesResponseType(typeof(ProviderPayoutResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status422UnprocessableEntity)]
+    public async Task<IActionResult> PayViaPayU(Guid payoutId)
+    {
+        var result = await _payoutService.PayViaPayUAsync(payoutId);
+        return result.IsSuccess ? Ok(result.Value) : result.ToProblemResult();
+    }
+
+    /// <summary>
+    /// PayU Payouts' own transfer webhook (PayU Payouts task brief) -
+    /// separate route from admin actions above, deliberately not
+    /// [Authorize]: the caller is PayU, not a logged-in admin. See
+    /// <see cref="PayUPayoutWebhookPayload"/>'s own doc comment for why
+    /// this has no signature to verify (unlike PayU Hosted Checkout's
+    /// callback) and what lightweight check stands in for one instead.
+    /// Always idempotent (mirrors the Hosted Checkout webhook's own
+    /// convention): a redelivered webhook for an already-resolved payout is
+    /// a no-op 200, never re-applied.
+    /// </summary>
+    [HttpPost("webhook/payu")]
+    [AllowAnonymous]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> PayUWebhook([FromBody] PayUPayoutWebhookPayload payload)
+    {
+        var validation = await _payUWebhookValidator.ValidateAsync(payload);
+        if (!validation.IsValid)
+        {
+            return ValidationProblem(ToModelState(validation));
+        }
+
+        var request = new PayUPayoutWebhookRequest(
+            Event: payload.Event!,
+            Msg: payload.Msg,
+            PayuRefId: payload.PayuRefId,
+            MerchantReferenceId: payload.MerchantReferenceId!,
+            BankReferenceId: payload.BankReferenceId,
+            PayoutMerchantId: payload.PayoutMerchantId);
+
+        var result = await _payoutService.HandlePayUTransferWebhookAsync(request);
+        return result.IsSuccess ? Ok() : result.ToProblemResult();
     }
 
     private static ModelStateDictionary ToModelState(ValidationResult validation)

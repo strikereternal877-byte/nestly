@@ -60,6 +60,7 @@ public class BookingsController : ControllerBase
     private readonly IValidator<AdminManualPaymentRequest> _manualPaymentValidator;
     private readonly IValidator<AssignProviderRequest> _assignProviderValidator;
     private readonly IValidator<RejectAssignmentRequest> _rejectAssignmentValidator;
+    private readonly IValidator<RejectCompletionProofRequest> _rejectCompletionProofValidator;
     private readonly IValidator<AdminUnassignedAtRiskBookingRequest> _unassignedAtRiskValidator;
 
     public BookingsController(
@@ -78,6 +79,7 @@ public class BookingsController : ControllerBase
         IValidator<AdminManualPaymentRequest> manualPaymentValidator,
         IValidator<AssignProviderRequest> assignProviderValidator,
         IValidator<RejectAssignmentRequest> rejectAssignmentValidator,
+        IValidator<RejectCompletionProofRequest> rejectCompletionProofValidator,
         IValidator<AdminUnassignedAtRiskBookingRequest> unassignedAtRiskValidator)
     {
         _bookingManagementService = bookingManagementService;
@@ -95,6 +97,7 @@ public class BookingsController : ControllerBase
         _manualPaymentValidator = manualPaymentValidator;
         _assignProviderValidator = assignProviderValidator;
         _rejectAssignmentValidator = rejectAssignmentValidator;
+        _rejectCompletionProofValidator = rejectCompletionProofValidator;
         _unassignedAtRiskValidator = unassignedAtRiskValidator;
     }
 
@@ -175,6 +178,60 @@ public class BookingsController : ControllerBase
     public async Task<IActionResult> GetFulfilmentBoard([FromQuery] DateOnly? date = null)
     {
         var result = await _bookingManagementService.GetFulfilmentBoardAsync(new AdminFulfilmentBoardRequest(date));
+        return result.IsSuccess ? Ok(result.Value) : result.ToProblemResult();
+    }
+
+    /// <summary>
+    /// The admin completion-proof review queue: every proof still awaiting a
+    /// verdict, across every booking, oldest submission first (Order/Booking
+    /// Management UX pass gap - previously reachable only by opening one
+    /// InProgress booking at a time). A static route ahead of
+    /// <see cref="GetDetail"/>'s <c>{bookingId:guid}</c> route, same
+    /// non-clash reasoning as <see cref="ListUnassignedAtRisk"/>.
+    /// </summary>
+    [HttpGet("completion-proofs/pending")]
+    [Authorize(Policy = ReadPolicy)]
+    [ProducesResponseType(typeof(IReadOnlyList<BookingCompletionProofQueueItemResponse>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> ListPendingCompletionProofs(CancellationToken cancellationToken) =>
+        Ok(await _bookingManagementService.ListPendingCompletionProofsAsync(cancellationToken));
+
+    /// <summary>
+    /// The admin auto-charge queue: every recurring occurrence still awaiting
+    /// its off-session charge (Payment Management UX pass gap - previously
+    /// zero admin visibility into RecurringOccurrenceAutoChargeJob at all). A
+    /// static route ahead of <see cref="GetDetail"/>'s <c>{bookingId:guid}</c>
+    /// route, same non-clash reasoning as <see cref="ListUnassignedAtRisk"/>.
+    /// </summary>
+    [HttpGet("auto-charge/pending")]
+    [Authorize(Policy = ReadPolicy)]
+    [ProducesResponseType(typeof(IReadOnlyList<AdminAutoChargeCandidateResponse>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> ListAutoChargeCandidates(CancellationToken cancellationToken)
+    {
+        var result = await _bookingManagementService.ListAutoChargeCandidatesAsync(cancellationToken);
+        return result.IsSuccess ? Ok(result.Value) : result.ToProblemResult();
+    }
+
+    /// <summary>Forces an immediate off-session charge attempt for one recurring occurrence, bypassing the backoff-timing gate - see <see cref="IRecurringOccurrenceAutoChargeJob.ForceAttemptAsync"/>.</summary>
+    [HttpPost("{bookingId:guid}/auto-charge/retry")]
+    [Authorize(Policy = WritePolicy)]
+    [ProducesResponseType(typeof(AdminBookingDetailResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status422UnprocessableEntity)]
+    public async Task<IActionResult> ForceAutoChargeRetry(Guid bookingId)
+    {
+        var result = await _bookingManagementService.ForceAutoChargeRetryAsync(bookingId, CurrentAdminUserId());
+        return result.IsSuccess ? Ok(result.Value) : result.ToProblemResult();
+    }
+
+    /// <summary>Stops the automatic sweep from ever attempting this occurrence again and notifies the customer to pay manually - see <see cref="Domain.Booking.CancelAutoChargeRetries"/>.</summary>
+    [HttpPost("{bookingId:guid}/auto-charge/cancel")]
+    [Authorize(Policy = WritePolicy)]
+    [ProducesResponseType(typeof(AdminBookingDetailResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status422UnprocessableEntity)]
+    public async Task<IActionResult> CancelAutoChargeRetries(Guid bookingId)
+    {
+        var result = await _bookingManagementService.CancelAutoChargeRetriesAsync(bookingId, CurrentAdminUserId());
         return result.IsSuccess ? Ok(result.Value) : result.ToProblemResult();
     }
 
@@ -426,6 +483,36 @@ public class BookingsController : ControllerBase
         }
 
         return result.Value is null ? NoContent() : Ok(result.Value);
+    }
+
+    /// <summary>Approves the completion proof and, as the direct consequence, moves the booking to Completed - the only path Completed is now reachable by (see <c>BookingManagementService.DisallowedGenericTransitionTargets</c>).</summary>
+    [HttpPost("{bookingId:guid}/completion-proof/approve")]
+    [Authorize(Policy = WritePolicy)]
+    [ProducesResponseType(typeof(AdminBookingDetailResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status422UnprocessableEntity)]
+    public async Task<IActionResult> ApproveCompletionProof(Guid bookingId)
+    {
+        var result = await _bookingManagementService.ApproveCompletionProofAsync(bookingId, CurrentAdminUserId());
+        return result.IsSuccess ? Ok(result.Value) : result.ToProblemResult();
+    }
+
+    /// <summary>Rejects the completion proof with a required reason; the booking stays InProgress for the provider to finish and resubmit.</summary>
+    [HttpPost("{bookingId:guid}/completion-proof/reject")]
+    [Authorize(Policy = WritePolicy)]
+    [ProducesResponseType(typeof(AdminBookingDetailResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status422UnprocessableEntity)]
+    public async Task<IActionResult> RejectCompletionProof(Guid bookingId, [FromBody] RejectCompletionProofRequest request)
+    {
+        var validation = await _rejectCompletionProofValidator.ValidateAsync(request);
+        if (!validation.IsValid)
+        {
+            return ValidationProblem(ToModelState(validation));
+        }
+
+        var result = await _bookingManagementService.RejectCompletionProofAsync(bookingId, CurrentAdminUserId(), request);
+        return result.IsSuccess ? Ok(result.Value) : result.ToProblemResult();
     }
 
     /// <summary>Live tracking snapshot for the admin ops view (task 284) - same shape task 275 built for the customer screen, minus the ownership check.</summary>

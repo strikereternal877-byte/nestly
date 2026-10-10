@@ -22,6 +22,7 @@ public class CustomerManagementService : ICustomerManagementService
     private readonly ICustomerAddressRepository _addressRepository;
     private readonly IBookingRepository _bookingRepository;
     private readonly IWalletLedgerRepository _walletLedgerRepository;
+    private readonly IWalletService _walletService;
     private readonly ICouponRedemptionRepository _couponRedemptionRepository;
     private readonly ICouponRepository _couponRepository;
     private readonly ISupportTicketRepository _supportTicketRepository;
@@ -39,6 +40,7 @@ public class CustomerManagementService : ICustomerManagementService
         ICustomerAddressRepository addressRepository,
         IBookingRepository bookingRepository,
         IWalletLedgerRepository walletLedgerRepository,
+        IWalletService walletService,
         ICouponRedemptionRepository couponRedemptionRepository,
         ICouponRepository couponRepository,
         ISupportTicketRepository supportTicketRepository,
@@ -50,6 +52,7 @@ public class CustomerManagementService : ICustomerManagementService
         _addressRepository = addressRepository;
         _bookingRepository = bookingRepository;
         _walletLedgerRepository = walletLedgerRepository;
+        _walletService = walletService;
         _couponRedemptionRepository = couponRedemptionRepository;
         _couponRepository = couponRepository;
         _supportTicketRepository = supportTicketRepository;
@@ -161,6 +164,35 @@ public class CustomerManagementService : ICustomerManagementService
         await _customerRepository.UpdateAsync(customer);
         await _sessionRepository.RevokeAllForCustomerAsync(customerId);
         await _noteRepository.AddAsync(new CustomerNote(Guid.NewGuid(), customerId, adminUserId, $"Account deleted. Reason: {reason}"));
+
+        return await BuildDetailAsync(customer);
+    }
+
+    public async Task<Result<CustomerDetailResponse>> AdjustWalletAsync(Guid customerId, Guid adminUserId, AdjustCustomerWalletRequest request)
+    {
+        var customer = await _customerRepository.GetByIdAsync(customerId);
+        if (customer is null)
+        {
+            return Error.NotFound("Customer.NotFound", "Customer was not found.");
+        }
+
+        string action = request.Direction == WalletEntryType.Credit ? "credited" : "debited";
+        var description = $"Manual {action} by admin. Reason: {request.Reason}";
+
+        if (request.Direction == WalletEntryType.Credit)
+        {
+            await _walletService.CreditAsync(customerId, request.Amount, WalletSourceType.ManualAdjustment, null, description);
+        }
+        else
+        {
+            var debitResult = await _walletService.DebitAsync(customerId, request.Amount, WalletSourceType.ManualAdjustment, null, description);
+            if (debitResult.IsFailure)
+            {
+                return debitResult.Error;
+            }
+        }
+
+        await _noteRepository.AddAsync(new CustomerNote(Guid.NewGuid(), customerId, adminUserId, $"Wallet {action}: {request.Amount:0.00}. Reason: {request.Reason}"));
 
         return await BuildDetailAsync(customer);
     }

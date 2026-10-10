@@ -2,7 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useForm } from "react-hook-form";
 import type { UseFormRegisterReturn } from "react-hook-form";
 import { z } from "zod";
@@ -598,12 +598,16 @@ function PreferencesForm() {
   });
 
   // The checkboxes are edited locally and saved as one batch, so the server
-  // response seeds a draft rather than being rendered from the cache directly.
+  // response seeds a draft rather than being rendered from the cache
+  // directly. Reseeded on every change of `data` (react-query keeps the same
+  // reference across structurally-equal refetches, so this doesn't clobber
+  // in-progress edits on a no-op background refetch).
   const { data } = query;
-  useEffect(() => {
-    if (!data) return;
-    setDraft(Object.fromEntries(PREFERENCE_KEYS.map((key) => [key, data[key]])) as PreferenceState);
-  }, [data]);
+  const [prevData, setPrevData] = useState(data);
+  if (data !== prevData) {
+    setPrevData(data);
+    if (data) setDraft(Object.fromEntries(PREFERENCE_KEYS.map((key) => [key, data[key]])) as PreferenceState);
+  }
 
   const mutation = useMutation({
     mutationFn: (values: PreferenceState) =>

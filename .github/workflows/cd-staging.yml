@@ -5,45 +5,28 @@ name: CD - Staging
 # Trigger: every push to `develop` (docs/DEVOPS.md CD PIPELINE §2: "Deploy to
 # Staging automatically from develop").
 #
-# This workflow is intentionally self-contained rather than depending on
-# .github/workflows/ci.yml's run: GitHub Actions has no first-class way to
-# gate one workflow on another workflow's *result* for the same push event
-# (workflow_run introduces a race/duplication of its own), so the build+test
-# gate below re-runs the same backend build/test steps as ci.yml's `backend`
-# job. This is a deliberate, small duplication in exchange for a CD workflow
-# that is correct in isolation - not an oversight.
+# This workflow no longer builds, pushes, or deploys container images -
+# production (cd-production.yml) is deployed by Render, which builds
+# directly from this repo's Dockerfiles on push and needs no GHCR image or
+# SSH+docker-compose step from GitHub Actions. Staging never had a real,
+# reachable SSH host either (this workflow had zero runs before this
+# change - the previous GHCR/SSH deploy jobs here were exercising
+# infrastructure that was never actually provisioned), so the same shape is
+# used here for consistency: this workflow's only job is the one thing no
+# PaaS auto-deploy does for you - applying EF Core migrations to the staging
+# database as an explicit, ordered step (docs/DEVOPS.md CD PIPELINE §4 /
+# DATABASE OPERATIONS).
 #
-# There is no real staging host yet (docs/DEVOPS.md OPEN DECISIONS: cloud
-# provider, container registry, orchestrator and secret store are all still
-# unresolved). This workflow is written to be correct and to work against
-# real infra the moment the secrets below are configured; until then, the
-# `migrate` and `deploy` jobs will fail fast with a clear "secret not set" /
-# connection error, which is expected and not a bug in the workflow.
+# If staging ends up on a different platform than Render (or on a real VM
+# after all), reintroduce a deploy job here mirroring however that platform
+# is actually driven - don't restore the old SSH/GHCR shape blind, it was
+# never verified against a real host.
 #
-# Required setup before the first real run:
+# Required setup:
 #   1. Create a GitHub Environment named `staging` (Settings > Environments).
-#   2. Add these secrets on that environment:
-#        STAGING_DATABASE_CONNECTION_STRING   Npgsql connection string for the
-#                                              staging Postgres, reachable
-#                                              from the runner (public
-#                                              endpoint + IP allowlist, or a
-#                                              self-hosted runner inside the
-#                                              same network - the concrete
-#                                              mechanism is an OPEN DECISION
-#                                              in docs/DEVOPS.md)
-#        STAGING_REDIS_CONNECTION_STRING      host:port (+ password if any)
-#                                              for the staging Redis instance
-#        STAGING_SSH_HOST                     hostname/IP of the Docker host
-#                                              running staging containers
-#        STAGING_SSH_USER                     SSH user with docker access
-#        STAGING_SSH_PRIVATE_KEY              private key for that user
-#   3. Ensure <STAGING_SSH_HOST>:/opt/nestly exists and is writable by
-#      STAGING_SSH_USER (target directory for deploy/docker-compose.deploy.yml).
-#
-# Images are pushed to GHCR (ghcr.io) using the built-in GITHUB_TOKEN, which
-# needs no new secret - chosen as the default per docs/DEVOPS.md's
-# "container registry" open decision being otherwise unresolved; swap the
-# login/push steps below if a different registry is decided later.
+#   2. Add this secret on that environment:
+#        STAGING_DATABASE_CONNECTION_STRING   Npgsql connection string for
+#                                              the staging Postgres database.
 
 on:
   push:
@@ -53,9 +36,6 @@ on:
 concurrency:
   group: cd-staging
   cancel-in-progress: false
-
-env:
-  IMAGE_TAG: staging-${{ github.sha }}
 
 jobs:
   test:
@@ -103,52 +83,19 @@ jobs:
       - name: Test
         env:
           ConnectionStrings__Database: Host=localhost;Port=5432;Database=nestly_test;Username=nestly;Password=nestly_test
-        run: dotnet test Nestly.sln --no-build --configuration Release --verbosity normal
-
-  build-and-push:
-    name: Build & push images
-    needs: test
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    strategy:
-      matrix:
-        include:
-          - service: consumer-api
-            dockerfile: backend/consumer-api/ConsumerApi/Dockerfile
-          - service: admin-api
-            dockerfile: backend/admin-api/AdminApi/Dockerfile
-          - service: provider-api
-            dockerfile: backend/provider-api/ProviderApi/Dockerfile
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push ${{ matrix.service }}
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ${{ matrix.dockerfile }}
-          push: true
-          tags: |
-            ghcr.io/${{ github.repository }}/${{ matrix.service }}:${{ env.IMAGE_TAG }}
-            ghcr.io/${{ github.repository }}/${{ matrix.service }}:staging-latest
-          cache-from: type=gha,scope=${{ matrix.service }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+        # ConcurrentSlotBookingLoadTests needs its own dedicated Postgres
+        # service (nestly_loadtest/nestly_loadtest - see ci.yml's `load-test`
+        # job), not this job's nestly_test one, so PostgresPerfTestDatabase's
+        # connection fails authentication here every time. ci.yml's `backend`
+        # job already excludes it for exactly this reason; this job was
+        # missing the same filter.
+        run: |
+          dotnet test Nestly.sln --no-build --configuration Release --verbosity normal \
+            --filter "FullyQualifiedName!~ConcurrentSlotBookingLoadTests"
 
   migrate:
     name: Apply database migrations (staging)
-    needs: build-and-push
+    needs: test
     runs-on: ubuntu-latest
     environment: staging
     steps:
@@ -159,56 +106,15 @@ jobs:
         with:
           global-json-file: global.json
 
-      - name: Install dotnet-ef
-        run: dotnet tool install --global dotnet-ef --version 8.*
+      - name: Restore dotnet-ef (local tool)
+        # The repo pins dotnet-ef as a *local* tool (.config/dotnet-tools.json),
+        # so a global install is ignored - `dotnet ef` still refuses to run
+        # ("Run 'dotnet tool restore'...") until the manifest is restored.
+        run: dotnet tool restore
 
       - name: Apply EF Core migrations to staging
-        # Explicit, ordered deployment step (docs/DEVOPS.md CD PIPELINE §4 /
-        # DATABASE OPERATIONS: "Migrations run as a separate deployment step,
-        # not implicitly at app startup in Production") - runs before the
-        # deploy job so new code never starts against an old schema. Reuses
-        # the same script a developer would run locally (database/scripts/
-        # apply-migrations.sh) so there is exactly one code path for "how do
-        # migrations get applied", not a second CI-only one.
+        # Reuses the same script a developer would run locally
+        # (database/scripts/apply-migrations.sh) so there is exactly one
+        # code path for "how do migrations get applied", not a second
+        # CI-only one.
         run: bash database/scripts/apply-migrations.sh "${{ secrets.STAGING_DATABASE_CONNECTION_STRING }}"
-
-  deploy:
-    name: Deploy to staging
-    needs: migrate
-    runs-on: ubuntu-latest
-    environment: staging
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Configure SSH
-        run: |
-          mkdir -p ~/.ssh
-          printf '%s\n' "${{ secrets.STAGING_SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H "${{ secrets.STAGING_SSH_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
-
-      - name: Ship deploy manifest to staging host
-        run: |
-          scp -i ~/.ssh/deploy_key deploy/docker-compose.deploy.yml \
-            "${{ secrets.STAGING_SSH_USER }}@${{ secrets.STAGING_SSH_HOST }}:/opt/nestly/docker-compose.yml"
-
-      - name: Pull and recreate containers
-        # PROVIDER_API_IMAGE etc. are consumed by deploy/docker-compose.deploy.yml.
-        # DATABASE_CONNECTION_STRING / REDIS_CONNECTION_STRING and all other
-        # runtime secrets (JWT keys, payment/SMS/email provider keys) are
-        # expected to already exist in /opt/nestly/.env on the host (docs/
-        # DEVOPS.md: "Configuration comes from environment variables, never
-        # baked into images" / "Secrets... must come from a secret store" -
-        # they are provisioned on the host out of band, not passed through
-        # this workflow, so they never appear in Actions logs).
-        run: |
-          ssh -i ~/.ssh/deploy_key "${{ secrets.STAGING_SSH_USER }}@${{ secrets.STAGING_SSH_HOST }}" bash -s <<EOF
-            set -euo pipefail
-            cd /opt/nestly
-            export CONSUMER_API_IMAGE=ghcr.io/${{ github.repository }}/consumer-api:${{ env.IMAGE_TAG }}
-            export ADMIN_API_IMAGE=ghcr.io/${{ github.repository }}/admin-api:${{ env.IMAGE_TAG }}
-            export PROVIDER_API_IMAGE=ghcr.io/${{ github.repository }}/provider-api:${{ env.IMAGE_TAG }}
-            docker compose pull
-            docker compose up -d --remove-orphans
-            docker image prune -f
-          EOF

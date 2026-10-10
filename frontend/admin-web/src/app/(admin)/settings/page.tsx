@@ -529,6 +529,7 @@ const rescheduleSchema = z.object({
   maxReschedulesPerBooking: z.number().int().min(0).max(50),
   lateFeeThresholdHours: z.number().min(0).max(720),
   lateRescheduleFeePercentage: z.number().min(0).max(100),
+  collectLateFeeFromWallet: z.boolean(),
 });
 
 function RescheduleSettingsSection({
@@ -592,6 +593,19 @@ function RescheduleSettingsSection({
               {...form.register("lateRescheduleFeePercentage", { valueAsNumber: true })}
             />
           </SearchableField>
+          <Controller
+            control={form.control}
+            name="collectLateFeeFromWallet"
+            render={({ field }) => (
+              <ToggleRow
+                label="Collect the late fee from the customer's wallet"
+                description="Off: a late reschedule is only recorded, nothing is charged and no wallet is needed. On: the fee is debited from the customer's wallet, and a customer whose wallet cannot cover it cannot reschedule at that time (they can add money, if top-ups are on, or cancel). Turn this on once customers can add money."
+                checked={field.value}
+                onChange={field.onChange}
+                hidden={!isFieldVisible("Collect the late fee from the customer's wallet")}
+              />
+            )}
+          />
         </>
       )}
     </SettingsGroupCard>

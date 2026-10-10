@@ -94,6 +94,7 @@ public sealed class BookingManualAssignmentGateTests : IClassFixture<TestDatabas
         new BookingProviderAssignmentRepository(context),
         new ProviderScheduleConflictService(context, TestServices.Occupancy()),
         Options.Create(new AutoAssignmentOptions()),
+        TestServices.ProviderNotificationPublisher(context),
         context);
 
     [Fact]

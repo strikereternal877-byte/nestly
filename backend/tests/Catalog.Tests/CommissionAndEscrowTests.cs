@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Nestly.Application;
 using Nestly.Application.Bookings;
+using Nestly.Application.Cancellations;
 using Nestly.Application.Escrow;
 using Nestly.Application.ProviderManagement;
 using Nestly.Application.Payments;
@@ -47,15 +48,24 @@ public sealed class CommissionAndEscrowTests : IClassFixture<TestDatabase>
 
     private static PaymentWebhookService BuildWebhookService(
         Nestly.Infrastructure.Persistence.NestlyDbContext context, IPaymentGateway gateway, CommissionService? commissionService = null) =>
-        new(
-            new PaymentTransactionRepository(context), new BookingRepository(context), new ServiceRepository(context), gateway,
-            commissionService ?? BuildCommissionService(), BuildEscrowService(context),
-            context, new NoOpMetricsService(), NullLogger<PaymentWebhookService>.Instance);
+        new(new PaymentTransactionRepository(context),
+            new PaymentGroupRepository(context),
+            new RecurringBookingPlanRepository(context),
+            new BookingRepository(context),
+            new ServiceRepository(context),
+            gateway,
+            commissionService ?? BuildCommissionService(),
+            BuildEscrowService(context),
+            context,
+            new NoOpMetricsService(),
+            NullLogger<PaymentWebhookService>.Instance);
 
     private static RefundService BuildRefundService(Nestly.Infrastructure.Persistence.NestlyDbContext context, IPaymentGateway gateway) =>
         new(
             new BookingRepository(context), new PaymentTransactionRepository(context), new RefundTransactionRepository(context),
-            new WalletService(new WalletLedgerRepository(context), context), BuildEscrowService(context), gateway, context);
+            new WalletService(new WalletLedgerRepository(context), context), BuildEscrowService(context),
+            new ProviderEarningLedgerRepository(context), TestServices.ProviderEarningLedgerService(context),
+            gateway, context, NullLogger<RefundService>.Instance);
 
     private static BookingService BuildBookingService(Nestly.Infrastructure.Persistence.NestlyDbContext context)
     {
@@ -110,7 +120,7 @@ public sealed class CommissionAndEscrowTests : IClassFixture<TestDatabase>
 
     private sealed record Fixture(Customer Customer, Guid BookingId, Guid CategoryId, decimal Total);
 
-    private async Task<Fixture> SeedBookingAsync(Nestly.Infrastructure.Persistence.NestlyDbContext context, decimal servicePrice)
+    private async Task<Fixture> SeedBookingAsync(Nestly.Infrastructure.Persistence.NestlyDbContext context, decimal servicePrice, decimal walletCreditToApply = 0m)
     {
         var futureDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(3));
         var pincodeCode = Guid.NewGuid().ToString("N")[..6];
@@ -143,7 +153,15 @@ public sealed class CommissionAndEscrowTests : IClassFixture<TestDatabase>
         context.SlotWindowRules.Add(rule);
         context.SaveChanges();
 
-        var request = new BookingSummaryRequest(service.Id, city.Id, address.Id, locality.Id, window.Id, futureDate, Quantity: 1, []);
+        if (walletCreditToApply > 0)
+        {
+            await new WalletService(new WalletLedgerRepository(context), context)
+                .CreditAsync(customer.Id, walletCreditToApply, WalletSourceType.PromotionalCredit, null, "Test wallet credit");
+        }
+
+        var request = new BookingSummaryRequest(
+            service.Id, city.Id, address.Id, locality.Id, window.Id, futureDate, Quantity: 1, [],
+            ApplyWalletCredit: walletCreditToApply > 0);
         var created = await BuildBookingService(context).CreateAsync(customer.Id, request);
         created.IsSuccess.Should().BeTrue();
 
@@ -151,21 +169,37 @@ public sealed class CommissionAndEscrowTests : IClassFixture<TestDatabase>
     }
 
     /// <summary>Drives a fresh booking through a successful payment, leaving it Confirmed with commission recorded and escrow held.</summary>
-    private async Task<Fixture> SeedConfirmedPaidBookingAsync(IPaymentGateway gateway, decimal servicePrice, CommissionService? commissionService = null)
+    private async Task<Fixture> SeedConfirmedPaidBookingAsync(
+        SandboxPaymentGateway gateway, decimal servicePrice, CommissionService? commissionService = null, decimal walletCreditToApply = 0m)
     {
         Fixture fixture;
         using (var seedContext = _db.CreateContext())
         {
-            fixture = await SeedBookingAsync(seedContext, servicePrice);
+            fixture = await SeedBookingAsync(seedContext, servicePrice, walletCreditToApply);
+        }
+
+        // A fully wallet-covered booking has nothing left to charge, so task
+        // 331 confirms it with no PaymentTransaction at all - there is no
+        // gateway round trip to make here.
+        if (fixture.Total <= 0)
+        {
+            return fixture;
         }
 
         using var context = _db.CreateContext();
         var paymentRepository = new PaymentTransactionRepository(context);
         var bookingRepository = new BookingRepository(context);
         var webhookService = BuildWebhookService(context, gateway, commissionService);
-        var paymentService = new PaymentService(
-            paymentRepository, bookingRepository, gateway, (ISandboxPaymentSimulator)gateway, webhookService,
-            new AlwaysEligibleProviderSearchStub());
+        var paymentService = new PaymentService(paymentRepository,
+            bookingRepository,
+            gateway,
+            (ISandboxPaymentSimulator)gateway,
+            webhookService,
+            new AlwaysEligibleProviderSearchStub(),
+            new PaymentGroupRepository(context),
+            new RecurringBookingPlanRepository(context),
+            new RecurringBookingOccurrenceRepository(context),
+            null!);
 
         var order = await paymentService.CreateOrderAsync(fixture.Customer.Id, new CreatePaymentOrderRequest(fixture.BookingId, null));
         string payload = PaymentWebhookPayload.Build(order.Value.GatewayOrderId, "sandbox_pay_ref", PaymentWebhookPayload.SuccessStatus);
@@ -213,9 +247,16 @@ public sealed class CommissionAndEscrowTests : IClassFixture<TestDatabase>
         var paymentRepository = new PaymentTransactionRepository(context);
         var bookingRepository = new BookingRepository(context);
         var webhookService = BuildWebhookService(context, gateway, commissionService);
-        var paymentService = new PaymentService(
-            paymentRepository, bookingRepository, gateway, (ISandboxPaymentSimulator)gateway, webhookService,
-            new AlwaysEligibleProviderSearchStub());
+        var paymentService = new PaymentService(paymentRepository,
+            bookingRepository,
+            gateway,
+            (ISandboxPaymentSimulator)gateway,
+            webhookService,
+            new AlwaysEligibleProviderSearchStub(),
+            new PaymentGroupRepository(context),
+            new RecurringBookingPlanRepository(context),
+            new RecurringBookingOccurrenceRepository(context),
+            null!);
 
         var order = await paymentService.CreateOrderAsync(fixture.Customer.Id, new CreatePaymentOrderRequest(fixture.BookingId, null));
         string payload = PaymentWebhookPayload.Build(order.Value.GatewayOrderId, "ref", PaymentWebhookPayload.SuccessStatus);
@@ -328,7 +369,7 @@ public sealed class CommissionAndEscrowTests : IClassFixture<TestDatabase>
             var assignmentService = new BookingProviderAssignmentService(
                 bookingRepository, new ProviderRepository(assignContext), new ServiceRepository(assignContext),
                 new BookingProviderAssignmentRepository(assignContext), new ProviderScheduleConflictService(assignContext, TestServices.Occupancy()),
-                Options.Create(new AutoAssignmentOptions()), assignContext);
+                Options.Create(new AutoAssignmentOptions()), TestServices.ProviderNotificationPublisher(assignContext), assignContext);
             var assignResult = await assignmentService.AssignAsync(fixture.BookingId, Guid.NewGuid(), new AssignProviderRequest(providerId, ResponseDeadline: null));
             assignResult.IsSuccess.Should().BeTrue();
         }
@@ -386,6 +427,107 @@ public sealed class CommissionAndEscrowTests : IClassFixture<TestDatabase>
         second.Should().BeNull("nothing remains held after the first release");
     }
 
+    /// <summary>
+    /// Regression coverage for the escrow release race. EscrowService.
+    /// ReleaseToProviderAsync's own held&lt;=0 check (a read) and the entry it
+    /// inserts (a write) are not atomic, so two genuinely concurrent
+    /// completions of the same booking can both read "held > 0" before
+    /// either has written - by the time both reach the insert, the race is
+    /// already decided and no in-memory check can catch it. Racing
+    /// Task.WhenAll over Task.WhenAll's own scheduling was tried first and
+    /// found unreliable (the fast in-memory SQLite path resolves each
+    /// task's read-then-write before the other gets a chance to interleave,
+    /// so it passed even with the fix reverted - a false negative, not
+    /// evidence of safety). Racing two independently-read entries straight
+    /// at IPlatformEscrowLedgerRepository.TryAddCompletionReleaseAsync
+    /// instead removes that timing dependency entirely: it is exactly what
+    /// two callers who both already passed their own held&lt;=0 check produce,
+    /// and it is the database constraint alone - not scheduling luck - that
+    /// must decide which one wins.
+    /// </summary>
+    [Fact]
+    public async Task Two_concurrent_completions_of_the_same_booking_release_escrow_exactly_once()
+    {
+        var gateway = BuildGateway();
+        var fixture = await SeedConfirmedPaidBookingAsync(gateway, servicePrice: 1000m, BuildCommissionService(defaultRate: 15m));
+
+        var attempts = Enumerable.Range(0, 2).Select(async _ =>
+        {
+            using var context = _db.CreateContext();
+            var entry = new PlatformEscrowLedger(
+                Guid.NewGuid(), fixture.BookingId, EscrowEntryType.Release, 1000m, 1000m,
+                EscrowSourceType.BookingCompleted, sourceReferenceId: null,
+                "Booking completed - escrow released to provider net of commission.");
+            return await new PlatformEscrowLedgerRepository(context).TryAddCompletionReleaseAsync(entry);
+        });
+
+        var results = await Task.WhenAll(attempts);
+
+        results.Should().ContainSingle(r => r, "exactly one of the two racing completions may insert a BookingCompleted release for the same booking - the database constraint, not an in-memory check, must be what decides");
+
+        using var finalContext = _db.CreateContext();
+        var releaseEntries = (await new PlatformEscrowLedgerRepository(finalContext).ListByBookingAsync(fixture.BookingId))
+            .Where(e => e.EntryType == EscrowEntryType.Release)
+            .ToList();
+        releaseEntries.Should().ContainSingle("the racing completion must not double-release the platform escrow ledger for one booking");
+    }
+
+    // --- Late-cancellation fee retained as platform revenue, not stranded in escrow ---
+
+    /// <summary>
+    /// Regression coverage for the stranded-cancellation-fee gap: before
+    /// this fix, RefundService.ReleaseForRefundAsync only ever released
+    /// outcome.RefundAmount from escrow - the fee CancellationFeeCalculator
+    /// withholds from it stayed "held" forever, since the booking is now
+    /// terminal (Cancelled, never Completed) and nothing else was ever
+    /// going to claim it. Not a lost-money bug (the customer was never
+    /// refunded that share either), but a permanently misstated escrow
+    /// liability with no ledger recognition of it as revenue.
+    /// </summary>
+    [Fact]
+    public async Task Cancelling_late_releases_the_withheld_fee_from_escrow_as_retained_revenue()
+    {
+        var gateway = BuildGateway();
+        var fixture = await SeedConfirmedPaidBookingAsync(gateway, servicePrice: 1000m);
+
+        // Mirrors SeedBookingAsync's own slot construction (futureDate =
+        // UtcNow + 3 days, "Morning" window starting 09:00) - TestServices.
+        // Clock() pins the business timezone to UTC, so the slot's UTC start
+        // is exactly that local time with no offset.
+        var slotStartUtc = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(3)).ToDateTime(TimeOnly.MinValue).AddHours(9);
+        // 2 hours out: inside the default 4-hour free-cancellation window,
+        // so the default 20% late fee applies.
+        var timeProvider = new FakeTimeProvider(slotStartUtc.AddHours(-2));
+
+        using (var context = _db.CreateContext())
+        {
+            var result = await TestServices.CancellationService(context, gateway, timeProvider)
+                .CancelAsync(fixture.Customer.Id, fixture.BookingId, new CancelBookingRequest("Changed my mind"));
+
+            result.IsSuccess.Should().BeTrue();
+            result.Value.WithinFreeCancellationWindow.Should().BeFalse();
+            result.Value.CancellationFeeAmount.Should().Be(200m, "20% of the 1000 the booking was funded by");
+            result.Value.RefundAmount.Should().Be(800m);
+        }
+
+        using var readContext = _db.CreateContext();
+        var entries = await new PlatformEscrowLedgerRepository(readContext).ListByBookingAsync(fixture.BookingId);
+        entries.Should().HaveCount(3, "one Hold at payment, one RefundIssued release for the 800 refund, one CancellationFeeRetained release for the 200 fee");
+
+        var feeRelease = entries.Single(e => e.SourceType == EscrowSourceType.CancellationFeeRetained);
+        feeRelease.EntryType.Should().Be(EscrowEntryType.Release);
+        feeRelease.Amount.Should().Be(200m);
+
+        (await BuildEscrowService(readContext).GetHeldBalanceAsync(fixture.BookingId)).Should().Be(0m, "the fee and the refund together account for the entire 1000 held - nothing should remain stranded");
+    }
+
+    private sealed class FakeTimeProvider : TimeProvider
+    {
+        private readonly DateTimeOffset _now;
+        public FakeTimeProvider(DateTime now) => _now = new DateTimeOffset(DateTime.SpecifyKind(now, DateTimeKind.Utc));
+        public override DateTimeOffset GetUtcNow() => _now;
+    }
+
     // --- Task 158: refund path releases escrow without paying a provider --
 
     [Fact]
@@ -419,5 +561,210 @@ public sealed class CommissionAndEscrowTests : IClassFixture<TestDatabase>
 
         var held = await BuildEscrowService(readContext).GetHeldBalanceAsync(fixture.BookingId);
         held.Should().Be(0m);
+    }
+
+    // --- Wallet-funded share reaching the provider (the forward-path counterpart to the refund clawback below) ---
+
+    private static WalletCreditEscrowHoldOnConfirmationHandler BuildWalletCreditEscrowHoldHandler(Nestly.Infrastructure.Persistence.NestlyDbContext context, CommissionService? commissionService = null) =>
+        new(new BookingRepository(context), new ServiceRepository(context), commissionService ?? BuildCommissionService(), BuildEscrowService(context));
+
+    /// <summary>
+    /// Regression coverage for the wallet-funded provider-payout gap: before
+    /// this fix, a fully wallet-covered booking had no PaymentTransaction at
+    /// all (task 331), so EscrowReleaseOnCompletionHandler's own "nothing
+    /// payable, designed outcome" branch swallowed it along with the
+    /// genuinely-free AMC/100%-off-coupon cases - a provider who completed
+    /// such a job was credited literally nothing for it.
+    /// </summary>
+    [Fact]
+    public async Task Completing_a_fully_wallet_covered_booking_credits_the_provider_net_of_commission()
+    {
+        var gateway = BuildGateway();
+        var fixture = await SeedConfirmedPaidBookingAsync(gateway, servicePrice: 1000m, BuildCommissionService(defaultRate: 15m), walletCreditToApply: 1000m);
+
+        using (var context = _db.CreateContext())
+        {
+            var booking = await new BookingRepository(context).GetByIdAsync(fixture.BookingId);
+            booking!.Status.Should().Be(BookingStatus.Confirmed, "a fully wallet-covered booking is confirmed with nothing left to pay (task 331)");
+
+            await BuildWalletCreditEscrowHoldHandler(context).Handle(
+                new DomainEventNotification<BookingStatusChangedEvent>(
+                    new BookingStatusChangedEvent(fixture.BookingId, BookingStatus.Initiated, BookingStatus.Confirmed)),
+                CancellationToken.None);
+        }
+
+        using (var readAfterHoldContext = _db.CreateContext())
+        {
+            var entries = await new PlatformEscrowLedgerRepository(readAfterHoldContext).ListByBookingAsync(fixture.BookingId);
+            entries.Should().ContainSingle();
+            entries[0].SourceType.Should().Be(EscrowSourceType.WalletCreditConfirmed);
+            entries[0].Amount.Should().Be(1000m);
+
+            var booking = await new BookingRepository(readAfterHoldContext).GetByIdAsync(fixture.BookingId);
+            booking!.WalletCreditCommissionAmountSnapshot.Should().Be(150m, "15% of the 1000 the wallet funded");
+        }
+
+        Guid providerId = await AssignProviderAndCompleteAsync(fixture.BookingId);
+
+        using var readContext = _db.CreateContext();
+        var summary = await BuildProviderEarningLedgerService(readContext).GetSummaryAsync(providerId);
+        summary.Value.CurrentBalance.Should().Be(850m, "the provider must be paid net of commission for the wallet-funded job, not zero");
+        summary.Value.Entries.Should().ContainSingle(e => e.SourceType == ProviderEarningSourceType.JobCompletion && e.SourceReferenceId == fixture.BookingId);
+    }
+
+    /// <summary>The partial-wallet half of the same fix: the provider must be paid for BOTH the gateway slice and the wallet slice, net of their combined commission.</summary>
+    [Fact]
+    public async Task Completing_a_part_wallet_booking_credits_the_provider_for_both_the_gateway_and_wallet_shares()
+    {
+        var gateway = BuildGateway();
+        var fixture = await SeedConfirmedPaidBookingAsync(gateway, servicePrice: 1000m, BuildCommissionService(defaultRate: 15m), walletCreditToApply: 300m);
+
+        using (var context = _db.CreateContext())
+        {
+            await BuildWalletCreditEscrowHoldHandler(context).Handle(
+                new DomainEventNotification<BookingStatusChangedEvent>(
+                    new BookingStatusChangedEvent(fixture.BookingId, BookingStatus.PaymentPending, BookingStatus.Confirmed)),
+                CancellationToken.None);
+        }
+
+        using (var readAfterHoldContext = _db.CreateContext())
+        {
+            var entries = await new PlatformEscrowLedgerRepository(readAfterHoldContext).ListByBookingAsync(fixture.BookingId);
+            entries.Should().HaveCount(2, "one Hold for the 700 gateway payment, one Hold for the 300 wallet credit");
+            entries.Should().Contain(e => e.SourceType == EscrowSourceType.PaymentConfirmed && e.Amount == 700m);
+            entries.Should().Contain(e => e.SourceType == EscrowSourceType.WalletCreditConfirmed && e.Amount == 300m);
+
+            var held = await BuildEscrowService(readAfterHoldContext).GetHeldBalanceAsync(fixture.BookingId);
+            held.Should().Be(1000m);
+        }
+
+        Guid providerId = await AssignProviderAndCompleteAsync(fixture.BookingId);
+
+        using var readContext = _db.CreateContext();
+        var summary = await BuildProviderEarningLedgerService(readContext).GetSummaryAsync(providerId);
+        summary.Value.CurrentBalance.Should().Be(850m, "1000 total funded minus 15% (150) combined commission on the whole amount, gateway share and wallet share alike");
+
+        var release = (await new PlatformEscrowLedgerRepository(readContext).ListByBookingAsync(fixture.BookingId))
+            .Single(e => e.EntryType == EscrowEntryType.Release);
+        release.Amount.Should().Be(1000m, "the release covers everything held, regardless of which source funded it");
+        release.CommissionAmount.Should().Be(150m);
+    }
+
+    // --- Refund clawback: a Completed booking's payout already left escrow ---
+
+    /// <summary>
+    /// Regression coverage for the escrow/provider-payout leak: before this
+    /// fix, refunding a Completed booking found nothing left held in escrow
+    /// (already released to the provider on completion - see
+    /// <see cref="EscrowReleaseOnCompletionHandler"/>) and silently stopped
+    /// there. The customer got their money back while the provider kept the
+    /// full payout for a job the platform is now treating as unpaid for,
+    /// with zero ledger trace of the loss.
+    /// </summary>
+    [Fact]
+    public async Task Fully_refunding_a_completed_booking_claws_back_the_providers_full_job_completion_earning()
+    {
+        var gateway = BuildGateway();
+        var fixture = await SeedConfirmedPaidBookingAsync(gateway, servicePrice: 1000m, BuildCommissionService(defaultRate: 15m));
+        Guid providerId = await AssignProviderAndCompleteAsync(fixture.BookingId);
+
+        using (var readAfterCompletionContext = _db.CreateContext())
+        {
+            var summary = await BuildProviderEarningLedgerService(readAfterCompletionContext).GetSummaryAsync(providerId);
+            summary.Value.CurrentBalance.Should().Be(850m, "sanity check: the provider was credited net of the 15% commission before any refund");
+        }
+
+        using (var refundContext = _db.CreateContext())
+        {
+            var result = await BuildRefundService(refundContext, gateway).InitiateFullRefundAsync(fixture.BookingId, "Dispute upheld - service not delivered");
+            result.IsSuccess.Should().BeTrue();
+        }
+
+        using var readContext = _db.CreateContext();
+        var summaryAfterRefund = await BuildProviderEarningLedgerService(readContext).GetSummaryAsync(providerId);
+        summaryAfterRefund.Value.CurrentBalance.Should().Be(0m, "the full net credit must be clawed back when the whole booking is refunded");
+
+        var clawback = summaryAfterRefund.Value.Entries.Single(e => e.SourceType == ProviderEarningSourceType.JobCompletionClawback);
+        clawback.EntryType.Should().Be(ProviderEarningEntryType.Debit);
+        clawback.Amount.Should().Be(850m);
+        clawback.SourceReferenceId.Should().Be(fixture.BookingId);
+
+        // Escrow itself has nothing left to release again - already released
+        // to the provider on completion, unaffected by the new clawback path.
+        var escrowEntries = await new PlatformEscrowLedgerRepository(readContext).ListByBookingAsync(fixture.BookingId);
+        escrowEntries.Should().HaveCount(2, "one Hold at payment, one Release at completion - the refund adds no third escrow entry");
+    }
+
+    /// <summary>The proportional half of the same fix: a partial refund claws back only its matching share, not the whole credit.</summary>
+    [Fact]
+    public async Task Partially_refunding_a_completed_booking_claws_back_a_proportional_share_of_the_providers_earning()
+    {
+        var gateway = BuildGateway();
+        var fixture = await SeedConfirmedPaidBookingAsync(gateway, servicePrice: 1000m, BuildCommissionService(defaultRate: 15m));
+        Guid providerId = await AssignProviderAndCompleteAsync(fixture.BookingId);
+
+        using (var refundContext = _db.CreateContext())
+        {
+            // 300 of the original 1000 (30%) refunded as partial goodwill.
+            var result = await BuildRefundService(refundContext, gateway).InitiatePartialRefundAsync(fixture.BookingId, 300m, "Partial goodwill refund");
+            result.IsSuccess.Should().BeTrue();
+        }
+
+        using var readContext = _db.CreateContext();
+        var summary = await BuildProviderEarningLedgerService(readContext).GetSummaryAsync(providerId);
+        summary.Value.CurrentBalance.Should().Be(595m, "850 credited minus 30% of it (255) clawed back to match the 30% refund");
+
+        var clawback = summary.Value.Entries.Single(e => e.SourceType == ProviderEarningSourceType.JobCompletionClawback);
+        clawback.Amount.Should().Be(255m);
+    }
+
+    /// <summary>Shared setup for the refund-clawback tests: assigns an active provider, completes the job, and returns the provider's id.</summary>
+    private async Task<Guid> AssignProviderAndCompleteAsync(Guid bookingId)
+    {
+        Guid providerId;
+        using (var assignContext = _db.CreateContext())
+        {
+            var provider = new Provider(Guid.NewGuid(), "Ravi Kumar", "Ravi's Repairs", ProviderType.Individual, "+91" + Guid.NewGuid().ToString("N")[..9]);
+            provider.ChangeStatus(ProviderStatus.Active);
+            providerId = provider.Id;
+            assignContext.Add(provider);
+            await assignContext.SaveChangesAsync();
+
+            var bookingRepository = new BookingRepository(assignContext);
+            var booking = await bookingRepository.GetByIdAsync(bookingId);
+            booking!.TransitionTo(BookingStatus.AwaitingFulfilment);
+            await bookingRepository.UpdateAsync(booking);
+
+            var assignmentService = new BookingProviderAssignmentService(
+                bookingRepository, new ProviderRepository(assignContext), new ServiceRepository(assignContext),
+                new BookingProviderAssignmentRepository(assignContext), new ProviderScheduleConflictService(assignContext, TestServices.Occupancy()),
+                Options.Create(new AutoAssignmentOptions()), TestServices.ProviderNotificationPublisher(assignContext), assignContext);
+            var assignResult = await assignmentService.AssignAsync(bookingId, Guid.NewGuid(), new AssignProviderRequest(providerId, ResponseDeadline: null));
+            assignResult.IsSuccess.Should().BeTrue();
+        }
+
+        using (var lifecycleContext = _db.CreateContext())
+        {
+            var bookingRepository = new BookingRepository(lifecycleContext);
+            var booking = await bookingRepository.GetByIdAsync(bookingId);
+            booking!.TransitionTo(BookingStatus.InProgress);
+            booking.TransitionTo(BookingStatus.Completed);
+            await bookingRepository.UpdateAsync(booking);
+        }
+
+        using (var handlerContext = _db.CreateContext())
+        {
+            var paymentRepository = new PaymentTransactionRepository(handlerContext);
+            var handler = new EscrowReleaseOnCompletionHandler(
+                paymentRepository, new BookingRepository(handlerContext), BuildEscrowService(handlerContext),
+                BuildProviderEarningLedgerService(handlerContext), NullLogger<EscrowReleaseOnCompletionHandler>.Instance);
+
+            await handler.Handle(
+                new DomainEventNotification<BookingStatusChangedEvent>(
+                    new BookingStatusChangedEvent(bookingId, BookingStatus.InProgress, BookingStatus.Completed)),
+                CancellationToken.None);
+        }
+
+        return providerId;
     }
 }

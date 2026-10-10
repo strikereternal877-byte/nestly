@@ -29,3 +29,13 @@ public class SimulatePaymentRequestValidator : AbstractValidator<SimulatePayment
         RuleFor(x => x.GatewayOrderId).NotEmpty().MaximumLength(100);
     }
 }
+
+public class PayUWebhookFormPayloadValidator : AbstractValidator<PayUWebhookFormPayload>
+{
+    public PayUWebhookFormPayloadValidator()
+    {
+        RuleFor(x => x.Txnid).NotEmpty().MaximumLength(100);
+        RuleFor(x => x.Status).NotEmpty();
+        RuleFor(x => x.Hash).NotEmpty();
+    }
+}

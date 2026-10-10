@@ -28,6 +28,10 @@ public class BookingCompletionProofConfiguration : IEntityTypeConfiguration<Book
         builder.Property(x => x.PhotoRefsJson).HasColumnType("jsonb").IsRequired();
         builder.Property(x => x.ChecklistAnswersJson).HasColumnType("jsonb").IsRequired();
 
+        // Same HasConversion<string> convention as ProviderKycDocument.VerificationStatus.
+        builder.Property(x => x.ReviewStatus).HasConversion<string>().HasMaxLength(20).IsRequired();
+        builder.Property(x => x.RejectionReason).HasMaxLength(1000);
+
         // Computed convenience properties over the two JSON columns above -
         // not real columns, and PhotoRefs/ChecklistAnswers' element types
         // have no key EF could map them as entities/owned types by

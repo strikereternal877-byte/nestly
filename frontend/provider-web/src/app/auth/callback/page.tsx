@@ -23,6 +23,16 @@ export default function AuthCallbackPage() {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
 
+  // A genuine one-time mount action (parse the URL fragment, strip it from
+  // history, store the session, navigate away), not a state-sync pattern -
+  // window.location is only ever meaningful post-navigation, so reading it
+  // any earlier than this effect is not just a lint preference but a hard
+  // requirement. A first attempt at satisfying react-hooks/set-state-in-effect
+  // here moved the read into a useState lazy initializer, which runs during
+  // Next.js's server-side prerendering too (even for a "use client" page) -
+  // window does not exist there, and the build failed outright
+  // ("ReferenceError: window is not defined"). setError is the unavoidable
+  // way to report this effect's one failure outcome back to the UI.
   useEffect(() => {
     const fragment = new URLSearchParams(window.location.hash.slice(1));
     const accessToken = fragment.get("accessToken");
@@ -35,6 +45,7 @@ export default function AuthCallbackPage() {
     window.history.replaceState(null, "", window.location.pathname + window.location.search);
 
     if (!accessToken || !refreshToken || !accessTokenExpiresAtUtc) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setError("Sign-in link is missing or has expired. Please sign in again.");
       return;
     }

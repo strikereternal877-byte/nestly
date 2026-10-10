@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { ErrorState } from "@/components/states";
 import {
   Alert,
@@ -50,7 +50,10 @@ export function SkillsSection() {
     queryFn: () => listCatalogServices(),
   });
 
-  useEffect(() => {
+  // Adjusting state when a prop changes (react.dev/learn/you-might-not-need-an-effect).
+  const [seededFor, setSeededFor] = useState({ data: query.data, isDirty });
+  if (seededFor.data !== query.data || seededFor.isDirty !== isDirty) {
+    setSeededFor({ data: query.data, isDirty });
     if (query.data && !isDirty) {
       setRows(
         query.data.map((skill) => ({
@@ -59,7 +62,7 @@ export function SkillsSection() {
         })),
       );
     }
-  }, [query.data, isDirty]);
+  }
 
   const mutation = useMutation({
     mutationFn: (skills: ProviderSkillInput[]) => updateSkills({ skills }),

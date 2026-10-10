@@ -3,6 +3,7 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { BookingsTabs } from "@/components/BookingsTabs";
+import { useResetOnChange } from "@/hooks/useResetOnChange";
 import { Badge, Field, PageHeading, Select } from "@/components/ui";
 import type { BadgeTone } from "@/components/ui";
 import { DataTable, FilterBar, Pagination, countActiveFilters, formatDate } from "@/components/data-table";
@@ -63,9 +64,7 @@ export default function AmcContractsPage() {
   }, [filters.customerSearch]);
 
   // Any filter change resets to page 1 (same pattern as customers/page.tsx).
-  useEffect(() => {
-    setPage(1);
-  }, [debouncedCustomerSearch, filters.status]);
+  useResetOnChange([debouncedCustomerSearch, filters.status], () => setPage(1));
 
   const customerSuggestionsQuery = useQuery({
     queryKey: ["amc-contracts", "customer-suggestions", debouncedCustomerSearch] as const,

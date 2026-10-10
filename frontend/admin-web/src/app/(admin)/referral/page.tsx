@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { DataTable, FilterBar, Pagination, countActiveFilters, formatDate } from "@/components/data-table";
 import type { DataTableColumn } from "@/components/data-table";
 import { Button, Field, PageHeading, Select, Tabs } from "@/components/ui";
+import { useResetOnChange } from "@/hooks/useResetOnChange";
 import { ReferralStatusBadge, FraudFlagBadge } from "./_components/ReferralStatusBadge";
 import { ReferralTabs } from "./_components/ReferralTabs";
 import { listFraudQueue, searchReferrals } from "./_lib/referral-api";
@@ -67,10 +68,9 @@ export default function ReferralsPage() {
   // already computes for its typeahead suggestions above; Status (a
   // dropdown) applies immediately. Any change resets to page 1, same as
   // customers/page.tsx.
-  useEffect(() => {
-    if (tab !== "all") return;
-    setPage(1);
-  }, [tab, debouncedCustomerSearch, filters.status]);
+  useResetOnChange([tab, debouncedCustomerSearch, filters.status], () => {
+    if (tab === "all") setPage(1);
+  });
 
   const referralsQuery = useQuery({
     queryKey: ["referrals", "search", tab, debouncedCustomerSearch, filters.status, page] as const,

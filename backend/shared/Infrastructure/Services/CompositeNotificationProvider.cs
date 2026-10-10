@@ -7,7 +7,7 @@ namespace Nestly.Infrastructure.Services;
 /// Combines an independently-chosen email provider and SMS provider into
 /// one <see cref="INotificationProvider"/> (SRS 30.2). Exists so
 /// <see cref="NotificationRegistration"/> can wire real Brevo email and real
-/// Twilio SMS at the same time without either provider depending on the
+/// MSG91 SMS at the same time without either provider depending on the
 /// other - that mutual dependency was the original, broken design (each
 /// decorating the other's channel via constructor injection), which
 /// deadlocks the container the moment both channels are configured

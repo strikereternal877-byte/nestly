@@ -96,6 +96,9 @@ export default function ProviderLoginPage() {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
     if (params.get("registered") === "1") {
+      // One-time mount read of the query string (see comment above); not a
+      // continuously-synced external value.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setInfoMessage("Registration submitted. Sign in below to continue.");
     } else if (params.get("reason") === "expired") {
       // Set by RequireProviderAuth when it redirects here after a live

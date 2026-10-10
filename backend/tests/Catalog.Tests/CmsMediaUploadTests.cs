@@ -79,6 +79,8 @@ public class CmsMediaUploadTests : IDisposable
             LastContentType = contentType;
             return Task.FromResult(_refToReturn);
         }
+
+        public Task DeleteAsync(string fileReference, CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 
     private sealed class StubAuditContextProvider : IAuditContextProvider

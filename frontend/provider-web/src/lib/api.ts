@@ -118,21 +118,18 @@ export interface ApiFetchOptions extends RequestInit {
  * `fetch` directly rather than going through `auth-api.ts`'s `refreshSession`
  * (which itself calls `apiFetch`) to avoid a circular import between the two
  * modules and to keep this path free of the retry logic it exists to serve.
+ *
+ * Exported (not just used internally below) so RequireProviderAuth can also
+ * call it: this function only ever ran reactively, from performFetch's own
+ * 401 handling, which meant a provider who reopened the app after the
+ * access token's short lifetime elapsed - not mid-API-call, just idle -
+ * skipped this path entirely and hit the guard's local expiry check first,
+ * which had no way to attempt a refresh itself and sent them straight to
+ * /login?reason=expired despite a perfectly good refresh token sitting in
+ * storage. See RequireProviderAuth.tsx for the other half of that fix.
  */
 let refreshPromise: Promise<boolean> | null = null;
 
-/**
- * Exported so `RequireProviderAuth` can call it directly: the access token
- * (15min, `ProviderJwtOptions.AccessTokenMinutes`) is routinely expired by
- * the time a provider reopens the app after a short break, while the refresh
- * token (30 days) is very likely still good. `isAuthenticated()` alone can't
- * tell the difference - it's a pure local expiry check - so without this the
- * guard would bounce a returning provider to a full re-login on every page
- * load past 15 minutes, even though a silent refresh would keep them signed
- * in. The module-level `refreshPromise` above still applies here, so a guard
- * refresh racing an in-flight `apiFetch` refresh (e.g. a query firing during
- * the same mount) shares one request rather than doubling up.
- */
 export function refreshAccessToken(): Promise<boolean> {
   if (!refreshPromise) {
     refreshPromise = (async () => {

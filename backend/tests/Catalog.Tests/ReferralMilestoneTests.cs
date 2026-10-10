@@ -38,7 +38,7 @@ public sealed class ReferralMilestoneTests : IClassFixture<TestDatabase>
             new ReferralMilestoneAwardRepository(context),
             new NotificationDispatchService(
                 new NotificationTemplateRenderer(new FakeNotificationTemplateRepository(), new MemoryCache(new MemoryCacheOptions())),
-                new SandboxNotificationProvider(NullLogger<SandboxNotificationProvider>.Instance),
+                new SandboxNotificationProvider(NullLogger<SandboxNotificationProvider>.Instance, new FakeHostEnvironment()),
                 new SandboxPushNotificationProvider(NullLogger<SandboxPushNotificationProvider>.Instance),
                 new NotificationEventRepository(context),
                 new DeviceTokenRepository(context),
@@ -207,6 +207,81 @@ public sealed class ReferralMilestoneTests : IClassFixture<TestDatabase>
         await BuildHandler(context).Handle(CompletionNotification(SeedCompletedBooking(context, thirdReferee.Id, 500m).Id), CancellationToken.None);
 
         context.ReferralMilestoneAwards.Count(a => a.ReferralMilestoneId == milestone.Id && a.ReferrerCustomerId == referrer.Id).Should().Be(1);
+    }
+
+    /// <summary>
+    /// Regression coverage for the referral milestone over-count: before this
+    /// fix, CountRewardedByReferrerAsync counted every Status==Rewarded
+    /// referral unconditionally - a referral whose qualifying booking was
+    /// later fully refunded (a dispute, or the referral clawback fraud
+    /// signal leading to a manual reversal) stayed Rewarded forever (no
+    /// domain transition exists out of it), permanently inflating the
+    /// referrer's milestone count for an order that never actually
+    /// happened.
+    /// </summary>
+    [Fact]
+    public async Task Milestone_count_excludes_a_referral_whose_qualifying_booking_was_fully_refunded()
+    {
+        // Threshold 4: distinct from every other threshold already seeded in
+        // this class (1, 2, 3) - ReferralMilestone.ThresholdCount is
+        // globally unique and this shared TestDatabase spans every test.
+        const int threshold = 4;
+        Guid milestoneId;
+        Guid referrerId;
+        Guid firstBookingId;
+
+        using (var context = _db.CreateContext())
+        {
+            var config = SeedConfig(context);
+            milestoneId = SeedMilestone(context, threshold, bonusValue: 200m).Id;
+            var referrer = SeedCustomer(context, "Referrer");
+            referrerId = referrer.Id;
+
+            // First referral genuinely qualifies and rewards, but its booking
+            // is later disputed and fully refunded - the order that made it
+            // a real referral never actually happened.
+            var firstReferee = SeedCustomer(context, "Referee1");
+            SeedRegisteredReferral(context, referrer, firstReferee, config);
+            firstBookingId = SeedCompletedBooking(context, firstReferee.Id, 500m).Id;
+            await BuildHandler(context).Handle(CompletionNotification(firstBookingId), CancellationToken.None);
+            context.Referrals.First(r => r.RefereeCustomerId == firstReferee.Id).Status.Should().Be(ReferralStatus.Rewarded);
+        }
+
+        using (var refundContext = _db.CreateContext())
+        {
+            var booking = await new BookingRepository(refundContext).GetByIdAsync(firstBookingId);
+            booking!.TransitionTo(BookingStatus.RefundPending, "Dispute upheld.");
+            booking.TransitionTo(BookingStatus.Refunded, "Refund completed.");
+            await new BookingRepository(refundContext).UpdateAsync(booking);
+        }
+
+        // One refunded referral already seeded above, plus `threshold` more
+        // genuinely-rewarded ones here (i = 2..threshold+1, "threshold"
+        // iterations) - the refunded one must never count, so the real
+        // total only reaches the threshold on the LAST of these, not one
+        // referral earlier the way an unfixed, stale count would.
+        for (int i = 2; i <= threshold + 1; i++)
+        {
+            using var context = _db.CreateContext();
+            var referrer = await new CustomerRepository(context).GetByIdAsync(referrerId);
+            var config = await new ReferralProgramConfigRepository(context).GetAsync();
+            var referee = SeedCustomer(context, $"Referee{i}");
+            SeedRegisteredReferral(context, referrer!, referee, config!);
+            var booking = SeedCompletedBooking(context, referee.Id, 500m);
+            await BuildHandler(context).Handle(CompletionNotification(booking.Id), CancellationToken.None);
+
+            if (i < threshold + 1)
+            {
+                context.ReferralMilestoneAwards.Count(a => a.ReferralMilestoneId == milestoneId && a.ReferrerCustomerId == referrerId)
+                    .Should().Be(0, $"the refunded first referral must not count, so the real total is still short of {threshold} after referral {i}");
+            }
+        }
+
+        using var finalContext = _db.CreateContext();
+        finalContext.ReferralMilestoneAwards.Count(a => a.ReferralMilestoneId == milestoneId && a.ReferrerCustomerId == referrerId)
+            .Should().Be(1, $"the {threshold}th genuinely-rewarded referral (not counting the refunded one) must be what finally crosses the threshold");
+
+        (await new ReferralRepository(finalContext).CountRewardedByReferrerAsync(referrerId)).Should().Be(threshold);
     }
 
     [Fact]

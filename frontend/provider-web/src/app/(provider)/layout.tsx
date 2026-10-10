@@ -1,7 +1,8 @@
 "use client";
 
+import { useQuery } from "@tanstack/react-query";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { GoLiveBanner } from "@/components/GoLiveBanner";
 import { OfflineBanner } from "@/components/OfflineBanner";
@@ -12,8 +13,12 @@ import { RequireProviderAuth } from "@/components/RequireProviderAuth";
 import { cx } from "@/components/ui";
 import { getSessionClaims, subscribeToAuthChanges } from "@/lib/auth";
 import { DevicePlatform, registerDeviceToken, storeDeviceTokenId } from "@/lib/device-tokens-api";
+import { listPendingOffers } from "@/lib/jobs-active";
+import { listJobs } from "@/lib/jobs-api";
 import { requestPushToken } from "@/lib/push";
 import type { ProviderSessionClaims } from "@/lib/types";
+import { useOfferRinging } from "@/hooks/useOfferRinging";
+import { openJobIdFromPath } from "@/lib/offer-ringing";
 
 /**
  * Authenticated app shell: header + navigation + content area, shown once
@@ -35,6 +40,27 @@ export default function AuthenticatedLayout({ children }: { children: ReactNode 
     sync();
     return subscribeToAuthChanges(sync);
   }, []);
+
+  // Polled here, at the shell, rather than only fetched on-demand by
+  // whichever of /today, /offers, /jobs or the sidebar's own badge happens
+  // to be mounted (same shared key+queryFn as all of them - one background
+  // fetch either way, TanStack Query dedupes by key): an offer has to be
+  // noticed close to the moment it lands, not whenever the provider next
+  // happens to navigate somewhere that refetches. 20s keeps that latency
+  // small against even the shortest configured response window (task
+  // "Make the job response window configurable-default 30min") without
+  // hammering a Render free-tier backend. Paused automatically while the
+  // tab/app is not the focused one (TanStack Query's default for
+  // refetchInterval) - deliberately not overridden, since polling a
+  // backgrounded tab a provider isn't looking at buys nothing.
+  const jobsQuery = useQuery({
+    queryKey: ["provider-jobs", "", ""],
+    queryFn: () => listJobs({}),
+    refetchInterval: 20_000,
+    retry: false,
+  });
+  const pendingOffers = useMemo(() => listPendingOffers(jobsQuery.data ?? []), [jobsQuery.data]);
+  useOfferRinging(pendingOffers, openJobIdFromPath(pathname));
 
   // Fires once per mount of the authenticated shell (i.e. once per sign-in,
   // since this layout unmounts on sign-out) - job offers are time-sensitive

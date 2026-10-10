@@ -1,3 +1,4 @@
+using Nestly.Application.Bookings;
 using Nestly.BuildingBlocks.Results;
 
 namespace Nestly.Application.BookingManagement;
@@ -32,6 +33,15 @@ public interface IBookingManagementService
     /// <summary>Full or partial refund (SRS 12.11.3, 12.13.2-3, task 117c) via <c>IRefundService</c>.</summary>
     Task<Result<AdminBookingDetailResponse>> RefundAsync(Guid bookingId, Guid adminUserId, AdminRefundRequest request);
 
+    /// <summary>The admin completion-proof review queue: every proof still awaiting a verdict, across every booking, oldest submission first (Order/Booking Management UX pass gap - previously reachable only by opening one InProgress booking at a time).</summary>
+    Task<IReadOnlyList<BookingCompletionProofQueueItemResponse>> ListPendingCompletionProofsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Approves the provider's submitted completion proof and transitions the booking to Completed - the only path Completed is reachable by (task: admin completion verification).</summary>
+    Task<Result<AdminBookingDetailResponse>> ApproveCompletionProofAsync(Guid bookingId, Guid adminUserId);
+
+    /// <summary>Rejects the provider's submitted completion proof with a required reason; the booking stays InProgress for the provider to finish and resubmit (task: admin completion verification).</summary>
+    Task<Result<AdminBookingDetailResponse>> RejectCompletionProofAsync(Guid bookingId, Guid adminUserId, RejectCompletionProofRequest request);
+
     /// <summary>
     /// Records a manual/offline payment (row 25, docs/OPEN-FIXES-FEATURES.csv)
     /// via <c>IPaymentWebhookService.RecordManualPaymentAsync</c>, which
@@ -52,4 +62,18 @@ public interface IBookingManagementService
     /// board. See <see cref="Bookings.IBookingRepository.ListForFulfilmentBoardAsync"/>.
     /// </summary>
     Task<Result<AdminFulfilmentBoardResponse>> GetFulfilmentBoardAsync(AdminFulfilmentBoardRequest request);
+
+    /// <summary>
+    /// Payment Management UX pass: every recurring occurrence still awaiting
+    /// its off-session auto-charge, oldest-created first - previously zero
+    /// admin visibility into <c>RecurringOccurrenceAutoChargeJob</c>'s
+    /// attempts/backoff existed anywhere.
+    /// </summary>
+    Task<Result<IReadOnlyList<AdminAutoChargeCandidateResponse>>> ListAutoChargeCandidatesAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Admin-forced immediate charge attempt for one occurrence, bypassing the backoff-timing gate - see <see cref="Bookings.IRecurringOccurrenceAutoChargeJob.ForceAttemptAsync"/>.</summary>
+    Task<Result<AdminBookingDetailResponse>> ForceAutoChargeRetryAsync(Guid bookingId, Guid adminUserId);
+
+    /// <summary>Stops the automatic sweep from ever attempting this occurrence again - see <see cref="Domain.Booking.CancelAutoChargeRetries"/>.</summary>
+    Task<Result<AdminBookingDetailResponse>> CancelAutoChargeRetriesAsync(Guid bookingId, Guid adminUserId);
 }

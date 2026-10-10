@@ -154,4 +154,24 @@ public class ProviderDomainTests
         document.VerifiedBy.Should().Be(adminUserId);
         document.VerifiedAt.Should().NotBeNull();
     }
+
+    /// <summary>
+    /// Regression: the real "phone" column is varchar(20) (ProviderConfiguration),
+    /// but SoftDelete's anonymized placeholder used to be
+    /// "deleted-{32 hex chars}" - 40 characters, silently accepted by a test
+    /// database that doesn't enforce VARCHAR length but rejected by real
+    /// Postgres with 22001 ("value too long"), which an in-memory-only unit
+    /// test could never have caught. Found by an end-to-end run of the admin
+    /// Delete Provider endpoint against a real local Postgres.
+    /// </summary>
+    [Fact]
+    public void SoftDelete_anonymized_phone_fits_the_varchar_20_column()
+    {
+        var provider = new Provider(Guid.NewGuid(), "Ravi Kumar", "Ravi's Repairs", ProviderType.Individual, "+919876543210");
+
+        provider.SoftDelete("Right-to-erasure request.");
+
+        provider.Phone.Length.Should().BeLessOrEqualTo(20);
+        provider.Phone.Should().StartWith("deleted-");
+    }
 }

@@ -43,28 +43,56 @@ jobs:
     name: Backup production database
     runs-on: ubuntu-latest
     environment: production
+    # GitHub Actions does not expose the `secrets` context to `if:`
+    # conditionals at all (a workflow-validation restriction, not a runtime
+    # one - referencing it there fails the whole workflow file with
+    # "Unrecognized named-value: 'secrets'" before a single step executes).
+    # Mirrored here into `env`, which *is* available in `if:`, so the
+    # fallback-artifact step below can still key off whether S3 is
+    # configured.
+    env:
+      BACKUP_S3_BUCKET: ${{ secrets.BACKUP_S3_BUCKET }}
     steps:
       - uses: actions/checkout@v4
 
+      # No production database exists yet (docs/DEVOPS.md OPEN DECISIONS -
+      # cloud provider/hosting is still unresolved), so PRODUCTION_DATABASE_HOST
+      # is unset and backup-postgres.sh would fall back to its localhost
+      # default and fail every run (no Postgres server on this runner). That
+      # is expected, not a bug - guard on it so the scheduled run goes green
+      # with a clear skip notice instead of paging on a failure that isn't
+      # actionable. Once the secret is added, this step flips to "configured"
+      # and every step below it runs with no further changes needed here.
+      - name: Check production database is configured
+        id: check
+        run: |
+          if [ -z "${{ secrets.PRODUCTION_DATABASE_HOST }}" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::PRODUCTION_DATABASE_HOST is not set - no production database exists yet (see docs/DEVOPS.md OPEN DECISIONS). Skipping backup; this is expected, not a failure."
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Install PostgreSQL client tools
+        if: ${{ steps.check.outputs.configured == 'true' }}
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends postgresql-client
 
       - name: Run backup
+        if: ${{ steps.check.outputs.configured == 'true' }}
         env:
           PGHOST: ${{ secrets.PRODUCTION_DATABASE_HOST }}
           PGPORT: ${{ secrets.PRODUCTION_DATABASE_PORT }}
           PGDATABASE: ${{ secrets.PRODUCTION_DATABASE_NAME }}
           PGUSER: ${{ secrets.PRODUCTION_DATABASE_USER }}
           PGPASSWORD: ${{ secrets.PRODUCTION_DATABASE_PASSWORD }}
-          BACKUP_S3_BUCKET: ${{ secrets.BACKUP_S3_BUCKET }}
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         run: bash database/scripts/backup-postgres.sh database/backups
 
       - name: Upload as workflow artifact (interim fallback only)
-        if: ${{ secrets.BACKUP_S3_BUCKET == '' }}
+        if: ${{ steps.check.outputs.configured == 'true' && env.BACKUP_S3_BUCKET == '' }}
         uses: actions/upload-artifact@v4
         with:
           name: postgres-backup-${{ github.run_id }}

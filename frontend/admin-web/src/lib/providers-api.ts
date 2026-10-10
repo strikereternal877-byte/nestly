@@ -13,11 +13,13 @@ import type {
   BookingProviderAssignment,
   CreateProviderPayoutRequest,
   CreateProviderRequest,
+  DeleteProviderRequest,
   EligibleProvider,
   ProviderCapacity,
   ProviderDetail,
   ProviderEarningsSummary,
   ProviderKycDocument,
+  ProviderKycQueueItem,
   ProviderPayout,
   ProviderPhoto,
   ProviderPayoutSearchResponse,
@@ -27,10 +29,13 @@ import type {
   ProviderSearchParams,
   ProviderSearchResponse,
   ProviderBackgroundCheck,
+  ProviderBankAccount,
+  ProviderBankAccountQueueItem,
   ProviderPayoutStatus,
   RecordBackgroundCheckRequest,
   RecordProviderEarningAdjustmentRequest,
   RejectAssignmentRequest,
+  RejectProviderBankAccountRequest,
   RejectProviderKycDocumentRequest,
   RejectProviderPhotoRequest,
   SetProviderCapacityRequest,
@@ -89,7 +94,19 @@ export const suspendProvider = (providerId: string, request: SuspendProviderRequ
 export const reactivateProvider = (providerId: string) =>
   apiFetch<ProviderDetail>(`${PROVIDERS_BASE}/${providerId}/reactivate`, { method: "POST", authenticated: true });
 
+/** Right-to-erasure account deletion (mirrors the Customer directory's "Delete customer" action) - terminal, no undelete. */
+export const deleteProvider = (providerId: string, request: DeleteProviderRequest) =>
+  apiFetch<ProviderDetail>(`${PROVIDERS_BASE}/${providerId}/delete`, {
+    method: "POST",
+    authenticated: true,
+    body: JSON.stringify(request),
+  });
+
 // ---- KYC approval, background check, activation (task 150b, 160) ----
+
+/** The KYC verification queue: every document across every provider still awaiting a verdict, oldest first. */
+export const listPendingKycDocuments = () =>
+  apiFetch<ProviderKycQueueItem[]>(`${PROVIDERS_BASE}/kyc-documents/pending`, { authenticated: true });
 
 export const approveKycDocument = (documentId: string) =>
   apiFetch<ProviderKycDocument>(`${PROVIDERS_BASE}/kyc-documents/${documentId}/approve`, {
@@ -134,6 +151,25 @@ export const rejectProviderPhoto = (providerId: string, request: RejectProviderP
     body: JSON.stringify(request),
   });
 
+// ---- Bank account verification (structured payout details, OPEN DECISIONS #3) ----
+
+/** The bank-account verification queue: every provider's submitted details still awaiting a verdict, oldest first. */
+export const listPendingBankAccounts = () =>
+  apiFetch<ProviderBankAccountQueueItem[]>(`${PROVIDERS_BASE}/bank-accounts/pending`, { authenticated: true });
+
+export const approveBankAccount = (bankAccountId: string) =>
+  apiFetch<ProviderBankAccount>(`${PROVIDERS_BASE}/bank-accounts/${bankAccountId}/approve`, {
+    method: "POST",
+    authenticated: true,
+  });
+
+export const rejectBankAccount = (bankAccountId: string, request: RejectProviderBankAccountRequest) =>
+  apiFetch<ProviderBankAccount>(`${PROVIDERS_BASE}/bank-accounts/${bankAccountId}/reject`, {
+    method: "POST",
+    authenticated: true,
+    body: JSON.stringify(request),
+  });
+
 // ---- Capacity limits (task 245 built enforcement; task 308 adds this write path) ----
 
 export const getProviderCapacity = (providerId: string) =>
@@ -167,8 +203,21 @@ export const recordEarningAdjustment = (providerId: string, request: RecordProvi
 
 // ---- Payouts (task 148) ----
 
-export const searchPayouts = (providerId: string, status?: ProviderPayoutStatus) =>
-  apiFetch<ProviderPayoutSearchResponse>(`${PAYOUTS_BASE}${query({ providerId, status })}`, { authenticated: true });
+/**
+ * `providerId` is optional - omit it for the cross-provider payout queue
+ * (Payment Management UX pass: the backend already supported this, only no
+ * admin-web caller ever invoked it that way). Pass it to scope to one
+ * provider, as the provider detail page's Earnings tab does.
+ */
+export interface PayoutSearchParams {
+  providerId?: string;
+  status?: ProviderPayoutStatus;
+  page?: number;
+  pageSize?: number;
+}
+
+export const searchPayouts = (params: PayoutSearchParams = {}) =>
+  apiFetch<ProviderPayoutSearchResponse>(`${PAYOUTS_BASE}${query(params)}`, { authenticated: true });
 
 export const createPayoutBatch = (providerId: string, request: CreateProviderPayoutRequest) =>
   apiFetch<ProviderPayout>(`${PAYOUTS_BASE}/providers/${providerId}`, {
@@ -182,6 +231,19 @@ export const updatePayoutStatus = (payoutId: string, request: UpdateProviderPayo
     method: "POST",
     authenticated: true,
     body: JSON.stringify(request),
+  });
+
+/**
+ * The automated counterpart to `updatePayoutStatus`'s manual Pending ->
+ * Processing move (real PayU Payouts integration) - triggers a real PayU
+ * transfer. Only call this when the payout's own `isGatewayConfigured` is
+ * true; the backend also enforces this (and the Pending/Verified-bank-
+ * account guards) independently.
+ */
+export const payViaPayU = (payoutId: string) =>
+  apiFetch<ProviderPayout>(`${PAYOUTS_BASE}/${payoutId}/pay-via-payu`, {
+    method: "POST",
+    authenticated: true,
   });
 
 // ---- Booking assignment (task 147, 159 - used from the booking detail screen) ----

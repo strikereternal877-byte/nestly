@@ -1079,17 +1079,20 @@ export function Modal({
 
   // Swipe-to-dismiss for the mobile bottom-sheet state only (see the drag
   // handle below, which is the only element wired to these handlers and is
-  // itself hidden from `sm:` up). `hasDraggedRef` keeps the drag transform
-  // out of the panel's inline style until a drag actually starts, so it
-  // never fights the `animate-pop` entrance keyframes on open.
+  // itself hidden from `sm:` up). `hasDragged` keeps the drag transform out
+  // of the panel's inline style until a drag actually starts, so it never
+  // fights the `animate-pop` entrance keyframes on open - real state, not a
+  // ref, because it feeds the render below: a ref mutation on its own
+  // wouldn't schedule a re-render, and reading .current during render is
+  // exactly what react-hooks/refs exists to catch.
   const [dragOffset, setDragOffset] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
+  const [hasDragged, setHasDragged] = useState(false);
   const dragStartYRef = useRef<number | null>(null);
-  const hasDraggedRef = useRef(false);
 
   const handleSheetDragStart = (event: ReactPointerEvent<HTMLDivElement>) => {
     event.currentTarget.setPointerCapture(event.pointerId);
-    hasDraggedRef.current = true;
+    setHasDragged(true);
     dragStartYRef.current = event.clientY;
     setIsDragging(true);
   };
@@ -1217,7 +1220,7 @@ export function Modal({
           sizes[size],
         )}
         style={
-          hasDraggedRef.current
+          hasDragged
             ? {
                 transform: `translateY(${dragOffset}px)`,
                 transition: isDragging ? "none" : "transform 200ms ease-out",

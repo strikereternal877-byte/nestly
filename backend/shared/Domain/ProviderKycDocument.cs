@@ -65,6 +65,9 @@ public class ProviderKycDocument : Entity<Guid>
     public DateTime? VerifiedAt { get; private set; }
     public DateTime SubmittedAt { get; private set; }
 
+    /// <summary>Why an admin rejected this document - null except after <see cref="Reject"/>. Shown back to the provider so a rejection is actionable, not a silent dead end (mirrors <c>Provider.PhotoModerationNote</c>).</summary>
+    public string? RejectionReason { get; private set; }
+
     protected ProviderKycDocument() { }
 
     public ProviderKycDocument(Guid id, Guid providerId, ProviderKycDocumentType docType, string fileRef, string? docNumber = null)
@@ -88,12 +91,18 @@ public class ProviderKycDocument : Entity<Guid>
         VerifiedAt = DateTime.UtcNow;
     }
 
-    /// <summary>Admin rejection (task 150b). Not called by anything in this pass - built for that future workflow.</summary>
-    public void Reject(Guid verifiedByAdminUserId)
+    /// <summary>Admin rejection (task 150b). <paramref name="reason"/> is required - a rejected provider must be told why, not left to guess.</summary>
+    public void Reject(Guid verifiedByAdminUserId, string reason)
     {
+        if (string.IsNullOrWhiteSpace(reason))
+        {
+            throw new ArgumentException("A rejection reason is required.", nameof(reason));
+        }
+
         VerificationStatus = ProviderKycVerificationStatus.Rejected;
         VerifiedBy = verifiedByAdminUserId;
         VerifiedAt = DateTime.UtcNow;
+        RejectionReason = reason.Trim();
     }
 
     /// <summary>
@@ -112,5 +121,21 @@ public class ProviderKycDocument : Entity<Guid>
         }
 
         VerificationStatus = ProviderKycVerificationStatus.Superseded;
+    }
+
+    /// <summary>
+    /// Called by the provider's own right-to-erasure deletion
+    /// (<c>ProviderManagementService.DeleteAsync</c>) once the underlying
+    /// file has been removed from storage. The row itself is kept - same
+    /// "financial/job history is retained" reasoning as <c>Provider.SoftDelete</c>,
+    /// since this document's review outcome and timestamps remain part of
+    /// that provider's onboarding history - but <see cref="FileRef"/> is
+    /// non-nullable and constructor-validated as non-empty, so it cannot
+    /// simply be cleared; it is overwritten with a placeholder instead so it
+    /// stops pointing at content that no longer exists.
+    /// </summary>
+    public void PurgeFile()
+    {
+        FileRef = "[erased]";
     }
 }

@@ -124,4 +124,45 @@ export interface GoLiveStatus {
   checks: GoLiveCheck[];
 }
 
+// ---- Bank account (structured payout details, docs/PROVIDER.md OPEN DECISIONS #3) ----
+//
+// Unlike the KYC types above, ProviderBankAccountResponse mirrors
+// Nestly.Application.ProviderManagement.ProviderBankAccountResponse's raw
+// enum field (VerificationStatus) rather than a hand-stringified one - that
+// namespace's contracts are shared with admin-api's AdminApi, which has no
+// JsonStringEnumConverter registered (see earnings-types.ts's PayoutStatus,
+// same convention: numeric ordinal, declaration-order-synced with its C#
+// source). ProviderApi does not register one either - this file's own top
+// comment describing a JsonStringEnumConverter applies to the hand-written
+// KYC/photo contracts above, not this shared-namespace one.
+
+/** Mirrors Nestly.Domain.ProviderBankAccountVerificationStatus's declaration order exactly. */
+export enum BankAccountVerificationStatus {
+  Pending = 0,
+  Verified = 1,
+  Rejected = 2,
+}
+
+export interface BankAccount {
+  id: string;
+  providerId: string;
+  accountHolderName: string;
+  accountNumber: string;
+  ifscCode: string;
+  bankName: string;
+  verificationStatus: BankAccountVerificationStatus;
+  verifiedBy: string | null;
+  verifiedAt: string | null;
+  rejectionReason: string | null;
+  updatedAt: string;
+}
+
+/** `PUT /profile/bank-account` - upsert; the provider id is never sent, taken from the JWT server-side (SRS 28.3 IDOR), same convention as `SubmitKycDocumentRequest`. */
+export interface SubmitBankAccountRequest {
+  accountHolderName: string;
+  accountNumber: string;
+  ifscCode: string;
+  bankName: string;
+}
+
 export type { ProviderProfile };

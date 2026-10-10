@@ -14,16 +14,18 @@ namespace Nestly.Infrastructure.Services;
 /// seven settings groups from turning into seven near-duplicate services.
 /// </summary>
 /// <remarks>
-/// This service manages the admin-configurable value only - it does not
-/// change how <c>CancellationService</c>/<c>RescheduleService</c> currently
-/// read their equivalent <c>appsettings.json</c>-bound options
-/// (<c>CancellationPolicyOptions</c>/<c>ReschedulePolicyOptions</c>). Rewiring
-/// those consumers to read from this store instead is a separate, riskier
-/// change with its own test coverage (it would alter live enforcement
-/// behavior for every booking), and is out of scope for tasks 131a-131h,
-/// which only ask for the admin config/feature-flag management surface
-/// itself (SRS 12.19). The field shapes are kept aligned on purpose so that
-/// follow-up work is a mechanical wiring change, not a redesign.
+/// This service manages the admin-configurable value. For the cancellation and
+/// reschedule groups, that value is what the engines enforce:
+/// <c>CancellationService</c>, <c>RescheduleService</c> and the recurring-plan
+/// card read them through <see cref="Nestly.Application.Settings.IBookingPolicyProvider"/>,
+/// which uses a group's stored value once an admin has saved it (a seeded,
+/// never-saved row is ignored, so the <c>CancellationPolicy</c> /
+/// <c>ReschedulePolicy</c> configuration stays in force until then) and falls
+/// back to configuration if the stored value is unusable. The booking, slot,
+/// tax, wallet and coupon groups are read the same way through
+/// <see cref="Nestly.Application.Settings.IPlatformRules"/> (nothing saved means
+/// nothing changes); which of their fields an engine applies is listed in
+/// docs/DEVOPS.md, "What every admin setting does".
 /// </remarks>
 public class SystemSettingsService : ISystemSettingsService
 {

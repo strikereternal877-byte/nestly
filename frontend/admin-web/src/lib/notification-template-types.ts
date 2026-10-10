@@ -19,6 +19,13 @@
  * the create form could not offer them. The ordinals below are not a choice:
  * every value's number is fixed by its position in the C# enum, which is why
  * that enum is only ever appended to.
+ *
+ * This mirror had drifted again: it stopped at ProviderChanged = 22 while the
+ * C# enum grew through the Phase 20 AMC module (23-26) and the recurring-
+ * booking payment-timing fix (27), leaving five more event types' templates
+ * unreachable from the admin screens. Fixed alongside adding
+ * RecurringBookingPaymentDue so the two never fell out of sync while being
+ * edited in the same change.
  */
 export enum NotificationEventType {
   Welcome = 0,
@@ -48,13 +55,19 @@ export enum NotificationEventType {
   AmcVisitRedeemed = 24,
   AmcContractExpiringSoon = 25,
   AmcContractExhausted = 26,
-  MonthlyProviderAssigned = 27,
-  MonthlyNewClient = 28,
-  MonthlyProviderLeave = 29,
-  MonthlyVisitSkipped = 30,
-  MonthlyInvoiceIssued = 31,
-  MonthlyServicePaused = 32,
-  MonthlyClientCancelled = 33,
+  RecurringBookingPaymentDue = 27,
+  RecurringAutoChargeScheduled = 28,
+  RecurringPlanPaused = 29,
+  WalletLowBalance = 30,
+  RecurringPlanChanged = 31,
+  RecurringWalletShortfall = 32,
+  MonthlyProviderAssigned = 33,
+  MonthlyNewClient = 34,
+  MonthlyProviderLeave = 35,
+  MonthlyVisitSkipped = 36,
+  MonthlyInvoiceIssued = 37,
+  MonthlyServicePaused = 38,
+  MonthlyClientCancelled = 39,
 }
 
 /** Mirrors Nestly.Domain.NotificationChannel's declaration order exactly. */
@@ -88,10 +101,16 @@ export const NOTIFICATION_EVENT_TYPE_LABELS: Record<NotificationEventType, strin
   [NotificationEventType.JobStarted]: "Job started",
   [NotificationEventType.JobCompleted]: "Job completed",
   [NotificationEventType.ProviderChanged]: "Professional changed",
-  [NotificationEventType.AmcContractPurchased]: "AMC purchased",
+  [NotificationEventType.AmcContractPurchased]: "AMC contract purchased",
   [NotificationEventType.AmcVisitRedeemed]: "AMC visit redeemed",
-  [NotificationEventType.AmcContractExpiringSoon]: "AMC expiring soon",
-  [NotificationEventType.AmcContractExhausted]: "AMC visits used up",
+  [NotificationEventType.AmcContractExpiringSoon]: "AMC contract expiring soon",
+  [NotificationEventType.AmcContractExhausted]: "AMC contract exhausted",
+  [NotificationEventType.RecurringBookingPaymentDue]: "Recurring booking payment due",
+  [NotificationEventType.RecurringAutoChargeScheduled]: "Recurring booking auto-charge scheduled",
+  [NotificationEventType.RecurringPlanPaused]: "Recurring plan paused (unpaid visits)",
+  [NotificationEventType.WalletLowBalance]: "Wallet balance low for recurring plan",
+  [NotificationEventType.RecurringPlanChanged]: "Recurring plan changed by the customer",
+  [NotificationEventType.RecurringWalletShortfall]: "Wallet couldn't cover a recurring visit",
   [NotificationEventType.MonthlyProviderAssigned]: "Monthly: professional assigned (customer)",
   [NotificationEventType.MonthlyNewClient]: "Monthly: new home (professional)",
   [NotificationEventType.MonthlyProviderLeave]: "Monthly: professional on leave (customer)",

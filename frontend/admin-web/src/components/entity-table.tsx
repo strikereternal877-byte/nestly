@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import type { ReactNode } from "react";
 import { Button } from "@/components/ui";
 import { ActiveBadge, ConfirmDialog, DataTable } from "@/components/data-table";
@@ -136,19 +136,32 @@ export function EntityTable<T extends { id: string; isActive: boolean }>({
    * dropping the failure with no dialog, no error, no explanation. The ref
    * makes the "no error, so close" branch wait for a render where the
    * mutation was actually observed pending first.
+   *
+   * State, not a ref: both this and the settle check below are "adjusting
+   * state when a prop changes" (react.dev/learn/you-might-not-need-an-effect),
+   * done during render rather than in an effect - a ref would need reading
+   * (and, to reset it, writing) during that same render, which is exactly
+   * what react-hooks/refs exists to catch, since a ref mutation doesn't
+   * itself schedule the re-render its own new value would need to be seen.
    */
-  const hasStartedRef = useRef(false);
+  const [hasStarted, setHasStarted] = useState(false);
+  if (isSuspending && !hasStarted) setHasStarted(true);
 
-  useEffect(() => {
-    if (isSuspending) hasStartedRef.current = true;
-  }, [isSuspending]);
-
-  useEffect(() => {
-    if (!confirmed || isSuspending || !hasStartedRef.current) return;
-    setConfirmed(false);
-    hasStartedRef.current = false;
-    if (!toggleError) setPendingSuspend(null);
-  }, [confirmed, isSuspending, toggleError]);
+  // shouldSettle collapses the three dependencies above into one transition
+  // to detect - true for exactly one render, the one where a started
+  // mutation has just stopped being pending - and comparing against its own
+  // last-seen value during render is what fires the close-out exactly once
+  // per settle rather than on every render where all three still hold.
+  const shouldSettle = confirmed && !isSuspending && hasStarted;
+  const [wasSettling, setWasSettling] = useState(false);
+  if (shouldSettle !== wasSettling) {
+    setWasSettling(shouldSettle);
+    if (shouldSettle) {
+      setConfirmed(false);
+      setHasStarted(false);
+      if (!toggleError) setPendingSuspend(null);
+    }
+  }
 
   const tableColumns: DataTableColumn<T>[] = [
     ...columns.map((column) => ({

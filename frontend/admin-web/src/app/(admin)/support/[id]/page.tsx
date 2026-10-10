@@ -235,6 +235,11 @@ export default function SupportTicketDetailPage() {
         breadcrumbs={<Breadcrumbs items={BREADCRUMBS} />}
         actions={
           <>
+            <Link href={`/customers/${ticket.customerId}`}>
+              <Button variant="secondary" size="sm">
+                View customer
+              </Button>
+            </Link>
             <TicketPriorityBadge priority={ticket.priority} label={priorityLabel(ticket.priority)} />
             <TicketStatusBadge status={ticket.status} label={statusLabel(ticket.status)} />
             {ticket.isDisputed ? <Badge tone="warning">Disputed</Badge> : null}

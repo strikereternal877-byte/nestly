@@ -77,14 +77,14 @@ public class PaymentTransaction : AggregateRoot<Guid>
     /// intent by reusing this same transaction/mapping rather than minting a
     /// new one.
     /// </summary>
-    public PaymentAttempt StartAttempt(Guid attemptId, string gatewayOrderId)
+    public PaymentAttempt StartAttempt(Guid attemptId, string gatewayOrderId, Guid? paymentGroupId = null)
     {
         if (Status == PaymentTransactionStatus.Success)
         {
             throw new InvalidOperationException("This booking has already been paid for.");
         }
 
-        var attempt = new PaymentAttempt(attemptId, Id, _attempts.Count + 1, gatewayOrderId);
+        var attempt = new PaymentAttempt(attemptId, Id, _attempts.Count + 1, gatewayOrderId, paymentGroupId);
         _attempts.Add(attempt);
         Status = PaymentTransactionStatus.Pending;
         UpdatedAtUtc = DateTime.UtcNow;

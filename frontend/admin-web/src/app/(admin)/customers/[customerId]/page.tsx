@@ -1,9 +1,10 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
-import { Alert, Badge, Button, Card, EmptyState, Field, PageHeading, Tabs } from "@/components/ui";
+import { Alert, Badge, Button, Card, EmptyState, Field, PageHeading, Select, Tabs } from "@/components/ui";
 import {
   Breadcrumbs,
   ConfirmDialog,
@@ -18,7 +19,7 @@ import { DetailError, DetailSkeleton } from "@/components/screen-states";
 import { BookingStatusBadge, CustomerStatusBadge, TicketStatusBadge } from "@/components/status-badges";
 import { API_V1, apiFetch, describeError } from "@/lib/api";
 import { useAdminClaims } from "@/lib/use-admin-claims";
-import { BookingStatus, CustomerStatus, SupportTicketStatus, WalletEntryType } from "@/lib/types";
+import { BookingStatus, CustomerStatus, SupportTicketStatus, WALLET_SOURCE_LABELS, WalletEntryType } from "@/lib/types";
 import type { CustomerDetail, CustomerNote } from "@/lib/types";
 
 const BOOKING_STATUS_LABELS: Record<BookingStatus, string> = {
@@ -88,6 +89,19 @@ export default function CustomerDetailPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionNotice, setActionNotice] = useState<string | null>(null);
 
+  // Right-to-erasure delete (SRS 12.4.3 gap: the backend endpoint existed
+  // with no UI entry point at all). Two gates before the trigger even
+  // enables, not just one like Block - this is terminal and irreversible,
+  // unlike Block/Unblock: a reason for the audit trail, and typing the
+  // customer's exact name so a stray click on the wrong row can't delete it.
+  const [deleteReason, setDeleteReason] = useState("");
+  const [deleteConfirmName, setDeleteConfirmName] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const [walletDirection, setWalletDirection] = useState<WalletEntryType>(WalletEntryType.Credit);
+  const [walletAmount, setWalletAmount] = useState("");
+  const [walletReason, setWalletReason] = useState("");
+
   // Enterprise redesign pass (docs/OPEN-FIXES-FEATURES.csv, admin-web
   // information-density) - same tabbed grouping as the booking/provider
   // detail pages: 8 always-stacked cards behind 4 tabs instead.
@@ -122,6 +136,41 @@ export default function CustomerDetailPage() {
     onSuccess: () => {
       setActionError(null);
       setActionNotice("Customer unblocked.");
+      invalidateDetail();
+    },
+    onError: (err) => setActionError(describeError(err)),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (reason: string) =>
+      apiFetch<CustomerDetail>(`${API_V1}/customers/${customerId}/delete`, {
+        method: "POST",
+        authenticated: true,
+        body: JSON.stringify({ reason }),
+      }),
+    onSuccess: () => {
+      setDeleteReason("");
+      setDeleteConfirmName("");
+      setConfirmDelete(false);
+      setActionError(null);
+      setActionNotice("Customer account deleted.");
+      invalidateDetail();
+    },
+    onError: (err) => setActionError(describeError(err)),
+  });
+
+  const adjustWalletMutation = useMutation({
+    mutationFn: () =>
+      apiFetch<CustomerDetail>(`${API_V1}/customers/${customerId}/wallet/adjust`, {
+        method: "POST",
+        authenticated: true,
+        body: JSON.stringify({ direction: walletDirection, amount: Number(walletAmount), reason: walletReason.trim() }),
+      }),
+    onSuccess: () => {
+      setWalletAmount("");
+      setWalletReason("");
+      setActionError(null);
+      setActionNotice("Wallet adjusted.");
       invalidateDetail();
     },
     onError: (err) => setActionError(describeError(err)),
@@ -190,6 +239,13 @@ export default function CustomerDetailPage() {
         ]}
       />
 
+      <Link
+        href={`/reviews?customerId=${customer.id}`}
+        className="-mt-2 text-sm font-medium text-brand-600 underline-offset-4 hover:underline dark:text-brand-400"
+      >
+        View reviews written by this customer →
+      </Link>
+
       <Tabs
         label="Customer sections"
         value={detailTab}
@@ -243,6 +299,38 @@ export default function CustomerDetailPage() {
                 </Button>
               </div>
             )}
+          </div>
+        ) : null}
+
+        {canWrite && customer.status !== CustomerStatus.SoftDeleted ? (
+          <div className="mt-5 flex flex-col gap-3 border-t border-line pt-5">
+            <p className="text-xs font-semibold uppercase tracking-wide text-danger">Danger zone</p>
+            <Field
+              label="Deletion reason"
+              required
+              value={deleteReason}
+              onChange={(e) => setDeleteReason(e.target.value)}
+              placeholder="Reason this account is being deleted (e.g. a right-to-erasure request)"
+              hint="Recorded to the audit trail."
+            />
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+              <div className="flex-1">
+                <Field
+                  label={`Type "${customer.name}" to confirm`}
+                  value={deleteConfirmName}
+                  onChange={(e) => setDeleteConfirmName(e.target.value)}
+                  placeholder={customer.name}
+                  hint="Permanent - anonymizes this account and signs it out everywhere. There is no undelete."
+                />
+              </div>
+              <Button
+                variant="danger"
+                disabled={!deleteReason.trim() || deleteConfirmName.trim() !== customer.name}
+                onClick={() => setConfirmDelete(true)}
+              >
+                Delete customer
+              </Button>
+            </div>
           </div>
         ) : null}
       </Card>
@@ -311,13 +399,15 @@ export default function CustomerDetailPage() {
         ) : (
           <ul className="flex flex-col gap-2 text-sm">
             {customer.bookings.map((booking) => (
-              <li
-                key={booking.id}
-                className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line p-3"
-              >
-                <span className="nums text-fg">{booking.slotDate}</span>
-                <BookingStatusBadge status={booking.status} label={BOOKING_STATUS_LABELS[booking.status]} />
-                <span className="nums font-medium text-fg">{formatCurrency(booking.totalPayableSnapshot)}</span>
+              <li key={booking.id}>
+                <Link
+                  href={`/bookings/${booking.id}`}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line p-3 hover:border-line-strong hover:bg-surface-2"
+                >
+                  <span className="nums text-fg">{booking.slotDate}</span>
+                  <BookingStatusBadge status={booking.status} label={BOOKING_STATUS_LABELS[booking.status]} />
+                  <span className="nums font-medium text-fg">{formatCurrency(booking.totalPayableSnapshot)}</span>
+                </Link>
               </li>
             ))}
           </ul>
@@ -328,11 +418,51 @@ export default function CustomerDetailPage() {
       {detailTab === "wallet" ? (
       <div className="flex flex-col gap-6">
       <Card
-        title="Wallet / refund history"
+        title="Wallet history"
         description={`Current balance: ${formatCurrency(customer.walletBalance)}`}
       >
+        {canWrite ? (
+          <div className="mb-5 flex flex-col gap-3 border-b border-line pb-5 sm:flex-row sm:items-end">
+            <Select
+              label="Direction"
+              value={String(walletDirection)}
+              onChange={(e) => setWalletDirection(Number(e.target.value) as WalletEntryType)}
+              options={[
+                { value: String(WalletEntryType.Credit), label: "Credit (add funds)" },
+                { value: String(WalletEntryType.Debit), label: "Debit (remove funds)" },
+              ]}
+              className="sm:w-48"
+            />
+            <Field
+              label="Amount"
+              type="number"
+              min={0.01}
+              step="0.01"
+              value={walletAmount}
+              onChange={(e) => setWalletAmount(e.target.value)}
+              className="sm:w-32"
+            />
+            <div className="flex-1">
+              <Field
+                label="Reason"
+                value={walletReason}
+                onChange={(e) => setWalletReason(e.target.value)}
+                placeholder="Why this adjustment is being made"
+                hint="Recorded to the audit trail. Use for a goodwill credit or a correction - not for refunds, coupons or referral rewards, which post here automatically."
+              />
+            </div>
+            <Button
+              disabled={!walletReason.trim() || !walletAmount || Number(walletAmount) <= 0}
+              loading={adjustWalletMutation.isPending}
+              onClick={() => adjustWalletMutation.mutate()}
+            >
+              Apply
+            </Button>
+          </div>
+        ) : null}
+
         {customer.walletEntries.length === 0 ? (
-          <EmptyState title="No wallet activity" description="Refunds and wallet credits will appear here." />
+          <EmptyState title="No wallet activity" description="Top-ups, refunds, credits and what the wallet paid for will appear here." />
         ) : (
           <ul className="flex flex-col gap-2 text-sm">
             {customer.walletEntries.map((entry) => (
@@ -340,8 +470,13 @@ export default function CustomerDetailPage() {
                 key={entry.id}
                 className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line p-3"
               >
-                <span className="min-w-0 flex-1 text-fg">{entry.description}</span>
-                <span className="nums text-xs text-fg-subtle">{formatDate(entry.createdAtUtc)}</span>
+                <span className="min-w-0 flex-1 text-fg">
+                  {entry.description}
+                  <span className="mt-0.5 block text-xs text-fg-subtle">
+                    {WALLET_SOURCE_LABELS[entry.sourceType] ?? "Other"}
+                  </span>
+                </span>
+                <span className="nums text-xs text-fg-subtle">{formatDateTime(entry.createdAtUtc)}</span>
                 <span
                   className={
                     entry.entryType === WalletEntryType.Credit
@@ -352,6 +487,7 @@ export default function CustomerDetailPage() {
                   {entry.entryType === WalletEntryType.Credit ? "+" : "−"}
                   {formatCurrency(entry.amount)}
                 </span>
+                <span className="nums w-32 text-right text-xs text-fg-subtle">Balance {formatCurrency(entry.balanceAfter)}</span>
               </li>
             ))}
           </ul>
@@ -387,12 +523,14 @@ export default function CustomerDetailPage() {
         ) : (
           <ul className="flex flex-col gap-2 text-sm">
             {customer.supportTickets.map((ticket) => (
-              <li
-                key={ticket.id}
-                className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line p-3"
-              >
-                <span className="min-w-0 flex-1 text-fg">{ticket.subject}</span>
-                <TicketStatusBadge status={ticket.status} label={SUPPORT_STATUS_LABELS[ticket.status]} />
+              <li key={ticket.id}>
+                <Link
+                  href={`/support/${ticket.id}`}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line p-3 hover:border-line-strong hover:bg-surface-2"
+                >
+                  <span className="min-w-0 flex-1 text-fg">{ticket.subject}</span>
+                  <TicketStatusBadge status={ticket.status} label={SUPPORT_STATUS_LABELS[ticket.status]} />
+                </Link>
               </li>
             ))}
           </ul>
@@ -456,6 +594,22 @@ export default function CustomerDetailPage() {
       >
         <p className="text-sm text-fg-muted">
           Reason: <span className="font-medium text-fg">{blockReason}</span>
+        </p>
+      </ConfirmDialog>
+
+      <ConfirmDialog
+        open={confirmDelete}
+        title="Delete this customer account?"
+        description="This is permanent - the account is anonymized and signed out everywhere. There is no undelete."
+        confirmLabel="Delete customer"
+        cancelLabel="Keep account"
+        loading={deleteMutation.isPending}
+        error={deleteMutation.isError ? describeError(deleteMutation.error) : null}
+        onCancel={() => setConfirmDelete(false)}
+        onConfirm={() => deleteMutation.mutate(deleteReason.trim())}
+      >
+        <p className="text-sm text-fg-muted">
+          Reason: <span className="font-medium text-fg">{deleteReason}</span>
         </p>
       </ConfirmDialog>
     </div>

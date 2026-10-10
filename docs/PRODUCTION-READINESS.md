@@ -64,39 +64,42 @@ at all.
 
 ## 2. P0 — THE PRODUCT CANNOT TRANSACT OR AUTHENTICATE
 
-### 2.1 The payment gateway is a fake, registered in every environment (`#375`)
+### 2.1 The payment gateway now has a real implementation — it needs live merchant credentials and vendor onboarding to activate (was `#375`)
 
-`backend/shared/Infrastructure/DependencyInjection.cs:627-629`:
+**Resolved as of this writing.** `backend/shared/Infrastructure/Services/PayUPaymentGateway.cs`
+implements `IPaymentGateway` against real PayU Hosted Checkout: order
+creation (the signed redirect form), refund (`cancel_refund_transaction` via
+PayU's postservice API), and webhook signature verification (PayU's
+documented SHA-512 hash formulas, verified against PayU's actual test
+environment while this class was written — not just against documentation).
+`PaymentGatewayRegistration.AddPaymentGateway` picks it over the sandbox the
+same way every other real-vendor integration in this project is chosen —
+see 2.2 below for the identical pattern:
 
 ```csharp
-services.AddSingleton<SandboxPaymentGateway>();
-services.AddSingleton<IPaymentGateway>(sp => sp.GetRequiredService<SandboxPaymentGateway>());
-services.AddSingleton<ISandboxPaymentSimulator>(sp => sp.GetRequiredService<SandboxPaymentGateway>());
+services.AddPaymentGateway(configuration);
 ```
 
-There is no environment branch. `SandboxPaymentGateway` is the
-`IPaymentGateway` in Production exactly as in Development.
+**What is still needed before this is live:**
+- A real PayU merchant account (`PayU:MerchantKey` / `PayU:MerchantSalt` in
+  Production configuration) — commercial onboarding and KYC, lead time
+  measured in weeks, same as before.
+- `PayU:CheckoutReturnBaseUrl` pointed at the real customer-web origin.
+- The customer-web checkout page itself: `IPaymentGateway.CreateOrderAsync`
+  now returns a `CheckoutRedirectUrl` + `CheckoutFormFields` a browser must
+  actually be POSTed to, plus `/checkout/payu/success` and
+  `/checkout/payu/failure` return pages — none of that frontend work exists
+  yet, only the backend contract it will consume.
+- `SubscriptionBillingJob`'s and `RecurringOccurrenceAutoChargeJob`'s
+  off-session/saved-card charging still only works against the sandbox:
+  PayU Hosted Checkout requires a live customer browser session and cannot
+  power a server-initiated recurring charge. That needs PayU's separate
+  tokenized/saved-card product, a different integration from the one built
+  here.
 
-`backend/shared/Infrastructure/Services/SandboxPaymentGateway.cs:9-24` is
-honest about what it is: order creation always succeeds, refunds always
-succeed, and payment outcome is decided by the amount's paisa component — a
-value of exactly 13 fails, everything else passes. Its own doc comment states
-the exit path: *"real integrations would simply remove this class and implement
-`IPaymentGateway` against the vendor's SDK instead."*
-
-No vendor SDK exists in the repository. A search for `razorpay|stripe|paytm|
-phonepe|cashfree` across `backend/` returns exactly one file —
-`shared/Application/Payments/IPaymentGateway.cs` — and only inside a comment.
-
-**What is actually needed:** a real `IPaymentGateway` implementation; webhook
-signature verification against the vendor's real scheme (the sandbox's HMAC is
-self-issued); settlement and reconciliation surfaces; refunds routed through
-the vendor's refund API rather than accepted unconditionally; and the
-commercial prerequisite of payment-aggregator onboarding and KYC, which has a
-lead time measured in weeks and should start before the code does.
-
-The interface boundary is clean, so this is an implementation task and not a
-redesign. That is the good news; it does not shorten the vendor onboarding.
+The interface boundary stayed clean through this change — no caller of
+`IPaymentGateway` needed to change to add the real implementation, exactly as
+this section previously predicted.
 
 ### 2.2 SMS and email are no-ops — so production login does not work (`#376`)
 

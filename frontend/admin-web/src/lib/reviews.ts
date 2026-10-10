@@ -34,6 +34,12 @@ export const FLAGGED_FILTER_OPTIONS: readonly { value: FlaggedFilterValue; label
  * `yyyy-mm-dd` values straight out of an `<input type="date">`, converted to
  * full UTC instants only when building the query string - same convention as
  * `AuditLogFilters`.
+ *
+ * `customerId` is form-hidden (no visible input - SRS 12.15 lists no such
+ * filter): it exists purely so the Customer 360 view's "Reviews written"
+ * link can deep-link here scoped to one customer, same "backend-supported,
+ * no visible input" convention as providers/directory's own createdFrom/
+ * customers/directory's own minBookingCount.
  */
 export interface ReviewModerationFilters {
   status: ReviewStatusFilterValue;
@@ -44,6 +50,7 @@ export interface ReviewModerationFilters {
   toDate: string;
   serviceId: string;
   categoryId: string;
+  customerId: string;
 }
 
 export const DEFAULT_REVIEW_MODERATION_FILTERS: ReviewModerationFilters = {
@@ -55,7 +62,13 @@ export const DEFAULT_REVIEW_MODERATION_FILTERS: ReviewModerationFilters = {
   toDate: "",
   serviceId: "",
   categoryId: "",
+  customerId: "",
 };
+
+/** Seeds the filter form from the URL's `customerId` query param - the Customer 360 view's "Reviews written" link opens here as `/reviews?customerId=X`. */
+export function reviewFiltersFromSearchParams(params: URLSearchParams): ReviewModerationFilters {
+  return { ...DEFAULT_REVIEW_MODERATION_FILTERS, customerId: params.get("customerId") ?? "" };
+}
 
 /** Builds the query string for `GET {API_V1}/reviews` (and `/reviews/export`), omitting unset filters. */
 export function buildReviewModerationQuery(
@@ -70,6 +83,7 @@ export function buildReviewModerationQuery(
   if (filters.maxRating) params.set("maxRating", filters.maxRating);
   if (filters.serviceId.trim()) params.set("serviceId", filters.serviceId.trim());
   if (filters.categoryId.trim()) params.set("categoryId", filters.categoryId.trim());
+  if (filters.customerId.trim()) params.set("customerId", filters.customerId.trim());
 
   // <input type="date"> yields "yyyy-mm-dd"; the API filters on a full UTC
   // instant, so pin From to the start of that *local* day and To to its end -

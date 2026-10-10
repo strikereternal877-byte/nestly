@@ -34,7 +34,7 @@ public sealed class CustomerAddressServiceTests : IClassFixture<TestDatabase>
         IsDefault: true);
 
     private CustomerAddressService BuildService(Nestly.Infrastructure.Persistence.NestlyDbContext context) =>
-        new(new CustomerAddressRepository(context), new GeographyRepository(context));
+        new(new CustomerAddressRepository(context), new GeographyRepository(context), new MonthlyServiceContractRepository(context));
 
     [Fact]
     public async Task AddAsync_resolves_PincodeId_when_the_code_matches_an_active_pincode()

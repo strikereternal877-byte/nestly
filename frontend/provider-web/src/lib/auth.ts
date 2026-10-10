@@ -1,6 +1,8 @@
 "use client";
 
 import { decodeJwtPayload } from "./jwt";
+import { browserStorageEnvironment, removeFromBothStores, sessionStoreFor } from "./session-storage";
+import type { KeyValueStorage } from "./session-storage";
 import type { ProviderLoginResponse, ProviderSessionClaims } from "./types";
 
 /**
@@ -9,8 +11,11 @@ import type { ProviderLoginResponse, ProviderSessionClaims } from "./types";
  * Mirrors admin-web/src/lib/auth.ts (itself mirroring customer-web) for
  * consistency across Nestly's frontends. Same known limitation applies:
  * tokens in Web Storage are readable by any script on the origin, so an XSS
- * bug becomes a session-theft bug. sessionStorage (not localStorage) narrows
- * the window - the session dies with the browser tab. Moving issuance to an
+ * bug becomes a session-theft bug. In a browser tab the session is kept in
+ * sessionStorage (not localStorage), which narrows the window - it dies with
+ * the tab. An app installed to the home screen has no tab to keep open, and a
+ * provider signed out every time they open it would miss job offers, so there
+ * it is kept in localStorage (see session-storage.ts). Moving issuance to an
  * httpOnly cookie is real hardening work, tracked separately, not something
  * this client can do unilaterally.
  *
@@ -29,30 +34,34 @@ function isBrowser(): boolean {
   return typeof window !== "undefined";
 }
 
+/** The store the session lives in right now: the tab's in a browser, the device's in an installed app. */
+function activeStore(): KeyValueStorage {
+  return sessionStoreFor(browserStorageEnvironment());
+}
+
 export function storeSession(session: ProviderLoginResponse): void {
   if (!isBrowser()) return;
-  sessionStorage.setItem(ACCESS_TOKEN_KEY, session.accessToken);
-  sessionStorage.setItem(REFRESH_TOKEN_KEY, session.refreshToken);
-  sessionStorage.setItem(EXPIRES_AT_KEY, session.accessTokenExpiresAtUtc);
+  const store = activeStore();
+  store.setItem(ACCESS_TOKEN_KEY, session.accessToken);
+  store.setItem(REFRESH_TOKEN_KEY, session.refreshToken);
+  store.setItem(EXPIRES_AT_KEY, session.accessTokenExpiresAtUtc);
   window.dispatchEvent(new Event(AUTH_CHANGED_EVENT));
 }
 
 export function clearSession(): void {
   if (!isBrowser()) return;
-  sessionStorage.removeItem(ACCESS_TOKEN_KEY);
-  sessionStorage.removeItem(REFRESH_TOKEN_KEY);
-  sessionStorage.removeItem(EXPIRES_AT_KEY);
+  removeFromBothStores(browserStorageEnvironment(), [ACCESS_TOKEN_KEY, REFRESH_TOKEN_KEY, EXPIRES_AT_KEY]);
   window.dispatchEvent(new Event(AUTH_CHANGED_EVENT));
 }
 
 export function getAccessToken(): string | null {
   if (!isBrowser()) return null;
-  return sessionStorage.getItem(ACCESS_TOKEN_KEY);
+  return activeStore().getItem(ACCESS_TOKEN_KEY);
 }
 
 export function getRefreshToken(): string | null {
   if (!isBrowser()) return null;
-  return sessionStorage.getItem(REFRESH_TOKEN_KEY);
+  return activeStore().getItem(REFRESH_TOKEN_KEY);
 }
 
 /** True only when a token is present *and* has not already expired. */
@@ -60,7 +69,7 @@ export function isAuthenticated(): boolean {
   const token = getAccessToken();
   if (!token) return false;
 
-  const expiresAt = sessionStorage.getItem(EXPIRES_AT_KEY);
+  const expiresAt = activeStore().getItem(EXPIRES_AT_KEY);
   if (!expiresAt) return false;
 
   // The backend is expected to serialise the expiry as UTC; append the

@@ -8,6 +8,10 @@
  */
 import { API_V1, apiFetch } from "./api";
 import type {
+  AdminWalletTopUp,
+  AdminWalletTopUpReconcileResponse,
+  AdminWalletTopUpSearchParams,
+  PagedAdminWalletTopUpResponse,
   AdminPaymentReconciliationResponse,
   AdminPaymentTransactionDetail,
   AdminPaymentTransactionListItem,
@@ -50,4 +54,19 @@ export const voidPaymentTransaction = (transactionId: string, request: AdminVoid
     method: "POST",
     authenticated: true,
     body: JSON.stringify(request),
+  });
+
+const WALLET_TOP_UPS_BASE = `${API_V1}/wallet-top-ups`;
+
+export const searchWalletTopUps = (params: AdminWalletTopUpSearchParams) =>
+  apiFetch<PagedAdminWalletTopUpResponse>(`${WALLET_TOP_UPS_BASE}${query(params)}`, { authenticated: true });
+
+export const getWalletTopUp = (topUpId: string) =>
+  apiFetch<AdminWalletTopUp>(`${WALLET_TOP_UPS_BASE}/${topUpId}`, { authenticated: true });
+
+/** Asks the gateway how the top-up ended and applies a definite answer ("payments.write"). Safe to repeat. */
+export const reconcileWalletTopUp = (topUpId: string) =>
+  apiFetch<AdminWalletTopUpReconcileResponse>(`${WALLET_TOP_UPS_BASE}/${topUpId}/reconcile`, {
+    method: "POST",
+    authenticated: true,
   });

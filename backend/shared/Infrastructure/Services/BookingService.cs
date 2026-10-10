@@ -6,6 +6,7 @@ using Nestly.Application.Bookings;
 using Nestly.Application.Coupons;
 using Nestly.Application.ProviderManagement;
 using Nestly.Application.Reviews;
+using Nestly.Application.Settings;
 using Nestly.Application.Slots;
 using Nestly.Application.Subscriptions;
 using Nestly.Application.Wallet;
@@ -100,6 +101,7 @@ public class BookingService : IBookingService
     // attempt left slot_booking_counter incremented with zero matching rows
     // in booking for that (slotWindowId, date).
     private readonly NestlyDbContext _context;
+    private readonly IPlatformRules _platformRules;
 
     public BookingService(
         IBookingSummaryService summaryService,
@@ -114,7 +116,8 @@ public class BookingService : IBookingService
         ICustomerSubscriptionRepository customerSubscriptionRepository,
         IWalletService walletService,
         IEligibleProviderSearchService eligibleProviderSearchService,
-        NestlyDbContext context)
+        NestlyDbContext context,
+        IPlatformRules? platformRules = null)
     {
         _summaryService = summaryService;
         _bookingRepository = bookingRepository;
@@ -129,6 +132,7 @@ public class BookingService : IBookingService
         _walletService = walletService;
         _eligibleProviderSearchService = eligibleProviderSearchService;
         _context = context;
+        _platformRules = platformRules ?? NoPlatformRules.Instance;
     }
 
     public async Task<Result<BookingDetailResponse>> CreateAsync(
@@ -151,6 +155,30 @@ public class BookingService : IBookingService
             {
                 var activeAssignment = await _assignmentRepository.GetActiveByBookingAsync(existingByKey.Id);
                 return Result.Success(ToDetailResponse(existingByKey, activeAssignment?.Status, await ProviderSummaryFor(activeAssignment)));
+            }
+        }
+
+        // Booking rules: the cap on how many active bookings one customer may hold. Only a booking the customer places
+        // themselves counts and is capped - the visits a recurring plan generates and an AMC redemption are not one-off
+        // bookings, and a daily plan alone would otherwise use up the whole allowance and then be blocked from creating
+        // its own next visit. Checked ahead of anything that reserves.
+        if (recurringBookingPlanId is null && amcContractId is null
+            && (await _platformRules.GetBookingAsync())?.MaxActiveBookingsPerCustomer is { } activeLimit)
+        {
+            int active = await _context.Set<Booking>().CountAsync(b =>
+                b.CustomerId == customerId
+                && b.RecurringBookingPlanId == null
+                && b.AmcContractId == null
+                && BookingStatusSets.Committed.Contains(b.Status));
+
+            if (active >= activeLimit)
+            {
+                const string errorCode = "Booking.ActiveBookingLimitReached";
+                _metricsService.RecordBookingCreated(succeeded: false, errorCode);
+                return Error.Business(
+                    errorCode,
+                    $"You can have up to {activeLimit} active booking{(activeLimit == 1 ? "" : "s")} at a time. " +
+                    "Once one is completed or cancelled you can book another.");
             }
         }
 

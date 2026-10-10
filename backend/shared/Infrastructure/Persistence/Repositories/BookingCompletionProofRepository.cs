@@ -34,4 +34,11 @@ public class BookingCompletionProofRepository : IBookingCompletionProofRepositor
 
     public Task<bool> ExistsForBookingAsync(Guid bookingId) =>
         _context.BookingCompletionProofs.AnyAsync(p => p.BookingId == bookingId);
+
+    public async Task<IReadOnlyList<BookingCompletionProof>> ListPendingAsync(CancellationToken cancellationToken = default) =>
+        await _context.BookingCompletionProofs
+            .AsNoTracking()
+            .Where(p => p.ReviewStatus == CompletionProofReviewStatus.Pending)
+            .OrderBy(p => p.SubmittedAtUtc)
+            .ToListAsync(cancellationToken);
 }

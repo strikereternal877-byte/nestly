@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { ReactNode } from "react";
 import { Button } from "@/components/ui";
 import { ConfirmDialog, DataTable } from "@/components/data-table";
@@ -50,12 +50,21 @@ export function CmsPagesTable({
 
   // Dismiss only once the request it started has finished, and only when it
   // succeeded — closing on click would hide both the in-flight state and the
-  // failure reason.
-  useEffect(() => {
-    if (!confirmed || isUnpublishing) return;
-    setConfirmed(false);
-    if (!toggleError) setPendingUnpublish(null);
-  }, [confirmed, isUnpublishing, toggleError]);
+  // failure reason. "Adjusting state when a prop changes"
+  // (react.dev/learn/you-might-not-need-an-effect), not an effect:
+  // shouldSettle is true for exactly one render (a confirmed toggle that has
+  // just stopped being pending), and comparing against its own last-seen
+  // value during render is what fires the close-out exactly once per settle
+  // rather than on every render where both conditions still hold.
+  const shouldSettle = confirmed && !isUnpublishing;
+  const [wasSettling, setWasSettling] = useState(false);
+  if (shouldSettle !== wasSettling) {
+    setWasSettling(shouldSettle);
+    if (shouldSettle) {
+      setConfirmed(false);
+      if (!toggleError) setPendingUnpublish(null);
+    }
+  }
 
   const columns: DataTableColumn<CmsPageResponse>[] = [
     {

@@ -4,9 +4,11 @@
  */
 import { API_V1, apiFetch, apiUpload } from "./api";
 import type {
+  BankAccount,
   GoLiveStatus,
   KycStatusResponse,
   ServiceArea,
+  SubmitBankAccountRequest,
   SubmitKycDocumentRequest,
   UpdateProfileRequest,
   UpdateProviderPhotoRequest,
@@ -96,3 +98,20 @@ export const updateSkills = (request: UpdateSkillsRequest) =>
  */
 export const getGoLiveStatus = () =>
   apiFetch<GoLiveStatus>(`${PROFILE_BASE}/go-live-status`, { authenticated: true });
+
+/**
+ * The caller's own structured bank account details for payouts
+ * (docs/PROVIDER.md OPEN DECISIONS #3). 404s when nothing has been submitted
+ * yet - callers treat that as an empty state, not an error (see
+ * `isNotImplemented` in `api.ts` for the same status-code-as-signal idiom).
+ */
+export const getBankAccount = () =>
+  apiFetch<BankAccount>(`${PROFILE_BASE}/bank-account`, { authenticated: true });
+
+/** Submits or edits the caller's bank account details - an upsert (one row, always reset to Pending on resubmission), unlike KYC documents. */
+export const submitBankAccount = (request: SubmitBankAccountRequest) =>
+  apiFetch<BankAccount>(`${PROFILE_BASE}/bank-account`, {
+    method: "PUT",
+    authenticated: true,
+    body: JSON.stringify(request),
+  });

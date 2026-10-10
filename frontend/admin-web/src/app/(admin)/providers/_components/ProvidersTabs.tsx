@@ -24,6 +24,7 @@ export function ProvidersTabs() {
         // strip at all.
         { href: "/providers", label: "Onboarding Overview" },
         { href: "/providers/directory", label: "Directory" },
+        { href: "/providers/verification", label: "Verification queue" },
         { href: "/providers/performance", label: "Performance" },
       ]}
     />

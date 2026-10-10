@@ -375,24 +375,25 @@ public class ProviderJobService : IProviderJobService
             return proofError;
         }
 
-        try
-        {
-            // Raises BookingStatusChangedEvent -> EscrowReleaseOnCompletionHandler,
-            // which releases escrow to this provider and credits their
-            // earning ledger (task 148) once this save commits.
-            booking.TransitionTo(BookingStatus.Completed, "Provider marked the job completed.");
-        }
-        catch (InvalidOperationException ex)
-        {
-            return Error.Business("ProviderJob.InvalidTransition", ex.Message);
-        }
+        // The booking deliberately stays InProgress here rather than
+        // transitioning to Completed - an admin approving the completion
+        // proof (BookingManagementService.ApproveCompletionProofAsync) is
+        // what actually performs that transition (and so triggers
+        // BookingStatusChangedEvent -> EscrowReleaseOnCompletionHandler,
+        // which releases escrow and credits the provider's earning ledger).
+        // A provider marking their own job done is not, by itself, evidence
+        // an admin has accepted; see BookingCompletionProof's doc comment.
 
-        // The completion is verified at this point (booking is InProgress and a
-        // completion proof exists, checked above), so move the assignment to its
-        // terminal Completed state and stamp the finish time. This is what frees
-        // the provider from occupying the rest of this job's slot window, so the
-        // eligibility engine can offer them the next order (task: verified-
-        // completion release, subject to travel/buffer/duration).
+        // The provider's own part is done at this point (booking is
+        // InProgress and a completion proof exists, checked above), so move
+        // the assignment to its terminal Completed state and stamp the
+        // finish time regardless of the pending admin review - this is what
+        // frees the provider from occupying the rest of this job's slot
+        // window, so the eligibility engine can offer them the next order
+        // (task: verified-completion release, subject to travel/buffer/duration).
+        // Booking and assignment lifecycles are deliberately decoupled here:
+        // whether this booking's paperwork is fully closed has no bearing on
+        // whether this provider is still busy on it.
         var completedAtUtc = DateTime.UtcNow;
         assignment.Complete(completedAtUtc);
 

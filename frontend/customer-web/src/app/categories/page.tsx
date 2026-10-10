@@ -5,6 +5,7 @@ import { motion } from "motion/react";
 import { CategoryGridSkeleton } from "@/components/CategoryGridSkeleton";
 import { CategoryTile } from "@/components/CategoryTile";
 import { CitySelector } from "@/components/CitySelector";
+import { CuratedHomeSections } from "@/components/CuratedHomeSections";
 import { PageBanner } from "@/components/PageBanner";
 import { Reveal, revealItem } from "@/components/motion";
 import { Alert, Button, EmptyState } from "@/components/ui";
@@ -37,13 +38,27 @@ export default function CategoriesPage() {
         </>
       ) : city === null ? (
         <>
-          <PageBanner title="All categories" description="Browse every service we offer in your city." />
+          {/* No hard "choose a city first" wall: `GET /categories` itself
+              requires a cityId, so this page genuinely cannot show a
+              city-filtered grid without one - but the same city-agnostic
+              curated content the home page already leads with
+              (`GET /landing/home`, no city param) is just as real and
+              bookable here. City selection stays available (the banner's
+              badge, same position as the city-selected view below) rather
+              than gating anything. */}
+          <PageBanner
+            title="All categories"
+            description="Browse every service we offer — set your city to check availability near you."
+            badge={<CitySelector />}
+          />
           <div className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 sm:py-12">
-            <EmptyState
-              title="Choose your city"
-              description="Services and pricing vary by city — tell us where you are and we'll show what's available near you."
-              action={<CitySelector />}
-            />
+            <div className="flex flex-col gap-14">
+              <Alert tone="info" title="Popular right now">
+                Here&apos;s what customers are booking across Glavyx. Set your city anytime to see exact pricing,
+                availability, and book.
+              </Alert>
+              <CuratedHomeSections />
+            </div>
           </div>
         </>
       ) : (

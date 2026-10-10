@@ -56,20 +56,20 @@ export function NotificationTemplatePreviewBody({ channel, subject, body, render
   // drop any that no longer appear - without clobbering an admin's own edits
   // to the ones that remain.
   //
-  // `variableNames` is a fresh array on every subject/body change, so this used
-  // to hand back a new object identity on every keystroke even when the
-  // placeholder set was unchanged - which re-triggered the debounced render
-  // below a second time per character. Returning `previous` untouched when
-  // nothing moved makes typing cost exactly one preview request.
-  useEffect(() => {
-    setSampleValues((previous) => {
-      const next: Record<string, string> = {};
-      for (const name of variableNames) {
-        next[name] = previous[name] ?? `Sample ${name}`;
-      }
-      return sameValues(previous, next) ? previous : next;
-    });
-  }, [variableNames]);
+  // `variableNames` is a fresh array on every subject/body change, so leaving
+  // `sampleValues` untouched when nothing actually moved (via `sameValues`
+  // below) matters here specifically to avoid re-triggering the debounced
+  // render effect a second time per character. Adjusting state when a prop
+  // changes (react.dev/learn/you-might-not-need-an-effect), not an effect.
+  const [seededVariableNames, setSeededVariableNames] = useState(variableNames);
+  if (variableNames !== seededVariableNames) {
+    setSeededVariableNames(variableNames);
+    const next: Record<string, string> = {};
+    for (const name of variableNames) {
+      next[name] = sampleValues[name] ?? `Sample ${name}`;
+    }
+    if (!sameValues(sampleValues, next)) setSampleValues(next);
+  }
 
   const previewMutation = useMutation({
     mutationFn: (sampleVariables: Record<string, string>) => render(sampleVariables),

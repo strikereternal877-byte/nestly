@@ -200,4 +200,48 @@ public sealed class SubscriptionTests : IClassFixture<TestDatabase>
         var reloaded = await new CustomerSubscriptionRepository(context).GetByIdAsync(subscription.Id);
         reloaded!.ExpiringSoonNotifiedForPeriodEndUtc.Should().Be(reloaded.CurrentPeriodEndUtc);
     }
+
+    /// <summary>
+    /// Regression: with a real gateway configured, this job used to still
+    /// resolve the charge via ISandboxPaymentSimulator regardless (it is
+    /// always bound to the concrete sandbox - see PaymentGatewayRegistration's
+    /// own doc comment) and record a successful renewal despite no real
+    /// charge ever being attempted. It must now record a failed charge -
+    /// the same retry/backoff path a genuine decline already takes -
+    /// instead of fabricating a renewal nobody paid for.
+    /// </summary>
+    [Fact]
+    public async Task BillingJob_records_a_failed_charge_instead_of_a_fake_renewal_when_a_real_gateway_is_configured()
+    {
+        using var context = _db.CreateContext();
+        // A whole-rupee amount that would deterministically SUCCEED under
+        // the sandbox convention - proving a real-gateway failure here is
+        // not just an artifact of the sandbox's own paisa-13 decline rule.
+        var plan = await SeedActivePlanAsync(context, price: 499.00m);
+        var customerId = await SeedCustomerAsync(context);
+        var subscription = new CustomerSubscription(Guid.NewGuid(), customerId, plan, _now.AddDays(-31));
+        context.Add(subscription);
+        await context.SaveChangesAsync();
+
+        var realGateway = new PayUPaymentGateway(
+            new StubHttpClientFactory(StubHttpMessageHandler.Responding(System.Net.HttpStatusCode.OK)),
+            Options.Create(new PayUOptions
+            {
+                MerchantKey = "test-key",
+                MerchantSalt = "test-salt",
+                CheckoutReturnBaseUrl = "https://app.nestly.test",
+            }),
+            NullLogger<PayUPaymentGateway>.Instance);
+        var sandboxSimulator = BuildGateway();
+
+        var job = new SubscriptionBillingJob(
+            new CustomerSubscriptionRepository(context), realGateway, sandboxSimulator,
+            Options.Create(new SubscriptionBillingOptions()), new FakeTimeProvider(_now), NullLogger<SubscriptionBillingJob>.Instance);
+
+        await job.ProcessDueBillingAsync();
+
+        var reloaded = await new CustomerSubscriptionRepository(context).GetByIdAsync(subscription.Id);
+        reloaded!.Status.Should().Be(CustomerSubscriptionStatus.PaymentFailed);
+        reloaded.RetryCount.Should().Be(1);
+    }
 }

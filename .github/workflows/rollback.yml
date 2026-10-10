@@ -1,13 +1,17 @@
 name: Rollback
 
-# Manually-triggered rollback of a previously deployed image tag, to either
-# the staging or production environment (docs/DEVOPS.md CD PIPELINE §5:
-# "Support rollback to the previous image version").
+# Manually-triggered database rollback, to either the staging or production
+# environment (docs/DEVOPS.md CD PIPELINE §5: "Support rollback to the
+# previous image version").
 #
-# This redeploys an already-built, already-pushed image - it does NOT
-# rebuild from source. Find the tag to roll back to either from a previous
-# cd-staging/cd-production run's logs (`staging-<sha>` / `production-<sha>`)
-# or by listing package versions under the repo's GHCR packages page.
+# Application-level rollback is no longer this workflow's job: Render
+# deploys the three APIs directly from this repo's Dockerfiles (see
+# cd-production.yml/cd-staging.yml headers) and keeps its own deploy
+# history - rolling back the app means using Render's dashboard (or its
+# API) to redeploy a previous successful deploy, same for Vercel on the
+# frontends. There is no GHCR image tag or SSH host for this workflow to
+# redeploy to anymore. What Render/Vercel cannot do for you is touch the
+# database, so that remains here.
 #
 # `environment: ${{ inputs.environment }}` below resolves to `staging` or
 # `production` at run time, so rolling back production still goes through
@@ -16,7 +20,7 @@ name: Rollback
 # comment) - a rollback is a production change like any other and must not
 # bypass approval.
 #
-# --- Database rollback: read this before using target_migration ---
+# --- Read this before using target_migration ---
 #
 # EF Core migrations CAN have a Down() method and `dotnet ef database
 # update <PreviousMigrationName>` genuinely reverts schema changes - this is
@@ -27,19 +31,17 @@ name: Rollback
 #   - dropped a column or table (Down() would have to fabricate data that no
 #     longer exists - EF cannot recover it)
 #   - changed a column's type in a lossy way
-#   - was already relied upon by code that is about to redeploy alongside it
-#     (rolling back schema while still running the *old* app image is fine;
-#     rolling back schema while a newer image that expects the new schema is
-#     still partially rolled out is not)
+#   - is still relied upon by the app version currently live (roll back the
+#     Render/Vercel deploy to a version that predates the migration you're
+#     reverting *before* running this, not after - the app must never be
+#     newer than the schema it expects)
 #
-# The safer, more common default in production systems - and the one this
-# workflow defaults to (leave `target_migration` empty) - is "roll back the
-# application, forward-fix the database": redeploy the previous image
-# without touching schema, then ship a new migration that fixes the problem
-# going forward. Only pass `target_migration` when you have specifically
-# verified every intervening Down() is safe to run against real data; this
-# workflow will run it verbatim via `dotnet ef database update
-# <target_migration>` and will not second-guess your choice.
+# Only run this when you have specifically verified every intervening
+# Down() is safe to run against real data; it runs the target migration
+# verbatim via `dotnet ef database update <target_migration>` and will not
+# second-guess your choice. If you just need to undo a bad app deploy and
+# the schema itself is fine, you don't need this workflow at all - use
+# Render's/Vercel's own rollback instead.
 
 on:
   workflow_dispatch:
@@ -51,24 +53,14 @@ on:
         options:
           - staging
           - production
-      image_tag:
-        description: >-
-          Previously published image tag to redeploy, e.g. staging-a1b2c3d
-          or production-a1b2c3d (see cd-staging.yml/cd-production.yml run
-          logs, or GHCR package versions, for valid values).
-        required: true
-        type: string
       target_migration:
         description: >-
-          OPTIONAL. Name of a specific prior EF Core migration to roll the
-          database back to (e.g. 20260730151925_AddGeographySchema). Leave
-          empty (default) to redeploy the app only and leave the schema
-          alone - see this workflow's header comment on why that is the
-          safer default. Only set this if you have verified every
-          intervening migration's Down() is safe.
-        required: false
+          Name of a specific prior EF Core migration to roll the database
+          back to (e.g. 20260730151925_AddGeographySchema). Only set this if
+          you have verified every intervening migration's Down() is safe -
+          see this workflow's header comment.
+        required: true
         type: string
-        default: ""
 
 concurrency:
   group: cd-${{ inputs.environment }}
@@ -76,8 +68,7 @@ concurrency:
 
 jobs:
   rollback-database:
-    name: Roll back database (optional)
-    if: ${{ inputs.target_migration != '' }}
+    name: Roll back database
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
     steps:
@@ -88,8 +79,11 @@ jobs:
         with:
           global-json-file: global.json
 
-      - name: Install dotnet-ef
-        run: dotnet tool install --global dotnet-ef --version 8.*
+      - name: Restore dotnet-ef (local tool)
+        # The repo pins dotnet-ef as a *local* tool (.config/dotnet-tools.json),
+        # so a global install is ignored - `dotnet ef` still refuses to run
+        # ("Run 'dotnet tool restore'...") until the manifest is restored.
+        run: dotnet tool restore
 
       - name: Roll back to ${{ inputs.target_migration }}
         env:
@@ -99,63 +93,3 @@ jobs:
             --project backend/shared/Infrastructure \
             --startup-project backend/consumer-api/ConsumerApi \
             --connection "$CONNECTION"
-
-  rollback-deploy:
-    name: Redeploy ${{ inputs.image_tag }} to ${{ inputs.environment }}
-    needs: [rollback-database]
-    # needs a completed rollback-database job only when it actually ran;
-    # `always()` + explicit result check lets this job proceed when the
-    # optional job was skipped (no target_migration given) without GitHub
-    # treating "skipped" as "failed".
-    if: ${{ always() && (needs.rollback-database.result == 'success' || needs.rollback-database.result == 'skipped') }}
-    runs-on: ubuntu-latest
-    environment: ${{ inputs.environment }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Resolve target host/user/key for this environment
-        id: target
-        env:
-          STAGING_SSH_HOST: ${{ secrets.STAGING_SSH_HOST }}
-          STAGING_SSH_USER: ${{ secrets.STAGING_SSH_USER }}
-          PRODUCTION_SSH_HOST: ${{ secrets.PRODUCTION_SSH_HOST }}
-          PRODUCTION_SSH_USER: ${{ secrets.PRODUCTION_SSH_USER }}
-        run: |
-          if [ "${{ inputs.environment }}" = "production" ]; then
-            echo "host=$PRODUCTION_SSH_HOST" >> "$GITHUB_OUTPUT"
-            echo "user=$PRODUCTION_SSH_USER" >> "$GITHUB_OUTPUT"
-          else
-            echo "host=$STAGING_SSH_HOST" >> "$GITHUB_OUTPUT"
-            echo "user=$STAGING_SSH_USER" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Configure SSH
-        env:
-          STAGING_SSH_PRIVATE_KEY: ${{ secrets.STAGING_SSH_PRIVATE_KEY }}
-          PRODUCTION_SSH_PRIVATE_KEY: ${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}
-        run: |
-          mkdir -p ~/.ssh
-          if [ "${{ inputs.environment }}" = "production" ]; then
-            printf '%s\n' "$PRODUCTION_SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
-          else
-            printf '%s\n' "$STAGING_SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
-          fi
-          chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H "${{ steps.target.outputs.host }}" >> ~/.ssh/known_hosts 2>/dev/null
-
-      - name: Ship deploy manifest
-        run: |
-          scp -i ~/.ssh/deploy_key deploy/docker-compose.deploy.yml \
-            "${{ steps.target.outputs.user }}@${{ steps.target.outputs.host }}:/opt/nestly/docker-compose.yml"
-
-      - name: Redeploy previous image tag
-        run: |
-          ssh -i ~/.ssh/deploy_key "${{ steps.target.outputs.user }}@${{ steps.target.outputs.host }}" bash -s <<EOF
-            set -euo pipefail
-            cd /opt/nestly
-            export CONSUMER_API_IMAGE=ghcr.io/${{ github.repository }}/consumer-api:${{ inputs.image_tag }}
-            export ADMIN_API_IMAGE=ghcr.io/${{ github.repository }}/admin-api:${{ inputs.image_tag }}
-            export PROVIDER_API_IMAGE=ghcr.io/${{ github.repository }}/provider-api:${{ inputs.image_tag }}
-            docker compose pull
-            docker compose up -d --remove-orphans
-          EOF

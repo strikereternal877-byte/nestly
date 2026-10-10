@@ -464,10 +464,20 @@ interface FieldProps extends InputHTMLAttributes<HTMLInputElement> {
    * (typed `string`) that this interface would otherwise clash with.
    */
   leading?: ReactNode;
+  /**
+   * Trailing adornment — e.g. a show/hide-password toggle. Positioned
+   * relative to the input box itself (not the label above it), so it stays
+   * vertically centered regardless of label/error text height - unlike a
+   * caller wrapping the whole `Field` in its own `relative` and guessing a
+   * fixed top offset, which drifts out of alignment the moment this
+   * component's label styling changes. Unlike `leading` this is interactive
+   * (not `pointer-events-none`); callers supply their own button.
+   */
+  trailing?: ReactNode;
 }
 
 export const Field = forwardRef<HTMLInputElement, FieldProps>(function Field(
-  { label, error, hint, leading, id, className = "", ...props },
+  { label, error, hint, leading, trailing, id, className = "", ...props },
   ref,
 ) {
   const reactId = useId();
@@ -485,6 +495,7 @@ export const Field = forwardRef<HTMLInputElement, FieldProps>(function Field(
         CONTROL_FIXED_HEIGHT,
         error ? CONTROL_INVALID : CONTROL_IDLE,
         Boolean(leading) && "pl-9",
+        Boolean(trailing) && "pr-10",
         className,
       )}
     />
@@ -498,12 +509,17 @@ export const Field = forwardRef<HTMLInputElement, FieldProps>(function Field(
       error={error}
       required={props.required}
     >
-      {leading ? (
+      {leading || trailing ? (
         <div className="relative">
-          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-fg-subtle">
-            {leading}
-          </span>
+          {leading ? (
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-fg-subtle">
+              {leading}
+            </span>
+          ) : null}
           {input}
+          {trailing ? (
+            <span className="absolute right-1 top-1/2 -translate-y-1/2">{trailing}</span>
+          ) : null}
         </div>
       ) : (
         input
@@ -1567,17 +1583,20 @@ export function Modal({
 
   // Swipe-to-dismiss for the mobile bottom-sheet state only (see the drag
   // handle below, which is the only element wired to these handlers and is
-  // itself hidden from `sm:` up). `hasDraggedRef` keeps the drag transform
-  // out of the panel's inline style until a drag actually starts, so it
-  // never fights the `animate-pop` entrance keyframes on open.
+  // itself hidden from `sm:` up). `hasDragged` keeps the drag transform out
+  // of the panel's inline style until a drag actually starts, so it never
+  // fights the `animate-pop` entrance keyframes on open - real state, not a
+  // ref, because it feeds the render below: a ref mutation on its own
+  // wouldn't schedule a re-render, and reading .current during render is
+  // exactly what react-hooks/refs exists to catch.
   const [dragOffset, setDragOffset] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
+  const [hasDragged, setHasDragged] = useState(false);
   const dragStartYRef = useRef<number | null>(null);
-  const hasDraggedRef = useRef(false);
 
   const handleSheetDragStart = (event: ReactPointerEvent<HTMLDivElement>) => {
     event.currentTarget.setPointerCapture(event.pointerId);
-    hasDraggedRef.current = true;
+    setHasDragged(true);
     dragStartYRef.current = event.clientY;
     setIsDragging(true);
   };
@@ -1667,7 +1686,6 @@ export function Modal({
     // `onClose` intentionally excluded - see onCloseRef above. Re-running this
     // only on `open` also means the focus-on-open behavior fires once per
     // open, not once per parent render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   if (!open) return null;
@@ -1718,7 +1736,7 @@ export function Modal({
           sizes[size],
         )}
         style={
-          hasDraggedRef.current
+          hasDragged
             ? {
                 transform: `translateY(${dragOffset}px)`,
                 transition: isDragging ? "none" : "transform 200ms ease-out",

@@ -52,12 +52,14 @@ export enum RecurrenceFrequency {
   Weekly = 0,
   Biweekly = 1,
   Monthly = 2,
+  Daily = 3,
 }
 
 export const RECURRENCE_FREQUENCY_LABELS: Record<RecurrenceFrequency, string> = {
   [RecurrenceFrequency.Weekly]: "Every week",
   [RecurrenceFrequency.Biweekly]: "Every 2 weeks",
   [RecurrenceFrequency.Monthly]: "Every month",
+  [RecurrenceFrequency.Daily]: "Every day",
 };
 
 export function recurrenceFrequencyLabel(frequency: RecurrenceFrequency): string {

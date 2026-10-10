@@ -140,7 +140,7 @@ public class ProviderKycServiceTests : IDisposable
             new SubmitProviderKycDocumentRequest(_providerId, ProviderKycDocumentType.IdentityProof, "s3://kyc/id-v1.pdf", null));
 
         var rejectedDoc = await context.Set<ProviderKycDocument>().SingleAsync(d => d.Id == first.Value.Id);
-        rejectedDoc.Reject(Guid.NewGuid());
+        rejectedDoc.Reject(Guid.NewGuid(), "Document is blurry.");
         context.Update(rejectedDoc);
         await context.SaveChangesAsync();
 

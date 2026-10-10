@@ -17,8 +17,21 @@ import { getRefreshToken, isAuthenticated, subscribeToAuthChanges } from "@/lib/
  * request these screens make is rejected server-side without a valid JWT,
  * and lib/api.ts's apiFetch clears the local session the moment the server
  * says a token is no longer good (401), which this guard reacts to
- * immediately via subscribeToAuthChanges - covering both "never logged in"
- * and "was logged in, token just expired/was revoked" in the same code path.
+ * immediately via subscribeToAuthChanges - covering "never logged in" and
+ * "was logged in, token was revoked mid-visit" (a real 401 arrived and
+ * apiFetch's own refresh attempt already failed) in the same code path.
+ *
+ * A *locally* expired access token is a third case apiFetch's reactive path
+ * doesn't cover: if nothing happened to be mid-API-call right when the
+ * token's short lifetime elapsed - a provider who just reopened the tab
+ * after being away, not one actively using it - the first thing to notice
+ * is this guard's own isAuthenticated() check, with no 401 involved at all.
+ * That used to redirect straight to /login?reason=expired without ever
+ * trying the refresh token sitting right there in storage. This guard now
+ * attempts refreshAccessToken() itself first in that case (see the mount
+ * effect below) - the same refresh apiFetch uses, so both paths converge
+ * on one outcome instead of the guard silently giving up sooner than
+ * apiFetch would have.
  */
 // Flips true after this tab's first client render commits - see
 // customer-web/src/components/RequireAuth.tsx for why `typeof window` alone
@@ -29,8 +42,13 @@ let hasClientRendered = false;
 
 export function RequireProviderAuth({ children }: { children: ReactNode }) {
   const router = useRouter();
+  // Only the confidently-authenticated fast path skips the loading skeleton
+  // on a same-tab remount; anything else (never signed in, or locally
+  // expired and possibly refreshable) starts undefined so the redirect
+  // effect below can't fire off a stale `false` before the mount effect's
+  // refresh attempt has had a chance to run.
   const [authed, setAuthed] = useState<boolean | undefined>(() =>
-    hasClientRendered ? isAuthenticated() : undefined,
+    hasClientRendered && isAuthenticated() ? true : undefined,
   );
   // Whether this tab actually held a live session before `authed` most
   // recently flipped to false - distinguishes "the session just expired /

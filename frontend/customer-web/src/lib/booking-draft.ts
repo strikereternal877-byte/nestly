@@ -1,3 +1,6 @@
+/** The two ways to auto-schedule a service - see {@link BookingDraft.repeatPlanKind}. */
+export type RepeatPlanKind = "daily" | "prepaid";
+
 /**
  * Booking draft persistence (task 228).
  *
@@ -44,6 +47,19 @@ export interface BookingDraft {
   /** Mirrors `RecurringBookingRecurrenceFrequency`; stored as its ordinal, as the API takes it. */
   repeatFrequency?: number | null;
   repeatCount?: string | null;
+  /** "Until I cancel" - an open-ended plan with no visit count. */
+  repeatUntilCancelled?: boolean;
+  /**
+   * Which kind of plan the customer picked: "daily" (a visit every day, each one paid as it is booked,
+   * from the wallet) or "prepaid" (every visit paid for now, in one payment). A draft saved before there
+   * were two kinds has neither and reads as "prepaid", which is what it always was.
+   */
+  repeatPlanKind?: RepeatPlanKind;
+  /**
+   * A daily plan's "pay each day's visit from my wallet" choice. Null/absent means the customer has not
+   * decided, which the page reads as "yes" whenever the wallet has a balance.
+   */
+  planWalletAuto?: boolean | null;
   recurringPlanId?: string | null;
   /**
    * Null for a service with no variants (Phase 3 catalog redesign). Part of

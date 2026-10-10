@@ -237,6 +237,9 @@ function ReviewForm({ bookingId, onSubmitted }: { bookingId: string; onSubmitted
     onSuccess: onSubmitted,
   });
 
+  // False positive: handleSubmit only *builds* this callback during render;
+  // it doesn't invoke it until a real submit event, well outside render.
+  // eslint-disable-next-line react-hooks/refs
   const handleSubmit = form.handleSubmit((values) => {
     if (rating < 1 || rating > 5) {
       setRatingError("Please select a rating from 1 to 5.");

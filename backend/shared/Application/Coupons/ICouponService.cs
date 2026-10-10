@@ -30,4 +30,15 @@ public interface ICouponService
     Task<Result> ReserveAsync(Guid couponId, Guid customerId);
 
     Task CreateRedemptionRecordAsync(Guid couponId, Guid customerId, Guid bookingId, decimal discountAmount);
+
+    /// <summary>
+    /// Undoes <see cref="ReserveAsync"/> + <see cref="CreateRedemptionRecordAsync"/>
+    /// for a booking that never actually completed (expired unpaid, or was
+    /// cancelled before payment ever settled) - releases both the overall
+    /// and per-customer usage counters and removes the redemption record, so
+    /// the coupon usage this booking would have consumed is genuinely given
+    /// back rather than permanently burned on an order that never happened.
+    /// No-op if this booking never used a coupon.
+    /// </summary>
+    Task ReleaseAsync(Guid bookingId);
 }

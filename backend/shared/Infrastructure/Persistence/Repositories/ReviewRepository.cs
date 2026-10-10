@@ -177,6 +177,11 @@ public class ReviewRepository : IReviewRepository
             query = query.Where(r => _context.Set<Service>().Any(s => s.Id == r.ServiceId && s.CategoryId == categoryId));
         }
 
+        if (criteria.CustomerId.HasValue)
+        {
+            query = query.Where(r => r.CustomerId == criteria.CustomerId.Value);
+        }
+
         return query;
     }
 

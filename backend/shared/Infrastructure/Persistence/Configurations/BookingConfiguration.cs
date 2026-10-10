@@ -65,10 +65,12 @@ public class BookingConfiguration : IEntityTypeConfiguration<Booking>
         builder.Property(x => x.TaxAmountSnapshot).IsRequired().HasPrecision(12, 2);
         builder.Property(x => x.PlatformFeeSnapshot).IsRequired().HasPrecision(12, 2);
         builder.Property(x => x.TotalPayableSnapshot).IsRequired().HasPrecision(12, 2);
+        builder.Property(x => x.LockedCancellationFeeSnapshot).IsRequired().HasPrecision(12, 2).HasDefaultValue(0m);
 
         builder.Property(x => x.CouponCodeSnapshot).HasMaxLength(50);
         builder.Property(x => x.CouponDiscountAmountSnapshot).HasPrecision(12, 2);
         builder.Property(x => x.WalletCreditAppliedSnapshot).HasPrecision(12, 2);
+        builder.Property(x => x.WalletCreditCommissionAmountSnapshot).HasPrecision(12, 2);
 
         // Task 179: traceability only, not a foreign key - see SubscriptionId's doc comment.
         builder.Property(x => x.SubscriptionId);
@@ -106,6 +108,10 @@ public class BookingConfiguration : IEntityTypeConfiguration<Booking>
             .WithMany()
             .HasForeignKey(x => x.RecurringBookingPlanId)
             .OnDelete(DeleteBehavior.Restrict);
+
+        builder.Property(x => x.AutoChargeAttemptCount).IsRequired().HasDefaultValue(0);
+        builder.Property(x => x.LastAutoChargeAttemptAtUtc);
+        builder.Property(x => x.AutoChargeCancelledByAdmin).IsRequired().HasDefaultValue(false);
 
         // docs/AMC.md: same reasoning as RecurringBookingPlanId above - a
         // real FK, since a CustomerAmcContract is never hard-deleted.

@@ -13,6 +13,9 @@
  * spec (004-admin-user-lifecycle.spec.ts) always starts from a known
  * "Active" state regardless of how the previous run ended.
  */
+import { seedCatalog } from "../../../customer-web/e2e/setup/seed-catalog";
+import { createPaidBooking } from "../../../customer-web/e2e/setup/seed-booking";
+
 const ADMIN_API = process.env.ADMIN_API_URL ?? "http://localhost:5177";
 
 export interface AdminFixture {
@@ -24,6 +27,8 @@ export interface AdminFixture {
   seededAdminUserFullName: string;
   sampleBookingId: string;
   sampleBookingCustomerName: string;
+  /** What the Bookings list's "Booking #" filter actually searches - see seed-booking.ts's PaidBookingFixture. */
+  sampleBookingReference: string;
 }
 
 interface AdminLoginResponse {
@@ -84,16 +89,20 @@ export async function seedAdmin(): Promise<AdminFixture> {
     await post(`${A}/admin-users/${seededAdminUser.id}/activate`, session.accessToken, null);
   }
 
-  // A real booking to exercise the list-search -> detail flow against
-  // (this repo's dev database already carries bookings created by the
-  // customer-web E2E suite and manual QA - no need to create one here).
+  // A real booking to exercise the list-search -> detail flow against. A
+  // long-lived local dev database usually already has one from manual QA or
+  // a prior customer-web E2E run, so this reuses whatever is newest rather
+  // than creating a fresh one every time; ci.yml's `e2e` job gives this
+  // suite's own leg a fresh, isolated database with nothing in it yet, so
+  // the fallback below is what actually runs there.
   const bookings = await get(`${A}/bookings?page=1&pageSize=1`, session.accessToken);
-  const sampleBooking = bookings.items[0];
+  let sampleBooking = bookings.items[0];
   if (!sampleBooking) {
-    throw new Error(
-      "No bookings found via admin-api - run frontend/customer-web's E2E suite (or seed one manually) " +
-        "before this suite's bookings-list/detail spec."
-    );
+    const catalog = await seedCatalog();
+    const twoDaysOut = new Date();
+    twoDaysOut.setDate(twoDaysOut.getDate() + 2);
+    const seeded = await createPaidBooking(catalog, session.accessToken, twoDaysOut.toISOString().slice(0, 10));
+    sampleBooking = { id: seeded.bookingId, customerName: seeded.customerName, reference: seeded.reference };
   }
 
   return {
@@ -105,5 +114,6 @@ export async function seedAdmin(): Promise<AdminFixture> {
     seededAdminUserFullName: "E2E Admin User",
     sampleBookingId: sampleBooking.id,
     sampleBookingCustomerName: sampleBooking.customerName,
+    sampleBookingReference: sampleBooking.reference,
   };
 }

@@ -14,7 +14,18 @@ public interface IReferralRepository
 
     Task<IReadOnlyList<Domain.Referral>> ListByReferrerCustomerIdAsync(Guid referrerCustomerId);
 
-    /// <summary>Task 166/165's per-customer reward cap (REFERRAL.md "FRAUD / ABUSE PREVENTION").</summary>
+    /// <summary>
+    /// Task 166/165's per-customer reward cap (REFERRAL.md "FRAUD / ABUSE
+    /// PREVENTION") and task 174's milestone-threshold count - the same
+    /// figure gates both, so both share this one method rather than each
+    /// keeping their own copy of what "counts". Excludes a Rewarded
+    /// referral whose qualifying booking has since been fully refunded: the
+    /// order that made it a genuine referral never really happened, so it
+    /// must not still occupy a cap slot or continue counting toward a
+    /// milestone the referrer has not actually earned. A booking still only
+    /// partially refunded (BookingStatus.RefundPending) is left counting -
+    /// the order substantially still happened.
+    /// </summary>
     Task<int> CountRewardedByReferrerAsync(Guid referrerCustomerId);
 
     /// <summary>Task 175's expiry sweep: Registered rows whose ExpiresAtUtc has passed.</summary>
@@ -40,4 +51,21 @@ public interface IReferralRepository
     Task AddAsync(Domain.Referral referral);
 
     Task UpdateAsync(Domain.Referral referral);
+
+    /// <summary>
+    /// Atomically transitions a referral from Registered to Qualified - a
+    /// single conditional UPDATE re-checking "still Registered" in the same
+    /// statement that flips it, mirroring <c>ICouponRepository.TryReserveRedemptionAsync</c>'s
+    /// proven concurrency-safe shape. Two of a referee's bookings completing
+    /// near-simultaneously both call <c>ReferralQualifyingBookingHandler.Handle</c>
+    /// with their own independently-loaded (and therefore equally stale)
+    /// in-memory <see cref="Domain.Referral"/> instance; without this, both
+    /// could see Registered, both call <see cref="Domain.Referral.MarkQualified"/>,
+    /// and both go on to disburse a real wallet credit/coupon reward twice
+    /// for what is meant to be a one-time payout. Returns false (no state
+    /// change) if the referral was no longer Registered when this ran - the
+    /// caller must treat that as "lost the race, do nothing further" rather
+    /// than an error.
+    /// </summary>
+    Task<bool> TryMarkQualifiedAsync(Guid referralId, Guid qualifyingBookingId);
 }

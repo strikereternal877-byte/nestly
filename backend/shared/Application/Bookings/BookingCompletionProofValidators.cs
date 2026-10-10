@@ -18,3 +18,12 @@ public class SubmitCompletionProofRequestValidator : AbstractValidator<SubmitCom
         });
     }
 }
+
+/// <summary>Same shape as <c>RejectProviderKycDocumentRequestValidator</c>, required for the same reason: a rejection the provider cannot act on is just a disappearance.</summary>
+public class RejectCompletionProofRequestValidator : AbstractValidator<RejectCompletionProofRequest>
+{
+    public RejectCompletionProofRequestValidator()
+    {
+        RuleFor(x => x.Reason).NotEmpty().MaximumLength(1000);
+    }
+}

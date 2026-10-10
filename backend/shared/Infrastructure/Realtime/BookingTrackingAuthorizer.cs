@@ -89,9 +89,20 @@ public sealed class BookingTrackingAuthorizer
         // booking forever, but tracking is not a permanent right over it.
         // Once the job is completed, cancelled or refunded there is nothing
         // live to watch, so the group is closed to them again.
-        return booking is not null
-            && booking.CustomerId == customerId
-            && BookingLifecycle.IsTrackable(booking.Status);
+        if (booking is null || booking.CustomerId != customerId || !BookingLifecycle.IsTrackable(booking.Status))
+        {
+            return false;
+        }
+
+        // booking.Status alone is no longer enough: it stays InProgress
+        // through the admin-review window after the provider completes (see
+        // BookingManagementService.ApproveCompletionProofAsync). Current, not
+        // Active: a booking that (by data anomaly) never had a real
+        // assignment recorded must keep being trackable exactly as before -
+        // only an assignment that is itself Completed means this job is
+        // actually over.
+        var assignment = await _assignmentRepository.GetCurrentByBookingAsync(bookingId);
+        return assignment is not { Status: BookingProviderAssignmentStatus.Completed };
     }
 
     private async Task<bool> CanProviderTrackAsync(ClaimsPrincipal user, Guid bookingId)

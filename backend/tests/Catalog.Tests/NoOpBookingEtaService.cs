@@ -26,4 +26,6 @@ public sealed class NoOpFileStorageService : IFileStorageService
 {
     public Task<string> SaveAsync(Stream content, string fileNameHint, string contentType, CancellationToken cancellationToken = default) =>
         Task.FromResult("/uploads/test-stub.jpg");
+
+    public Task DeleteAsync(string fileReference, CancellationToken cancellationToken = default) => Task.CompletedTask;
 }

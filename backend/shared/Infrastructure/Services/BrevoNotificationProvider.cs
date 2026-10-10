@@ -24,7 +24,7 @@ namespace Nestly.Infrastructure.Services;
 /// body) rather than a vendor SDK - no new dependency is needed, only
 /// <see cref="IHttpClientFactory"/>, the same choice
 /// <see cref="SupabaseFileStorageService"/> and
-/// <see cref="TwilioNotificationProvider"/> made for the same reason.
+/// <see cref="Msg91NotificationProvider"/> made for the same reason.
 /// </remarks>
 public sealed class BrevoNotificationProvider : INotificationProvider
 {
@@ -88,7 +88,7 @@ public sealed class BrevoNotificationProvider : INotificationProvider
         if (!response.IsSuccessStatusCode)
         {
             // Status code only, never the response body - same discipline as
-            // SupabaseFileStorageService/TwilioNotificationProvider: Brevo's
+            // SupabaseFileStorageService/Msg91NotificationProvider: Brevo's
             // error bodies can echo request details that don't belong in logs.
             _logger.LogError("Brevo email send failed with status {StatusCode}.", (int)response.StatusCode);
             return Result.Failure(Error.Business("Notification.EmailSendFailed", "Failed to send the email."));

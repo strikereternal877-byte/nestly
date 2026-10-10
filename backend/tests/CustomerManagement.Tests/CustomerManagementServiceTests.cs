@@ -30,6 +30,7 @@ public class CustomerManagementServiceTests : IDisposable
             new CustomerAddressRepository(context),
             new BookingRepository(context),
             new WalletLedgerRepository(context),
+            new WalletService(new WalletLedgerRepository(context), context),
             new CouponRedemptionRepository(context),
             new CouponRepository(context),
             new SupportTicketRepository(context),
@@ -274,6 +275,57 @@ public class CustomerManagementServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task DeleteAsync_ActiveCustomer_AnonymizesAndRecordsNote()
+    {
+        var customer = NewCustomer("To Delete", "9000000052", email: "todelete@example.com");
+        await using (var context = _database.CreateContext())
+        {
+            context.Add(customer);
+            await context.SaveChangesAsync();
+        }
+
+        Guid adminUserId = Guid.NewGuid();
+        await using var context1 = _database.CreateContext();
+        var result = await CreateService(context1).DeleteAsync(customer.Id, adminUserId, "GDPR erasure request via support ticket.");
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Status.Should().Be(CustomerStatus.SoftDeleted);
+        result.Value.Name.Should().Be("Deleted User");
+        result.Value.Notes.Should().ContainSingle(n => n.Note.Contains("GDPR erasure request via support ticket."));
+
+        await using var context2 = _database.CreateContext();
+        var persisted = await context2.Set<Customer>().FindAsync(customer.Id);
+        persisted!.Status.Should().Be(CustomerStatus.SoftDeleted);
+        persisted.Email.Should().NotBe("todelete@example.com");
+
+        // Regression: "mobile" is varchar(20) (CustomerConfiguration), but the
+        // anonymized placeholder used to be "deleted-{32 hex chars}" - 40
+        // characters. This test's SQLite-backed TestDatabase doesn't enforce
+        // VARCHAR length, so it kept passing even though the same call threw
+        // 22001 ("value too long") against a real Postgres column - found by
+        // an end-to-end run of the equivalent admin Delete Provider endpoint,
+        // which shares this exact bug pattern.
+        persisted.Mobile.Length.Should().BeLessOrEqualTo(20);
+    }
+
+    [Fact]
+    public async Task DeleteAsync_AlreadyDeletedCustomer_ReturnsBusinessError()
+    {
+        var customer = NewCustomer("Already Deleted", "9000000053", CustomerStatus.SoftDeleted);
+        await using (var context = _database.CreateContext())
+        {
+            context.Add(customer);
+            await context.SaveChangesAsync();
+        }
+
+        await using var readContext = _database.CreateContext();
+        var result = await CreateService(readContext).DeleteAsync(customer.Id, Guid.NewGuid(), "Any reason");
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be("Customer.AlreadyDeleted");
+    }
+
+    [Fact]
     public async Task AddNoteAsync_UnknownCustomer_ReturnsNotFound()
     {
         await using var context = _database.CreateContext();
@@ -303,6 +355,61 @@ public class CustomerManagementServiceTests : IDisposable
         await using var context2 = _database.CreateContext();
         var notes = await new CustomerNoteRepository(context2).ListByCustomerAsync(customer.Id);
         notes.Should().ContainSingle(n => n.Note == "Called about a refund query.");
+    }
+
+    [Fact]
+    public async Task AdjustWalletAsync_Credit_AppendsLedgerEntryAndRecordsNote()
+    {
+        var customer = NewCustomer("Wallet Credit Customer", "9000000090");
+        await using (var context = _database.CreateContext())
+        {
+            context.Add(customer);
+            await context.SaveChangesAsync();
+        }
+
+        Guid adminUserId = Guid.NewGuid();
+        await using var context1 = _database.CreateContext();
+        var result = await CreateService(context1).AdjustWalletAsync(
+            customer.Id, adminUserId, new AdjustCustomerWalletRequest(WalletEntryType.Credit, 150m, "Goodwill gesture for a delayed service."));
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.WalletBalance.Should().Be(150m);
+        result.Value.WalletEntries.Should().ContainSingle(w =>
+            w.EntryType == WalletEntryType.Credit && w.Amount == 150m && w.SourceType == WalletSourceType.ManualAdjustment);
+        result.Value.Notes.Should().ContainSingle(n => n.Note.Contains("Goodwill gesture for a delayed service."));
+    }
+
+    [Fact]
+    public async Task AdjustWalletAsync_DebitExceedingBalance_ReturnsBusinessErrorAndRecordsNoNote()
+    {
+        var customer = NewCustomer("Wallet Debit Customer", "9000000091");
+        await using (var context = _database.CreateContext())
+        {
+            context.Add(customer);
+            await context.SaveChangesAsync();
+        }
+
+        await using var readContext = _database.CreateContext();
+        var result = await CreateService(readContext).AdjustWalletAsync(
+            customer.Id, Guid.NewGuid(), new AdjustCustomerWalletRequest(WalletEntryType.Debit, 50m, "Correction"));
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be("Wallet.InsufficientBalance");
+
+        await using var verifyContext = _database.CreateContext();
+        var notes = await new CustomerNoteRepository(verifyContext).ListByCustomerAsync(customer.Id);
+        notes.Should().BeEmpty("a failed debit must not leave a stray audit note behind");
+    }
+
+    [Fact]
+    public async Task AdjustWalletAsync_UnknownCustomer_ReturnsNotFound()
+    {
+        await using var context = _database.CreateContext();
+        var result = await CreateService(context).AdjustWalletAsync(
+            Guid.NewGuid(), Guid.NewGuid(), new AdjustCustomerWalletRequest(WalletEntryType.Credit, 10m, "Any reason"));
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be("Customer.NotFound");
     }
 
     /// <summary>

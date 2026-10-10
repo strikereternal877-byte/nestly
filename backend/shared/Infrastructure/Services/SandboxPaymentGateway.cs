@@ -47,6 +47,17 @@ public class SandboxPaymentGateway : IPaymentGateway, ISandboxPaymentSimulator
         return Task.FromResult(new GatewayRefundResult(gatewayRefundId, "processed"));
     }
 
+    /// <summary>
+    /// The sandbox has no real gateway-side state to poll - an order only
+    /// ever resolves via an explicit <c>/orders/simulate</c> call, which goes
+    /// straight through <see cref="IPaymentWebhookService"/> and already
+    /// leaves nothing for this to discover. Always reporting "pending" is the
+    /// honest simulation of that: this feature exists for a real gateway's
+    /// abandoned-checkout gap, which the sandbox simply does not have.
+    /// </summary>
+    public Task<GatewayVerifyResult> VerifyOrderStatusAsync(string gatewayOrderId, CancellationToken cancellationToken = default) =>
+        Task.FromResult(new GatewayVerifyResult("pending"));
+
     public SandboxPaymentOutcome DetermineOutcome(decimal amount)
     {
         int paisa = (int)(Math.Round(amount, 2) * 100m % 100m);
@@ -57,6 +68,9 @@ public class SandboxPaymentGateway : IPaymentGateway, ISandboxPaymentSimulator
 
         return new SandboxPaymentOutcome(true, GatewayPaymentRef: $"sandbox_pay_{Guid.NewGuid():N}", FailureReason: null);
     }
+
+    public string BuildCanonicalPayload(PaymentWebhookRequest request) =>
+        PaymentWebhookPayload.Build(request.GatewayOrderId, request.GatewayPaymentRef, request.Status);
 
     public bool VerifyWebhookSignature(string canonicalPayload, string signature)
     {

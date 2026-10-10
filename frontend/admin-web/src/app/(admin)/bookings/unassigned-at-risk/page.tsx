@@ -298,9 +298,12 @@ function AssignProviderModal({
 }) {
   const [providerId, setProviderId] = useState("");
 
-  useEffect(() => {
+  // Adjusting state when a prop changes (react.dev/learn/you-might-not-need-an-effect).
+  const [priorBookingId, setPriorBookingId] = useState(booking?.id);
+  if (booking?.id !== priorBookingId) {
+    setPriorBookingId(booking?.id);
     setProviderId("");
-  }, [booking?.id]);
+  }
 
   const eligibleQuery = useQuery({
     queryKey: ["admin-booking-eligible-providers", booking?.id] as const,

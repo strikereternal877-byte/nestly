@@ -36,12 +36,28 @@ public class AdminJwtOptions
     public const string LegacyAudience = "Nestly.AdminUsers";
 
     /// <summary>
-    /// Admin panel session timeout (SRS 12.1.2, task 95e). Deliberately
+    /// Admin panel access-token lifetime (SRS 12.1.2, task 95e). Deliberately
     /// shorter than the customer access token (<see cref="JwtOptions.AccessTokenMinutes"/>,
     /// 15-minute default): an admin token carries back-office privileges, so
     /// a smaller window for a leaked token to be replayed in is worth the
-    /// extra re-logins. There is no admin refresh token — re-authentication
-    /// once this expires is the timeout mechanism itself.
+    /// extra silent refreshes. Same rotate-on-refresh posture as the
+    /// customer/provider identities (short-lived signed JWT + a longer-lived,
+    /// single-use, revocable opaque refresh token backed by
+    /// <see cref="Domain.AdminSession"/> — see <see cref="RefreshTokenHours"/>):
+    /// this access token alone is no longer the session-timeout mechanism, a
+    /// still-active session now smooths over its expiry via
+    /// <c>AdminAuthController.Refresh</c>, and only a revoked or truly
+    /// expired session forces re-authentication.
     /// </summary>
     public int AccessTokenMinutes { get; set; } = 10;
+
+    /// <summary>
+    /// Admin refresh-token lifetime (rotate-on-use, mirrors <see cref="JwtOptions.RefreshTokenDays"/>
+    /// for the customer identity). Deliberately far shorter than the
+    /// customer's 30-day window: an admin session carries back-office
+    /// privileges, so a 12-hour rotating window — roughly one workday — is
+    /// the right tradeoff between usability and blast radius if a refresh
+    /// token is ever leaked.
+    /// </summary>
+    public int RefreshTokenHours { get; set; } = 12;
 }

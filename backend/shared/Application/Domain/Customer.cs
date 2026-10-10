@@ -88,7 +88,11 @@ namespace Nestly.Application
 
             Name = "Deleted User";
             Email = $"deleted+{Id:N}@deleted.glavyx.invalid";
-            Mobile = $"deleted-{Id:N}";
+            // Mobile is varchar(20) (CustomerConfiguration) - see Provider.SoftDelete's
+            // matching fix/comment: the full "deleted-{32 hex chars}" form is 40
+            // characters, which a real Postgres column rejects (22001: value too
+            // long) even though a lenient test database let it through silently.
+            Mobile = $"deleted-{Id:N}"[..20];
             DateOfBirth = null;
             Address = null;
             City = null;

@@ -14,7 +14,11 @@ public sealed record AdminRecurringPlanSearchRequest(
     Guid? CustomerId,
     Guid? ServiceId,
     int Page = 1,
-    int PageSize = 20);
+    int PageSize = 20,
+    // Why a paused plan is paused ("which plans did the system pause for unpaid visits?").
+    RecurringBookingPauseReason? PauseReason = null,
+    // true: only plans paid for in advance; false: only plans paid visit by visit.
+    bool? PrepaidUpfront = null);
 
 /// <summary>
 /// One row of the admin recurring-plan list. Carries the customer's and
@@ -37,13 +41,60 @@ public sealed record AdminRecurringPlanSummaryResponse(
     int CompletedOccurrenceCount,
     DateOnly NextOccurrenceDate,
     RecurringBookingPlanStatus Status,
-    DateTime CreatedAtUtc);
+    DateTime CreatedAtUtc,
+    // How the plan is paid for and what state that is in - what an admin needs to answer "why is this plan stuck?".
+    bool PrepaidUpfront = false,
+    bool AutoChargeEnabled = false,
+    bool ApplyWalletCredit = false,
+    // A prepaid cycle has been started and is waiting for the customer to pay.
+    bool IsAwaitingPrepayment = false,
+    DateOnly? PrepaidThroughDate = null,
+    // Why the plan is Paused; null when it is not.
+    RecurringBookingPauseReason? PauseReason = null,
+    // The last "skip visits until" date the customer asked for.
+    DateOnly? SkipUntilDate = null);
 
 public sealed record AdminRecurringPlanSearchResponse(
     IReadOnlyList<AdminRecurringPlanSummaryResponse> Items,
     int TotalCount,
     int Page,
     int PageSize);
+
+/// <summary>
+/// Admin-initiated plan cancellation (Order/Booking Management UX pass): stops
+/// the whole standing instruction in one action - no further occurrences are
+/// ever generated - as opposed to cancelling the individual bookings it has
+/// already produced one at a time via <c>IBookingManagementService</c>. A
+/// reason is required for the audit trail, same convention as
+/// <c>AdminCancelBookingRequest</c>.
+/// </summary>
+public sealed record AdminCancelRecurringPlanRequest(string Reason);
+
+/// <summary>Why an admin is pausing a plan - recorded to the audit trail (and not sent to the customer, who is told only that support paused it).</summary>
+public sealed record AdminPauseRecurringPlanRequest(string Reason);
+
+/// <summary>Why an admin is resuming a plan - recorded to the audit trail.</summary>
+public sealed record AdminResumeRecurringPlanRequest(string Reason);
+
+/// <summary>One visit a plan has generated, for the admin plan detail.</summary>
+public sealed record AdminRecurringPlanVisitResponse(
+    Guid BookingId,
+    string BookingReference,
+    DateOnly SlotDate,
+    BookingStatus Status,
+    string StatusLabel,
+    decimal TotalPayable);
+
+/// <summary>
+/// One plan with what the list has no room for: the customer's contact and wallet balance (the wallet pays each
+/// visit when <see cref="AdminRecurringPlanSummaryResponse.ApplyWalletCredit"/> is on) and the visits it has
+/// generated - upcoming ones first, then the most recent past ones.
+/// </summary>
+public sealed record AdminRecurringPlanDetailResponse(
+    AdminRecurringPlanSummaryResponse Plan,
+    string CustomerMobile,
+    decimal WalletBalance,
+    IReadOnlyList<AdminRecurringPlanVisitResponse> Visits);
 
 /// <summary>
 /// The report's horizon. Both ends optional: omitting them reports the next

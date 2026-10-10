@@ -1,15 +1,11 @@
 /**
  * Response/request shapes for the Admin API's auth surface.
  *
- * NOTE ON PROVENANCE: as of this writing, `AdminAuthController` /
- * `AdminTokenService` (SRS 12.1, tasks 94-95) have not landed on this branch
- * yet (verified by filesystem inspection, not by trusting tasks.csv - see
- * AGENTS.md). These types describe the contract this client is built
- * against: a JWT bearer pair shaped the same way the Consumer API's
- * `LoginResponse` is (see customer-web/src/lib/types.ts), since that is the
- * only concrete precedent in this codebase for a Nestly login response. When
- * the real controller lands, reconcile field names against it - if it
- * differs, only this file and `lib/auth.ts` should need to change.
+ * `AdminAuthController` / `AdminTokenService` (SRS 12.1, 12.1.2, tasks
+ * 94-95, 95a-95g) have since landed - this shape is confirmed against
+ * `Nestly.Application.Identity.AdminLoginResponse`: a short-lived JWT plus a
+ * rotate-on-refresh opaque refresh token, the same pair shape the Consumer
+ * API's `LoginResponse` uses (see customer-web/src/lib/types.ts).
  */
 
 export interface AdminLoginRequestBody {
@@ -124,7 +120,34 @@ export enum WalletSourceType {
   Refund = 0,
   PromotionalCredit = 1,
   ManualAdjustment = 2,
+  ReferralReward = 3,
+  ReferralMilestoneBonus = 4,
+  ReferralCreditExpiry = 5,
+  NestlyCoinsReward = 6,
+  NestlyCoinsClawback = 7,
+  BookingWalletCredit = 8,
+  BookingWalletCreditReversal = 9,
+  TopUp = 10,
+  RescheduleFee = 11,
+  RescheduleFeeReversal = 12,
 }
+
+/** Plain-language label for where a wallet ledger entry came from. */
+export const WALLET_SOURCE_LABELS: Record<WalletSourceType, string> = {
+  [WalletSourceType.Refund]: "Refund",
+  [WalletSourceType.PromotionalCredit]: "Promotional credit",
+  [WalletSourceType.ManualAdjustment]: "Manual adjustment",
+  [WalletSourceType.ReferralReward]: "Referral reward",
+  [WalletSourceType.ReferralMilestoneBonus]: "Referral milestone bonus",
+  [WalletSourceType.ReferralCreditExpiry]: "Referral credit expired",
+  [WalletSourceType.NestlyCoinsReward]: "Coins reward",
+  [WalletSourceType.NestlyCoinsClawback]: "Coins clawback",
+  [WalletSourceType.BookingWalletCredit]: "Used on a booking",
+  [WalletSourceType.BookingWalletCreditReversal]: "Booking credit returned",
+  [WalletSourceType.TopUp]: "Top-up",
+  [WalletSourceType.RescheduleFee]: "Late reschedule fee",
+  [WalletSourceType.RescheduleFeeReversal]: "Late reschedule fee returned",
+};
 
 /** Mirrors Nestly.Domain.SupportTicketCategory's declaration order exactly. */
 export enum SupportTicketCategory {

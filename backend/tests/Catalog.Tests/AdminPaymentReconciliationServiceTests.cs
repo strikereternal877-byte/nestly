@@ -91,18 +91,31 @@ public sealed class AdminPaymentReconciliationServiceTests : IClassFixture<TestD
     private static PaymentWebhookService BuildWebhookService(
         IPaymentTransactionRepository paymentRepository, IBookingRepository bookingRepository,
         Nestly.Infrastructure.Persistence.NestlyDbContext context, IPaymentGateway gateway) =>
-        new(
-            paymentRepository, bookingRepository, new ServiceRepository(context), gateway,
-            new CommissionService(Options.Create(new CommissionOptions())), new EscrowService(new PlatformEscrowLedgerRepository(context)),
-            context, new NoOpMetricsService(), Microsoft.Extensions.Logging.Abstractions.NullLogger<PaymentWebhookService>.Instance);
+        new(paymentRepository,
+            new PaymentGroupRepository(context),
+            new RecurringBookingPlanRepository(context),
+            bookingRepository,
+            new ServiceRepository(context),
+            gateway,
+            new CommissionService(Options.Create(new CommissionOptions())),
+            new EscrowService(new PlatformEscrowLedgerRepository(context)),
+            context,
+            new NoOpMetricsService(),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<PaymentWebhookService>.Instance);
 
     private static PaymentService BuildPaymentService(
         IPaymentTransactionRepository paymentRepository, IBookingRepository bookingRepository,
         Nestly.Infrastructure.Persistence.NestlyDbContext context, SandboxPaymentGateway gateway) =>
-        new(
-            paymentRepository, bookingRepository, gateway, (ISandboxPaymentSimulator)gateway,
+        new(paymentRepository,
+            bookingRepository,
+            gateway,
+            (ISandboxPaymentSimulator)gateway,
             BuildWebhookService(paymentRepository, bookingRepository, context, gateway),
-            new AlwaysEligibleProviderSearchStub());
+            new AlwaysEligibleProviderSearchStub(),
+            new PaymentGroupRepository(context),
+            new RecurringBookingPlanRepository(context),
+            new RecurringBookingOccurrenceRepository(context),
+            null!);
 
     private sealed record SeededBooking(Guid CustomerId, Guid BookingId);
 

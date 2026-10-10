@@ -4,9 +4,10 @@ namespace Nestly.Application.Identity;
 public record AdminLoginRequest(string Email, string Password);
 
 /// <summary>
-/// Admin panel session. Access-token only — there is no admin refresh token:
-/// the short, fixed token lifetime is itself the session-timeout mechanism
-/// (task 95e), so re-authentication after expiry is the intended behaviour
-/// rather than something a refresh flow needs to smooth over.
+/// Admin panel session: a short-lived signed access token plus a longer-lived,
+/// single-use, rotate-on-refresh opaque refresh token (SRS 12.1.2), mirroring
+/// the customer identity's <c>LoginResponse</c> shape. See
+/// <see cref="AdminJwtOptions.RefreshTokenHours"/> for why the admin refresh
+/// window is tuned much shorter than the customer's.
 /// </summary>
-public record AdminLoginResponse(string AccessToken, DateTime AccessTokenExpiresAtUtc);
+public record AdminLoginResponse(string AccessToken, DateTime AccessTokenExpiresAtUtc, string RefreshToken);

@@ -14,12 +14,13 @@ import {
   ScreenSkeleton,
   formatCalendarDate,
   formatTimeRange,
+  inr,
 } from "@/components/patterns";
 import { PageBanner } from "@/components/PageBanner";
 import { RequireAuth } from "@/components/RequireAuth";
 import { Alert, Button, Card, LinkButton } from "@/components/ui";
 import { API_V1, apiFetch, describeError } from "@/lib/api";
-import type { BookingDetail, ServiceDetail } from "@/lib/types";
+import type { BookingDetail, PaymentTransactionResponse, ServiceDetail } from "@/lib/types";
 
 /**
  * Booking confirmation page (SRS 11.12.3, tasks 64a-d): booking ID, summary,
@@ -56,6 +57,17 @@ function BookingSuccessScreen() {
     queryKey: ["booking", id],
     queryFn: () => apiFetch<BookingDetail>(`${API_V1}/bookings/${id}`, { authenticated: true }),
   });
+
+  // A visit bought as part of a prepaid plan was paid together with the rest: this is where the
+  // customer sees what their one payment actually came to (the price breakdown below is only this visit).
+  const paymentQuery = useQuery({
+    queryKey: ["payment-transaction", id],
+    queryFn: () =>
+      apiFetch<PaymentTransactionResponse>(`${API_V1}/payments/bookings/${id}`, { authenticated: true }),
+    retry: false,
+  });
+  const prepaidTotal = paymentQuery.data?.prepaidCheckoutTotal ?? null;
+  const prepaidVisits = paymentQuery.data?.prepaidCheckoutVisitCount ?? null;
 
   const policyQuery = useQuery({
     queryKey: ["service", serviceSlug],
@@ -128,10 +140,34 @@ function BookingSuccessScreen() {
                   : null
               }
               total={booking.finalPayable}
-              totalLabel="Amount paid"
+              totalLabel={prepaidTotal !== null ? "This visit" : "Amount paid"}
             />
           </div>
         </Card>
+
+        {prepaidTotal !== null && prepaidVisits !== null && prepaidVisits > 1 ? (
+          <Card title="Your plan" description="All of your visits were paid for in one payment.">
+            <DetailList>
+              <DetailRow label="Visits paid for" numeric>
+                {prepaidVisits}
+              </DetailRow>
+              <DetailRow label="Amount paid" numeric>
+                {inr(prepaidTotal)}
+              </DetailRow>
+            </DetailList>
+            <p className="mt-3 text-sm leading-relaxed text-fg-muted">
+              Each visit is its own booking. Manage or cancel the visits that haven&apos;t happened
+              yet from{" "}
+              <a
+                href="/recurring-bookings"
+                className="font-medium text-brand-600 underline-offset-4 hover:underline dark:text-brand-400"
+              >
+                Recurring bookings
+              </a>
+              ; they&apos;re refunded as per the cancellation policy.
+            </p>
+          </Card>
+        ) : null}
 
         <Card title="What happens next">
           <ol className="flex flex-col gap-3">

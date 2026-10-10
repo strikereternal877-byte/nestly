@@ -25,5 +25,6 @@ public class ProviderKycDocumentConfiguration : IEntityTypeConfiguration<Provide
         builder.Property(x => x.VerifiedBy);
         builder.Property(x => x.VerifiedAt);
         builder.Property(x => x.SubmittedAt).IsRequired();
+        builder.Property(x => x.RejectionReason).HasMaxLength(1000);
     }
 }

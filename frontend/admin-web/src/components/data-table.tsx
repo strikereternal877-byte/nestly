@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { Alert, Badge, Button, EmptyState, Modal, Skeleton, cx } from "@/components/ui";
 import { describeError } from "@/lib/api";
@@ -64,32 +64,53 @@ const DENSITY_CELL: Record<TableDensity, string> = {
 };
 
 const DENSITY_STORAGE_KEY = "nestly.admin.table-density";
+/** Same-tab "storage changed" signal - the native `storage` event only fires in *other* tabs. */
+const DENSITY_CHANGE_EVENT = "nestly-admin:density-change";
+
+function readStoredDensity(): TableDensity {
+  try {
+    const stored = window.localStorage.getItem(DENSITY_STORAGE_KEY);
+    return stored === "compact" || stored === "comfortable" ? stored : "comfortable";
+  } catch {
+    // Storage can be unavailable (private mode, blocked cookies) — the
+    // default is perfectly usable, so this is not worth surfacing.
+    return "comfortable";
+  }
+}
+
+/** The server has no localStorage - "comfortable" here is also this hook's real default, so there is nothing to reconcile once the client snapshot takes over post-hydration. */
+function getServerDensity(): TableDensity {
+  return "comfortable";
+}
+
+function subscribeToDensity(onChange: () => void): () => void {
+  window.addEventListener(DENSITY_CHANGE_EVENT, onChange);
+  window.addEventListener("storage", onChange); // another tab changed it
+  return () => {
+    window.removeEventListener(DENSITY_CHANGE_EVENT, onChange);
+    window.removeEventListener("storage", onChange);
+  };
+}
 
 /**
  * Density is a per-admin working preference, not per-screen state, so it is
- * remembered. Read after mount rather than during render: the server render has
- * no localStorage and a mismatch would be a hydration error.
+ * remembered. useSyncExternalStore, not a mount-flag + effect: reading
+ * localStorage safely across server/client is exactly what it exists for -
+ * the server render has no localStorage, and getServerDensity's "comfortable"
+ * doubles as the real default, so there is nothing to reconcile once the
+ * client snapshot (read fresh after a same-tab update or another tab's
+ * change) takes over post-hydration.
  */
 function useDensityPreference(): [TableDensity, (density: TableDensity) => void] {
-  const [density, setDensity] = useState<TableDensity>("comfortable");
-
-  useEffect(() => {
-    try {
-      const stored = window.localStorage.getItem(DENSITY_STORAGE_KEY);
-      if (stored === "compact" || stored === "comfortable") setDensity(stored);
-    } catch {
-      // Storage can be unavailable (private mode, blocked cookies) — the
-      // default is perfectly usable, so this is not worth surfacing.
-    }
-  }, []);
+  const density = useSyncExternalStore(subscribeToDensity, readStoredDensity, getServerDensity);
 
   const update = (next: TableDensity) => {
-    setDensity(next);
     try {
       window.localStorage.setItem(DENSITY_STORAGE_KEY, next);
     } catch {
-      // See above.
+      // See readStoredDensity - the choice just won't survive a reload.
     }
+    window.dispatchEvent(new Event(DENSITY_CHANGE_EVENT));
   };
 
   return [density, update];
@@ -1152,9 +1173,18 @@ export function SearchableSelect({
 
   // Reflect the current selection in the input text whenever it changes
   // externally (form reset, initial load) and the field isn't mid-edit.
-  useEffect(() => {
-    if (!open) setQuery(selected?.label ?? "");
-  }, [selected, open]);
+  // "Adjusting state when a prop changes" (react.dev/learn/you-might-not-
+  // need-an-effect), not an effect: null is the sentinel for "open, mid-edit,
+  // don't touch query" (distinct from "" - closed with nothing selected,
+  // which must still sync); prevSyncKey is compared unconditionally so a
+  // transition into that sentinel is still tracked, and only a transition
+  // *out* of it also writes `query`.
+  const syncKey = open ? null : (selected?.label ?? "");
+  const [prevSyncKey, setPrevSyncKey] = useState(syncKey);
+  if (syncKey !== prevSyncKey) {
+    setPrevSyncKey(syncKey);
+    if (syncKey !== null) setQuery(syncKey);
+  }
 
   useEffect(() => {
     if (!open) return;

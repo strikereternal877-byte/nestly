@@ -1,5 +1,6 @@
 using Nestly.Application;
 using Nestly.Application.Abstractions.Auditing;
+using Nestly.Application.Notifications;
 using Nestly.Application.ProviderManagement;
 using Nestly.Application.Serviceability;
 using Nestly.BuildingBlocks.Results;
@@ -13,21 +14,53 @@ public class ProviderKycApprovalService : IProviderKycApprovalService
     private readonly IProviderRepository _providerRepository;
     private readonly IProviderKycDocumentRepository _kycDocumentRepository;
     private readonly IProviderBackgroundCheckRepository _backgroundCheckRepository;
+    private readonly IProviderBankAccountRepository _bankAccountRepository;
     private readonly IServiceabilityMappingManagementService _serviceabilityMappingManagementService;
     private readonly IAuditLogWriter _auditLogWriter;
+    private readonly IProviderStatusHistoryRepository _statusHistoryRepository;
+    private readonly IProviderNotificationPublisher _notificationPublisher;
 
     public ProviderKycApprovalService(
         IProviderRepository providerRepository,
         IProviderKycDocumentRepository kycDocumentRepository,
         IProviderBackgroundCheckRepository backgroundCheckRepository,
+        IProviderBankAccountRepository bankAccountRepository,
         IServiceabilityMappingManagementService serviceabilityMappingManagementService,
+        IProviderStatusHistoryRepository statusHistoryRepository,
+        IProviderNotificationPublisher notificationPublisher,
         IAuditLogWriter auditLogWriter)
     {
         _providerRepository = providerRepository;
         _kycDocumentRepository = kycDocumentRepository;
         _backgroundCheckRepository = backgroundCheckRepository;
+        _bankAccountRepository = bankAccountRepository;
         _serviceabilityMappingManagementService = serviceabilityMappingManagementService;
         _auditLogWriter = auditLogWriter;
+        _statusHistoryRepository = statusHistoryRepository;
+        _notificationPublisher = notificationPublisher;
+    }
+
+    public async Task<IReadOnlyList<ProviderKycDocumentQueueItemResponse>> ListPendingDocumentsAsync(CancellationToken cancellationToken = default)
+    {
+        var documents = await _kycDocumentRepository.ListPendingAsync(cancellationToken);
+        if (documents.Count == 0)
+        {
+            return [];
+        }
+
+        var providerIds = documents.Select(d => d.ProviderId).Distinct().ToList();
+        var namesById = await _providerRepository.GetDisplayNamesByIdsAsync(providerIds);
+
+        return documents
+            .Select(d => new ProviderKycDocumentQueueItemResponse(
+                d.Id,
+                d.ProviderId,
+                namesById.TryGetValue(d.ProviderId, out var name) ? name : "(deleted provider)",
+                d.DocType,
+                d.DocNumber,
+                d.FileRef,
+                d.SubmittedAt))
+            .ToList();
     }
 
     public async Task<Result<ProviderKycDocumentResponse>> ApproveDocumentAsync(Guid documentId, Guid adminUserId)
@@ -72,10 +105,17 @@ public class ProviderKycApprovalService : IProviderKycApprovalService
             return Error.Business("ProviderKycApproval.AlreadyReviewed", $"This document was already {document.VerificationStatus}.");
         }
 
-        document.Reject(adminUserId);
+        document.Reject(adminUserId, request.Reason);
         await _auditLogWriter.WriteAsync(new AuditEntry(
             "ProviderKycDocument", document.Id.ToString(), "Rejected", NewValues: request.Reason));
         await _kycDocumentRepository.UpdateAsync(document);
+
+        await _notificationPublisher.NotifyAsync(
+            document.ProviderId,
+            ProviderNotificationType.KycRejected,
+            "Document rejected",
+            $"Your {document.DocType} document was rejected: {request.Reason}",
+            deepLinkPath: "/profile");
 
         return ToResponse(document);
     }
@@ -146,11 +186,14 @@ public class ProviderKycApprovalService : IProviderKycApprovalService
 
         var documents = await _kycDocumentRepository.GetByProviderAsync(providerId);
         var backgroundChecks = await _backgroundCheckRepository.ListByProviderAsync(providerId);
+        var statusHistory = await _statusHistoryRepository.ListByProviderAsync(providerId);
+        var bankAccount = await _bankAccountRepository.GetByProviderIdAsync(providerId);
 
-        return ProviderDetailMapper.ToDetailResponse(provider, documents, backgroundChecks);
+        return ProviderDetailMapper.ToDetailResponse(provider, documents, backgroundChecks, statusHistory, bankAccount);
     }
 
     private static ProviderKycDocumentResponse ToResponse(ProviderKycDocument document) => new(
         document.Id, document.DocType, document.DocNumber, document.FileRef,
-        document.VerificationStatus, document.VerifiedBy, document.VerifiedAt, document.SubmittedAt);
+        document.VerificationStatus, document.VerifiedBy, document.VerifiedAt, document.SubmittedAt,
+        document.RejectionReason);
 }

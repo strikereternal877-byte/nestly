@@ -1,3 +1,5 @@
+using Nestly.Domain;
+
 namespace Nestly.Application.RecurringBookings;
 
 /// <summary>
@@ -22,4 +24,35 @@ public interface IRecurringBookingSchedulerService
     /// <see cref="IRecurringBookingOccurrenceRepository.ExistsForDateAsync"/>.
     /// </summary>
     Task ProcessDueOccurrencesAsync(CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Creates every booking of a prepaid plan's current cycle right now - all
+    /// at once, instead of the daily job's lead-time trickle - so the customer
+    /// can pay for the whole cycle in one checkout. Uses the same booking
+    /// orchestration as the daily job and records the same occurrence rows, but
+    /// sends no per-visit notifications (the customer is on the payment page,
+    /// which lists what was and was not booked). A date that cannot be booked
+    /// is skipped and reported, never charged for.
+    /// </summary>
+    /// <param name="plan">A prepaid plan that has not materialised this cycle yet.</param>
+    /// <param name="coveredThroughDate">Last date to create a booking for; null means "all remaining occurrences" (a bounded plan).</param>
+    Task<PrepaidCycleMaterialization> MaterializePrepaidCycleAsync(
+        RecurringBookingPlan plan, DateOnly? coveredThroughDate, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// For every open-ended prepaid plan whose paid cycle is about to run out:
+    /// creates the next cycle's bookings and asks the customer to pay for them
+    /// (see <c>RecurringBookingOptions.PrepaidRenewalLeadDays</c>). Idempotent -
+    /// a plan already waiting on a renewal payment is left alone.
+    /// </summary>
+    Task ProcessPrepaidRenewalsAsync(CancellationToken cancellationToken);
 }
+
+/// <summary>What one <see cref="IRecurringBookingSchedulerService.MaterializePrepaidCycleAsync"/> call produced.</summary>
+/// <param name="BookedCount">Bookings created, awaiting payment.</param>
+/// <param name="SkippedDates">Dates that could not be booked; the customer is not charged for them.</param>
+/// <param name="FirstBookingId">The earliest booking created, or null when nothing could be booked.</param>
+/// <param name="FirstVisitDate">The slot date of <paramref name="FirstBookingId"/>.</param>
+/// <param name="TotalPayable">Sum of what the created bookings still need paid.</param>
+public sealed record PrepaidCycleMaterialization(
+    int BookedCount, IReadOnlyList<DateOnly> SkippedDates, Guid? FirstBookingId, DateOnly? FirstVisitDate, decimal TotalPayable);

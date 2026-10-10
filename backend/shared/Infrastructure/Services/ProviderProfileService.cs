@@ -190,7 +190,7 @@ public class ProviderProfileService : IProviderProfileService
             return Result.Success();
         }
 
-        provider.SoftDelete();
+        provider.SoftDelete("Self-service account deletion by provider.");
         await _providerRepository.UpdateAsync(provider);
         await _sessionRepository.RevokeAllForProviderAsync(providerId);
 

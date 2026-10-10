@@ -23,15 +23,26 @@ public interface IEscrowService
     Task HoldAsync(Guid bookingId, Guid paymentTransactionId, decimal amount);
 
     /// <summary>
+    /// Moves a booking's wallet-funded share into escrow, the moment the
+    /// booking reaches Confirmed - the wallet-side counterpart to
+    /// <see cref="HoldAsync"/>, since a wallet debit has no PaymentTransaction
+    /// of its own to key a hold on. See <see cref="EscrowSourceType.WalletCreditConfirmed"/>.
+    /// </summary>
+    Task HoldWalletCreditAsync(Guid bookingId, decimal amount);
+
+    /// <summary>
     /// Releases a booking's currently-held escrow to its provider, net of
     /// <paramref name="commissionAmount"/> (task 157's already-recorded
     /// figure, reused here rather than recomputed, so the settlement and the
     /// escrow ledger never disagree). <paramref name="providerId"/> is a
     /// placeholder (task 158) - there is no Provider identity in the domain
-    /// yet, so it may be null. Returns null (a no-op) if nothing is
-    /// currently held for the booking - already released, or never held.
+    /// yet, so it may be null. <paramref name="paymentTransactionId"/> is
+    /// null for a booking held entirely through <see cref="HoldWalletCreditAsync"/>
+    /// (no PaymentTransaction exists to reference). Returns null (a no-op) if
+    /// nothing is currently held for the booking - already released, or
+    /// never held.
     /// </summary>
-    Task<EscrowReleaseResult?> ReleaseToProviderAsync(Guid bookingId, Guid paymentTransactionId, Guid? providerId, decimal commissionAmount);
+    Task<EscrowReleaseResult?> ReleaseToProviderAsync(Guid bookingId, Guid? paymentTransactionId, Guid? providerId, decimal commissionAmount);
 
     /// <summary>
     /// Releases up to <paramref name="refundAmount"/> of a booking's
@@ -43,6 +54,23 @@ public interface IEscrowService
     /// to its provider on completion before this refund was issued).
     /// </summary>
     Task ReleaseForRefundAsync(Guid bookingId, Guid refundTransactionId, decimal refundAmount);
+
+    /// <summary>
+    /// Releases up to <paramref name="feeAmount"/> of a booking's currently-held
+    /// escrow, kept as platform revenue rather than refunded - the
+    /// counterpart to <see cref="ReleaseForRefundAsync"/> for whatever a
+    /// late-cancellation fee withholds from the refund it issues alongside.
+    /// See <see cref="EscrowSourceType.CancellationFeeRetained"/>. A no-op
+    /// if nothing remains held.
+    /// </summary>
+    Task ReleaseRetainedFeeAsync(Guid bookingId, Guid cancellationId, decimal feeAmount);
+
+    /// <summary>
+    /// Books a late-reschedule fee that was just taken from the customer's wallet as platform revenue: a hold and a
+    /// release of the same amount (<see cref="EscrowSourceType.RescheduleFeeCollected"/>), leaving the booking's held
+    /// balance - and so what completion pays the provider - untouched. No-op for a zero fee.
+    /// </summary>
+    Task RecordRescheduleFeeAsync(Guid bookingId, Guid rescheduleId, decimal feeAmount);
 
     /// <summary>The sum of a booking's Hold entries minus its Release entries - what remains held right now.</summary>
     Task<decimal> GetHeldBalanceAsync(Guid bookingId);

@@ -50,7 +50,7 @@ public sealed class NotificationIntentDurabilityTests : IClassFixture<TestDataba
     private static NotificationDispatchService BuildDispatchService(NestlyDbContext context) =>
         new(
             new NotificationTemplateRenderer(new FakeNotificationTemplateRepository(), new MemoryCache(new MemoryCacheOptions())),
-            new SandboxNotificationProvider(NullLogger<SandboxNotificationProvider>.Instance),
+            new SandboxNotificationProvider(NullLogger<SandboxNotificationProvider>.Instance, new FakeHostEnvironment()),
             new SandboxPushNotificationProvider(NullLogger<SandboxPushNotificationProvider>.Instance),
             new NotificationEventRepository(context),
             new DeviceTokenRepository(context), new CustomerRepository(context), new ProviderRepository(context),
@@ -58,11 +58,16 @@ public sealed class NotificationIntentDurabilityTests : IClassFixture<TestDataba
 
     private static BookingNotificationTriggerHandler BuildBookingHandler(
         NestlyDbContext context, INotificationIntentCoordinator coordinator) =>
-        new(
-            new BookingRepository(context), new PaymentTransactionRepository(context),
-            new BookingCancellationRepository(context), new RefundTransactionRepository(context),
-            new ProviderRepository(context), BuildDispatchService(context), coordinator,
-            TestServices.FulfilmentNotifications(), NullLogger<BookingNotificationTriggerHandler>.Instance);
+        new(new BookingRepository(context),
+            new PaymentTransactionRepository(context),
+            new PaymentGroupRepository(context),
+            new BookingCancellationRepository(context),
+            new RefundTransactionRepository(context),
+            new ProviderRepository(context),
+            BuildDispatchService(context),
+            coordinator,
+            TestServices.FulfilmentNotifications(),
+            NullLogger<BookingNotificationTriggerHandler>.Instance);
 
     private static SupportTicketNotificationTriggerHandler BuildTicketHandler(
         NestlyDbContext context, INotificationIntentCoordinator coordinator) =>

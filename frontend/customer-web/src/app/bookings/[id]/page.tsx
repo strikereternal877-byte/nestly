@@ -24,6 +24,14 @@ import { Alert, Badge, Button, Card, LinkButton, Skeleton, cx } from "@/componen
 import { isBookingTrackable, useBookingTracking } from "@/hooks/useBookingTracking";
 import { API_V1, apiFetch, describeError } from "@/lib/api";
 import {
+  bookingTotalLabel,
+  canCancelBooking,
+  canRescheduleBooking,
+  canReviewBooking,
+  canSetUpRecurringFromBooking,
+  professionalProgress,
+} from "@/lib/booking-actions";
+import {
   BookingProviderAssignmentStatus,
   BookingStatus,
   ChatContextType,
@@ -42,15 +50,6 @@ const TRACKING_POLL_INTERVAL_MS = 15_000;
 
 /** Both reachable only via RefundPending/Refunded in BookingLifecycle - see BookingStatusMapper.cs. */
 const REFUND_STATUSES: BookingStatus[] = [BookingStatus.RefundPending, BookingStatus.Refunded];
-
-/** Cancelling is pointless once the booking is already in a terminal state. */
-const CLOSED_STATUSES: BookingStatus[] = [
-  BookingStatus.Completed,
-  BookingStatus.CancelledByCustomer,
-  BookingStatus.CancelledByAdmin,
-  BookingStatus.RefundPending,
-  BookingStatus.Refunded,
-];
 
 /**
  * Booking detail with status timeline, refund info, and action CTAs (SRS
@@ -108,7 +107,6 @@ function BookingDetailScreen() {
   }
 
   const booking = query.data;
-  const isClosed = CLOSED_STATUSES.includes(booking.status);
 
   return (
     <main className="flex w-full flex-col animate-rise">
@@ -167,7 +165,7 @@ function BookingDetailScreen() {
             }
             walletCreditApplied={booking.walletCreditApplied}
             total={booking.finalPayable}
-            totalLabel="Amount paid"
+            totalLabel={bookingTotalLabel(booking.status)}
           />
         </Card>
 
@@ -189,7 +187,7 @@ function BookingDetailScreen() {
       </div>
 
       <aside className="flex flex-col gap-4 md:sticky md:top-20 md:self-start">
-        <ActionCtas booking={booking} isClosed={isClosed} />
+        <ActionCtas booking={booking} />
       </aside>
       </div>
     </main>
@@ -205,6 +203,8 @@ function BookingDetailScreen() {
  */
 function StatusSummaryCard({ booking }: { booking: BookingDetail }) {
   const assignment = booking.providerAssignmentStatus;
+  // Once the accepted professional has set off the assignment still reads "Accepted"; the booking's own status is what moves on.
+  const progress = professionalProgress(booking.status, assignment);
 
   return (
     <Card>
@@ -261,7 +261,7 @@ function StatusSummaryCard({ booking }: { booking: BookingDetail }) {
             <p className="mt-0.5 text-sm leading-relaxed text-fg-muted">
               {assignment === null
                 ? "Not assigned yet — we'll match a professional to this slot shortly."
-                : providerAssignmentLabel(assignment)}
+                : (progress?.label ?? providerAssignmentLabel(assignment))}
             </p>
             {/* Task 293: real values at last. Both stay optional and both go
                 missing for ordinary reasons - no approved photo yet, no
@@ -278,11 +278,13 @@ function StatusSummaryCard({ booking }: { booking: BookingDetail }) {
           </div>
           {assignment !== null ? (
             <Badge tone={providerAssignmentTone(assignment)} className="ml-auto shrink-0">
-              {assignment === BookingProviderAssignmentStatus.Accepted
-                ? "Confirmed"
-                : assignment === BookingProviderAssignmentStatus.Completed
-                  ? "Completed"
-                  : "In progress"}
+              {progress
+                ? progress.badge
+                : assignment === BookingProviderAssignmentStatus.Accepted
+                  ? "Confirmed"
+                  : assignment === BookingProviderAssignmentStatus.Completed
+                    ? "Completed"
+                    : "In progress"}
             </Badge>
           ) : null}
         </div>
@@ -434,7 +436,7 @@ function refundStatusTone(status: RefundStatus) {
  * mis-click. Each target page still gates on its own eligibility endpoint and
  * explains why an action isn't available.
  */
-function ActionCtas({ booking, isClosed }: { booking: BookingDetail; isClosed: boolean }) {
+function ActionCtas({ booking }: { booking: BookingDetail }) {
   const canRebook = !!booking.service.slug;
 
   return (
@@ -445,21 +447,23 @@ function ActionCtas({ booking, isClosed }: { booking: BookingDetail; isClosed: b
         </LinkButton>
       ) : null}
 
-      {!isClosed ? (
+      {canRescheduleBooking(booking.status) ? (
         <LinkButton href={`/bookings/${booking.id}/reschedule`} variant="secondary" fullWidth>
           Reschedule booking
         </LinkButton>
       ) : null}
 
-      {canRebook ? (
+      {canRebook && canSetUpRecurringFromBooking(booking.status) ? (
         <LinkButton href={`/recurring-bookings/new?serviceSlug=${booking.service.slug}`} variant="secondary" fullWidth>
           Set up recurring booking
         </LinkButton>
       ) : null}
 
-      <LinkButton href={`/bookings/${booking.id}/review`} variant="secondary" fullWidth>
-        Leave a review
-      </LinkButton>
+      {canReviewBooking(booking.status) ? (
+        <LinkButton href={`/bookings/${booking.id}/review`} variant="secondary" fullWidth>
+          Leave a review
+        </LinkButton>
+      ) : null}
 
       {booking.status === BookingStatus.Completed ? (
         <LinkButton href="/refer-earn" variant="secondary" fullWidth>
@@ -485,7 +489,7 @@ function ActionCtas({ booking, isClosed }: { booking: BookingDetail; isClosed: b
         Email support
       </LinkButton>
 
-      {!isClosed ? (
+      {canCancelBooking(booking.status) ? (
         <div className="mt-1 border-t border-line pt-3">
           <LinkButton href={`/bookings/${booking.id}/cancel`} variant="danger-soft" fullWidth>
             Cancel booking

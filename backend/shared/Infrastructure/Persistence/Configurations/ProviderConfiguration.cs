@@ -50,5 +50,11 @@ public class ProviderConfiguration : IEntityTypeConfiguration<Provider>
         // PROVIDER-REFERRAL.md, mirrors CustomerConfiguration's ReferralCode.
         builder.Property(x => x.ReferralCode).HasMaxLength(20);
         builder.HasIndex(x => x.ReferralCode).IsUnique().HasFilter("referral_code IS NOT NULL");
+
+        // Provider Management UX pass, mirrors BookingConfiguration's StatusHistory navigation.
+        builder.HasMany(x => x.StatusHistory)
+            .WithOne()
+            .HasForeignKey(x => x.ProviderId)
+            .OnDelete(DeleteBehavior.Cascade);
     }
 }

@@ -29,7 +29,7 @@ public class CancellationsController : ControllerBase
         _cancelValidator = cancelValidator;
     }
 
-    /// <summary>Cancellation eligibility + fee/refund policy preview, shown before the customer confirms (SRS 11.14.3).</summary>
+    /// <summary>Cancellation eligibility + fee/refund policy preview, shown before the customer confirms (SRS 11.14.3). A late-reschedule fee the customer already paid is counted against the cancellation fee (<c>RescheduleFeeCredited</c>), not charged on top.</summary>
     [HttpGet("policy")]
     [ProducesResponseType(typeof(CancellationPolicyResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -39,7 +39,7 @@ public class CancellationsController : ControllerBase
         return result.IsSuccess ? Ok(result.Value) : result.ToProblemResult();
     }
 
-    /// <summary>Confirms the cancellation - transitions the booking, raises a refund if one is owed, and returns the outcome (SRS 24.6).</summary>
+    /// <summary>Confirms the cancellation - transitions the booking, raises a refund if one is owed, tells the assigned professional the booking is off, and returns the outcome (SRS 24.6).</summary>
     [HttpPost]
     [ProducesResponseType(typeof(CancellationOutcomeResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]

@@ -83,16 +83,26 @@ public sealed class RefundServiceTests : IClassFixture<TestDatabase>
             new RefundTransactionRepository(context),
             new WalletService(new WalletLedgerRepository(context), context),
             new EscrowService(new PlatformEscrowLedgerRepository(context)),
+            new ProviderEarningLedgerRepository(context),
+            TestServices.ProviderEarningLedgerService(context),
             gateway,
-            context);
+            context,
+            NullLogger<RefundService>.Instance);
 
     private static PaymentWebhookService BuildWebhookService(
         IPaymentTransactionRepository paymentRepository, IBookingRepository bookingRepository,
         Nestly.Infrastructure.Persistence.NestlyDbContext context, IPaymentGateway gateway) =>
-        new(
-            paymentRepository, bookingRepository, new ServiceRepository(context), gateway,
-            new CommissionService(Options.Create(new CommissionOptions())), new EscrowService(new PlatformEscrowLedgerRepository(context)),
-            context, new NoOpMetricsService(), NullLogger<PaymentWebhookService>.Instance);
+        new(paymentRepository,
+            new PaymentGroupRepository(context),
+            new RecurringBookingPlanRepository(context),
+            bookingRepository,
+            new ServiceRepository(context),
+            gateway,
+            new CommissionService(Options.Create(new CommissionOptions())),
+            new EscrowService(new PlatformEscrowLedgerRepository(context)),
+            context,
+            new NoOpMetricsService(),
+            NullLogger<PaymentWebhookService>.Instance);
 
     private sealed record Fixture(Customer Customer, Guid BookingId, decimal Total);
 
@@ -161,7 +171,7 @@ public sealed class RefundServiceTests : IClassFixture<TestDatabase>
     }
 
     /// <summary>Drives a fresh booking through payment success and cancellation, leaving it eligible for refund (Confirmed -> CancelledByCustomer).</summary>
-    private async Task<Fixture> SeedCancelledPaidBookingAsync(IPaymentGateway gateway, decimal servicePrice = 1000m, decimal walletCreditToApply = 0m)
+    private async Task<Fixture> SeedCancelledPaidBookingAsync(SandboxPaymentGateway gateway, decimal servicePrice = 1000m, decimal walletCreditToApply = 0m)
     {
         Fixture fixture;
         using (var seedContext = _db.CreateContext())
@@ -174,10 +184,16 @@ public sealed class RefundServiceTests : IClassFixture<TestDatabase>
         {
             var paymentRepository = new PaymentTransactionRepository(orderContext);
             var bookingRepository = new BookingRepository(orderContext);
-            var paymentService = new PaymentService(
-                paymentRepository, bookingRepository, gateway, (ISandboxPaymentSimulator)gateway,
-                BuildWebhookService(paymentRepository, bookingRepository, orderContext, gateway),
-                new AlwaysEligibleProviderSearchStub());
+            var paymentService = new PaymentService(paymentRepository,
+            bookingRepository,
+            gateway,
+            (ISandboxPaymentSimulator)gateway,
+            BuildWebhookService(paymentRepository, bookingRepository, orderContext, gateway),
+            new AlwaysEligibleProviderSearchStub(),
+            new PaymentGroupRepository(orderContext),
+            new RecurringBookingPlanRepository(orderContext),
+            new RecurringBookingOccurrenceRepository(orderContext),
+            null!);
             var order = await paymentService.CreateOrderAsync(fixture.Customer.Id, new CreatePaymentOrderRequest(fixture.BookingId, null));
             gatewayOrderId = order.Value.GatewayOrderId;
         }

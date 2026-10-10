@@ -41,6 +41,18 @@ public interface ICustomerSubscriptionRepository
     /// </summary>
     Task<bool> TryConsumeFreeVisitAsync(Guid subscriptionId);
 
+    /// <summary>
+    /// Atomically gives back one free-visit credit <see cref="TryConsumeFreeVisitAsync"/>
+    /// previously consumed - the booking it funded was cancelled before the
+    /// service it was for ever happened, so the credit it would have spent
+    /// never really got used. Floor-guarded at <see cref="CustomerSubscription.FreeVisitsIncludedSnapshot"/>
+    /// so this can never push the counter above the plan's own per-period
+    /// allotment, mirroring <c>ICouponRepository.ReleaseRedemptionAsync</c>'s
+    /// equivalent floor at zero. A no-op if the subscription is already back
+    /// at its full allotment (e.g. released twice for the same booking).
+    /// </summary>
+    Task ReleaseFreeVisitAsync(Guid subscriptionId);
+
     /// <summary>Subscriptions whose next billing attempt is due (task 178's recurring billing job) - Active or PaymentFailed (still retrying) with <see cref="CustomerSubscription.NextBillingDateUtc"/> at or before <paramref name="asOfUtc"/>.</summary>
     Task<IReadOnlyList<CustomerSubscription>> ListDueForBillingAsync(DateTime asOfUtc);
 

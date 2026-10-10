@@ -1,9 +1,11 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import Link from "next/link";
 import { useState } from "react";
-import { Alert, Field, PageHeading, StatTile } from "@/components/ui";
-import { DataTable, FilterBar, countActiveFilters, formatCurrency } from "@/components/data-table";
+import { Alert, Badge, Field, PageHeading, StatTile } from "@/components/ui";
+import type { BadgeTone } from "@/components/ui";
+import { DataTable, FilterBar, countActiveFilters, formatCurrency, formatDateTime } from "@/components/data-table";
 import type { DataTableColumn } from "@/components/data-table";
 import { CustomerStatusBadge } from "@/components/status-badges";
 import { describeError } from "@/lib/api";
@@ -26,10 +28,12 @@ import {
   getRefundReport,
   getSupportTicketReport,
 } from "@/lib/reports-api";
+import { RefundMethod, RefundStatus, RefundType } from "@/lib/reports-types";
 import type {
   CouponUsageReportRow,
   CustomerCitySegmentRow,
   CustomerStatusSegmentRow,
+  RefundReportRow,
   SupportTicketCategoryVolumeRow,
 } from "@/lib/reports-types";
 import { ExportQueueCard } from "./_components/ExportQueueCard";
@@ -60,6 +64,30 @@ interface ReportRange {
 function defaultRange(): ReportRange {
   return { fromDate: isoDateOffsetFromToday(-30), toDate: todayIsoDate(), city: "" };
 }
+
+const REFUND_TYPE_LABELS: Record<RefundType, string> = {
+  [RefundType.Full]: "Full",
+  [RefundType.Partial]: "Partial",
+};
+
+const REFUND_METHOD_LABELS: Record<RefundMethod, string> = {
+  [RefundMethod.Gateway]: "Gateway",
+  [RefundMethod.Wallet]: "Wallet",
+};
+
+const REFUND_STATUS_LABELS: Record<RefundStatus, string> = {
+  [RefundStatus.Initiated]: "Initiated",
+  [RefundStatus.Processing]: "Processing",
+  [RefundStatus.Refunded]: "Refunded",
+  [RefundStatus.Failed]: "Failed",
+};
+
+const REFUND_STATUS_TONES: Record<RefundStatus, BadgeTone> = {
+  [RefundStatus.Initiated]: "info",
+  [RefundStatus.Processing]: "warning",
+  [RefundStatus.Refunded]: "success",
+  [RefundStatus.Failed]: "danger",
+};
 
 export default function ReportsPage() {
   const claims = useAdminClaims();
@@ -148,6 +176,57 @@ export default function ReportsPage() {
     setRangeError(null);
     setApplied(draft);
   }
+
+  const refundColumns: DataTableColumn<RefundReportRow>[] = [
+    {
+      key: "booking",
+      header: "Booking",
+      cell: (row) => (
+        <Link
+          href={`/bookings/${row.bookingId}`}
+          className="nums font-medium text-fg underline-offset-4 hover:text-brand-600 hover:underline dark:hover:text-brand-400"
+        >
+          {row.bookingId}
+        </Link>
+      ),
+    },
+    {
+      key: "type",
+      header: "Type",
+      sortValue: (row) => row.type,
+      cell: (row) => REFUND_TYPE_LABELS[row.type],
+    },
+    {
+      key: "method",
+      header: "Method",
+      sortValue: (row) => row.method,
+      cell: (row) => REFUND_METHOD_LABELS[row.method],
+    },
+    {
+      key: "amount",
+      header: "Amount",
+      numeric: true,
+      sortValue: (row) => row.amount,
+      cell: (row) => <span className="nums">{formatCurrency(row.amount)}</span>,
+    },
+    {
+      key: "status",
+      header: "Status",
+      sortValue: (row) => row.status,
+      cell: (row) => <Badge tone={REFUND_STATUS_TONES[row.status]}>{REFUND_STATUS_LABELS[row.status]}</Badge>,
+    },
+    {
+      key: "reason",
+      header: "Reason",
+      cell: (row) => <span className="max-w-xs truncate text-fg-muted" title={row.reason}>{row.reason}</span>,
+    },
+    {
+      key: "createdAt",
+      header: "Created",
+      sortValue: (row) => row.createdAtUtc,
+      cell: (row) => <span className="nums">{formatDateTime(row.createdAtUtc)}</span>,
+    },
+  ];
 
   const couponColumns: DataTableColumn<CouponUsageReportRow>[] = [
     {
@@ -325,23 +404,43 @@ export default function ReportsPage() {
           isLoading={refundQuery.isPending}
           error={refundQuery.error}
           onRetry={() => void refundQuery.refetch()}
-          skeleton={<StatGridSkeleton count={2} columns={2} />}
+          skeleton={
+            <div className="flex flex-col gap-5">
+              <StatGridSkeleton count={2} columns={2} />
+              <TableSkeleton />
+            </div>
+          }
           exporting={runningExport === "refunds"}
           onExport={() => void runExport("refunds", () => exportRefundCsv(dateRangeFilters), "refunds")}
         >
-          <StatGrid columns={2}>
-            <StatTile
-              tone="danger"
-              label="Refunds"
-              value={(refundQuery.data?.totalCount ?? 0).toLocaleString("en-IN")}
+          <div className="flex flex-col gap-5">
+            <StatGrid columns={2}>
+              <StatTile
+                tone="danger"
+                label="Refunds"
+                value={(refundQuery.data?.totalCount ?? 0).toLocaleString("en-IN")}
+              />
+              <StatTile
+                tone="warning"
+                label="Total refunded"
+                value={formatCurrency(refundQuery.data?.totalRefundedAmount ?? 0)}
+                title={formatCurrency(refundQuery.data?.totalRefundedAmount ?? 0)}
+              />
+            </StatGrid>
+            <DataTable
+              columns={refundColumns}
+              rows={refundQuery.data?.rows}
+              rowKey={(row) => row.refundId}
+              isFetching={refundQuery.isFetching}
+              caption="Every refund raised in the selected window"
+              defaultSort={{ key: "createdAt", direction: "desc" }}
+              emptyTitle="No refund was raised in this window"
+              emptyDescription="Widen the date range to see earlier refunds."
+              maxHeight="24rem"
+              minWidth="720px"
+              hideDensityToggle
             />
-            <StatTile
-              tone="warning"
-              label="Total refunded"
-              value={formatCurrency(refundQuery.data?.totalRefundedAmount ?? 0)}
-              title={formatCurrency(refundQuery.data?.totalRefundedAmount ?? 0)}
-            />
-          </StatGrid>
+          </div>
         </ReportCard>
 
         <ReportCard
