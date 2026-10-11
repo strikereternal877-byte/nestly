@@ -8,6 +8,8 @@
 --      keeps whenever an admin edits the rates
 --   3. Service-to-pincode mappings for every Jaipur pincode
 --   4. Monthly plan "Home Cook - Jaipur" (MealBased, chosen weekdays, 10% off one-time)
+--   5. Home page: Home Cook first in "Most Booked Services", and a Cooking
+--      section (sorts first: category sort_order 0, then name)
 --
 -- The rates are sample values, not a pricing decision - change them from
 -- admin-web (Catalog > Services > Home Cook > Meal rates).
@@ -79,5 +81,19 @@ FROM service sv
 JOIN city c ON c.name = 'Jaipur'
 WHERE sv.slug = 'home-cook'
   AND NOT EXISTS (SELECT 1 FROM monthly_service_plan WHERE name = 'Home Cook - Jaipur');
+
+-- 5. Home page -----------------------------------------------------------------
+-- section_type: 1 = MostBooked, 2 = CategorySection (Domain/LandingSelection.cs).
+INSERT INTO landing_selection (id, section_type, category_id, service_id, sort_order, created_at_utc)
+SELECT gen_random_uuid(), 1, NULL, sv.id, 0, now()
+FROM service sv
+WHERE sv.slug = 'home-cook'
+  AND NOT EXISTS (SELECT 1 FROM landing_selection ls WHERE ls.section_type = 1 AND ls.service_id = sv.id);
+
+INSERT INTO landing_selection (id, section_type, category_id, service_id, sort_order, created_at_utc)
+SELECT gen_random_uuid(), 2, sv.category_id, sv.id, 1, now()
+FROM service sv
+WHERE sv.slug = 'home-cook'
+  AND NOT EXISTS (SELECT 1 FROM landing_selection ls WHERE ls.section_type = 2 AND ls.service_id = sv.id);
 
 COMMIT;
