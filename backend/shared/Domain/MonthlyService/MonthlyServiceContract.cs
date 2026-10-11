@@ -235,12 +235,10 @@ public class MonthlyServiceContract : AggregateRoot<Guid>
             throw new ArgumentException("Choose the meals and how many people to cook for.", nameof(mealQuote));
         }
 
-        if (!mealQuote.Session.Contains(visitStartTime))
+        if (!mealQuote.AllowsStart(visitStartTime))
         {
             throw new ArgumentException(
-                mealQuote.Session == Meals.MealSession.Morning
-                    ? $"A morning visit must start before {MealTypeExtensions.EveningStartsAt:HH:mm}."
-                    : $"An evening visit must start at {MealTypeExtensions.EveningStartsAt:HH:mm} or later.",
+                $"This {(mealQuote.Session == Meals.MealSession.Morning ? "morning" : "evening")} visit must start between {mealQuote.EarliestStart:HH:mm} and {mealQuote.LatestStart:HH:mm}.",
                 nameof(visitStartTime));
         }
     }

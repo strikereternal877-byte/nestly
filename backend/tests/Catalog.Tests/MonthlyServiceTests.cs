@@ -481,6 +481,11 @@ public sealed class MonthlyServiceTests : IClassFixture<TestDatabase>
             plan.Value.Id, seed.AddressId, [DayOfWeek.Monday], new DateOnly(2026, 10, 1), null, null, [MealType.Dinner], 2, EveningVisitTime: "09:00"));
         dinnerInTheMorning.IsFailure.Should().BeTrue("an evening visit cannot start at 9 am");
 
+        var dinnerAtTea = await app.Customer.RequestMealContractsAsync(seed.CustomerId, new MonthlyServiceMealContractRequest(
+            plan.Value.Id, seed.AddressId, [DayOfWeek.Monday], new DateOnly(2026, 10, 1), null, null, [MealType.Dinner], 2, EveningVisitTime: "16:00"));
+        dinnerAtTea.IsFailure.Should().BeTrue("dinner may start at most an hour before its usual time");
+        dinnerAtTea.Error.Message.Should().Contain("between 18:00 and 20:00");
+
         var requested = await app.Customer.RequestMealContractsAsync(seed.CustomerId, new MonthlyServiceMealContractRequest(
             plan.Value.Id, seed.AddressId,
             [DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday, DayOfWeek.Saturday],

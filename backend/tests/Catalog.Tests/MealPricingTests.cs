@@ -63,6 +63,26 @@ public sealed class MealPricingTests : IClassFixture<TestDatabase>
     }
 
     [Fact]
+    public void A_visit_may_start_from_an_hour_before_its_first_meal_to_its_last_meal()
+    {
+        var morning = MealPricing.Quote(CookMeals, [MealType.Breakfast, MealType.Lunch], 2).Single();
+        morning.LastMealStartTime.Should().Be(new TimeOnly(12, 0));
+        morning.EarliestStart.Should().Be(new TimeOnly(6, 30));
+        morning.LatestStart.Should().Be(new TimeOnly(12, 0), "timed for lunch, the visit's last meal");
+        morning.AllowsStart(new TimeOnly(11, 0)).Should().BeTrue();
+        morning.AllowsStart(new TimeOnly(12, 30)).Should().BeFalse();
+        morning.AllowsStart(new TimeOnly(6, 0)).Should().BeFalse();
+
+        var dinner = MealPricing.Quote(CookMeals, [MealType.Dinner], 2).Single();
+        dinner.EarliestStart.Should().Be(new TimeOnly(18, 0));
+        dinner.LatestStart.Should().Be(new TimeOnly(20, 0), "one meal: an hour either side of its usual time");
+
+        var lateLunch = CookMeals[1] with { DefaultStartTime = new TimeOnly(14, 30) };
+        MealPricing.Quote([lateLunch], [MealType.Lunch], 2).Single().LatestStart
+            .Should().Be(new TimeOnly(14, 30), "a morning visit never starts in the evening");
+    }
+
+    [Fact]
     public void Quote_rejects_nothing_chosen_unoffered_meals_and_out_of_range_people()
     {
         FluentActions.Invoking(() => MealPricing.Quote(CookMeals, [], 2)).Should().Throw<ArgumentException>();

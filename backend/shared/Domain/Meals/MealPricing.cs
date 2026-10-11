@@ -25,6 +25,8 @@ public sealed record MealOption(
 /// <summary>
 /// The price and length of one visit: the chosen meals that share a
 /// <see cref="MealSession"/>, cooked for <see cref="Persons"/>.
+/// <see cref="DefaultStartTime"/> is its first meal's usual time,
+/// <see cref="LastMealStartTime"/> its last meal's.
 /// </summary>
 public sealed record MealVisitQuote(
     MealSession Session,
@@ -32,10 +34,41 @@ public sealed record MealVisitQuote(
     int Persons,
     decimal Rate,
     int DurationMinutes,
-    TimeOnly DefaultStartTime)
+    TimeOnly DefaultStartTime,
+    TimeOnly LastMealStartTime)
 {
+    /// <summary>A visit may start this much before its first meal's usual time, and at least this much after.</summary>
+    public const int StartShiftMinutes = 60;
+
+    private static readonly TimeOnly FirstStart = new(6, 0);
+    private static readonly TimeOnly LastStart = new(21, 30);
+
     /// <summary>"Lunch + Dinner · 4 persons" - what the customer booked, in the words the cook needs.</summary>
     public string Describe() => $"{string.Join(" + ", Meals)} · {Persons} {(Persons == 1 ? "person" : "persons")}";
+
+    /// <summary>
+    /// Earliest start a monthly visit may be moved to (docs/MEAL-SERVICE.md):
+    /// an hour before its first meal's usual time, not before 06:00 or its session.
+    /// </summary>
+    public TimeOnly EarliestStart => FromMinutes(Math.Max(
+        Math.Max(Minutes(FirstStart), Session == MealSession.Evening ? Minutes(MealTypeExtensions.EveningStartsAt) : 0),
+        Minutes(DefaultStartTime) - StartShiftMinutes));
+
+    /// <summary>
+    /// Latest start: its last meal's usual time, or an hour after its first
+    /// meal's if that is later - so cooking several meals in one visit can
+    /// still be timed for the last of them. Not after 21:30, and a morning
+    /// visit stays before the evening.
+    /// </summary>
+    public TimeOnly LatestStart => FromMinutes(Math.Min(
+        Math.Min(Minutes(LastStart), Session == MealSession.Morning ? Minutes(MealTypeExtensions.EveningStartsAt) - 30 : int.MaxValue),
+        Math.Max(Minutes(LastMealStartTime), Minutes(DefaultStartTime) + StartShiftMinutes)));
+
+    public bool AllowsStart(TimeOnly start) => start >= EarliestStart && start <= LatestStart;
+
+    private static int Minutes(TimeOnly time) => time.Hour * 60 + time.Minute;
+
+    private static TimeOnly FromMinutes(int minutes) => new(minutes / 60, minutes % 60);
 }
 
 /// <summary>Pure pricing rules for meal-priced services. Throws <see cref="ArgumentException"/> on bad input, like the entities do.</summary>
@@ -101,7 +134,9 @@ public static class MealPricing
 
     /// <summary>
     /// One quote per session the chosen meals fall in, morning first. Each
-    /// session's visit starts at the earliest default time of its meals.
+    /// session's visit starts at the earliest default time of its meals, and
+    /// may be moved within <see cref="MealVisitQuote.EarliestStart"/> -
+    /// <see cref="MealVisitQuote.LatestStart"/>.
     /// </summary>
     public static IReadOnlyList<MealVisitQuote> Quote(IReadOnlyCollection<MealOption> options, IEnumerable<MealType> meals, int persons)
     {
@@ -135,7 +170,8 @@ public static class MealPricing
                     persons,
                     picked.Sum(o => o.RateFor(persons)),
                     picked.Sum(o => o.MinutesFor(persons)),
-                    picked.Min(o => o.DefaultStartTime));
+                    picked.Min(o => o.DefaultStartTime),
+                    picked.Max(o => o.DefaultStartTime));
             })
             .ToList();
     }
