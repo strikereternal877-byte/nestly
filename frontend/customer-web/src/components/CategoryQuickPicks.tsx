@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { motion } from "motion/react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { cx } from "@/components/ui";
 import { Reveal, revealItem } from "@/components/motion";
 import { useSelectedCity } from "@/hooks/useSelectedCity";
@@ -32,6 +32,11 @@ import type { CategorySummary } from "@/lib/types";
  *   - rendering it in normal document flow instead is what actually
  *   guarantees zero overlap on mobile, rather than continuing to shrink
  *   numbers to fit a budget that measured out at ~46px.
+ *
+ * The overlay shows two rows of chips at most, with an "All" link to every
+ * category: the hero (340px when no banner is live) has only ~150px under its
+ * search bar, and a longer list used to grow the panel up over the search bar
+ * and the header.
  *
  * Silent on every "nothing to show" case (no city yet, no categories, load
  * error) in both variants: a skeleton/empty-state block would either compete
@@ -68,12 +73,12 @@ function QuickPicksRow({
     // key - a shared cache entry means this rail never double-fetches.
     staleTime: 60 * 1000,
   });
+  const isOverlay = variant === "overlay";
+  const chipsRef = useTwoRowClip(isOverlay, query.data?.length ?? 0);
 
   if (!query.data || query.data.length === 0) {
     return null;
   }
-
-  const isOverlay = variant === "overlay";
 
   return (
     <div
@@ -89,23 +94,64 @@ function QuickPicksRow({
           : "w-full border border-line bg-brand-50 shadow-xs dark:bg-brand-500/[0.06]",
       )}
     >
-      <p
-        className={cx(
-          "mb-2.5 text-[0.6875rem] font-semibold uppercase tracking-wide",
-          isOverlay ? "text-white/90" : "text-fg-muted",
-        )}
-      >
-        Home Services, Right at Your Doorstep
-      </p>
-      <Reveal className="flex flex-wrap gap-x-3 gap-y-2">
-        {query.data.slice(0, 8).map((category) => (
-          <motion.div key={category.id} variants={revealItem}>
-            <QuickPickIcon category={category} isOverlay={isOverlay} />
-          </motion.div>
-        ))}
-      </Reveal>
+      <div className="mb-2.5 flex items-baseline justify-between gap-2">
+        <p
+          title="Home Services, Right at Your Doorstep"
+          className={cx(
+            "truncate text-[0.6875rem] font-semibold uppercase tracking-wide",
+            isOverlay ? "text-white/90" : "text-fg-muted",
+          )}
+        >
+          Home Services, Right at Your Doorstep
+        </p>
+        {isOverlay ? (
+          <Link
+            href="/categories"
+            aria-label="All categories"
+            className="shrink-0 text-[0.6875rem] font-semibold text-white drop-shadow-sm hover:text-white/80"
+          >
+            All →
+          </Link>
+        ) : null}
+      </div>
+      <div ref={chipsRef} className={cx(isOverlay && "relative max-h-[68px] overflow-hidden")}>
+        <Reveal className="flex flex-wrap gap-x-3 gap-y-2">
+          {query.data.slice(0, 8).map((category) => (
+            <motion.div key={category.id} variants={revealItem}>
+              <QuickPickIcon category={category} isOverlay={isOverlay} />
+            </motion.div>
+          ))}
+        </Reveal>
+      </div>
     </div>
   );
+}
+
+/** Two 30px chip rows plus the 8px gap between them - the overlay's chip area. */
+const TWO_ROWS_PX = 68;
+
+/**
+ * The overlay clips its chips to two rows; this also hides the clipped ones
+ * (visibility, so the layout is unchanged) so they can't take keyboard focus
+ * or be read out while out of sight. Re-checked whenever the rows reflow -
+ * a resize, or the web font arriving and changing the chip widths.
+ */
+function useTwoRowClip(enabled: boolean, count: number) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const rows = ref.current?.firstElementChild;
+    if (!enabled || !rows) return;
+    const clip = () => {
+      for (const chip of Array.from(rows.children) as HTMLElement[]) {
+        chip.style.visibility = chip.offsetTop >= TWO_ROWS_PX ? "hidden" : "";
+      }
+    };
+    clip();
+    const observer = new ResizeObserver(clip);
+    observer.observe(rows);
+    return () => observer.disconnect();
+  }, [enabled, count]);
+  return ref;
 }
 
 /**

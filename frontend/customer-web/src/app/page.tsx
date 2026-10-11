@@ -25,7 +25,7 @@ export default function Home() {
             underlap even a centered headline's left edge). The bottom-left
             corner is genuinely clear of all of that on a full-height desktop
             hero. */}
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 hidden justify-start px-5 pb-6 sm:flex sm:px-8 sm:pb-8">
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 hidden justify-start px-5 pb-6 sm:flex sm:px-8 sm:pb-4">
           <div className="pointer-events-auto w-[300px] max-w-[calc(100vw-2.5rem)]">
             <CategoryQuickPicks variant="overlay" />
           </div>
