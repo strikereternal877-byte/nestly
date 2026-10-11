@@ -38,6 +38,7 @@ import type {
 } from "@/lib/monthly-service";
 import {
   ContractStatusBadge,
+  FoldCard,
   InvoiceStatusBadge,
   MY_MONTHLY_INVOICES_KEY,
   MY_MONTHLY_SERVICES_KEY,
@@ -204,7 +205,7 @@ function TodayCard({ contract }: { contract: MonthlyServiceContract }) {
 function SummaryCard({ contract }: { contract: MonthlyServiceContract }) {
   const m = contract.currentMonth;
   return (
-    <Card title="This month" actions={<ContractStatusBadge contract={contract} />}>
+    <FoldCard title="This month" badge={<ContractStatusBadge contract={contract} />}>
       <div className="grid grid-cols-2 gap-4">
         <Stat label="Came" value={String(m.present)} />
         <Stat label="Skipped" value={String(m.customerSkipped)} />
@@ -239,7 +240,7 @@ function SummaryCard({ contract }: { contract: MonthlyServiceContract }) {
           </div>
         ) : null}
       </dl>
-    </Card>
+    </FoldCard>
   );
 }
 
@@ -266,10 +267,7 @@ function AttendanceCalendar({ contract }: { contract: MonthlyServiceContract }) 
   const selected = query.data?.items.find((i) => i.id === selectedId) ?? null;
 
   return (
-    <Card
-      title="Attendance"
-      description="Tap a day to see details, skip an upcoming visit, or report a problem."
-    >
+    <FoldCard title="Attendance" description="See each day's visit, skip an upcoming one, or report a problem.">
       <div className="mb-4 flex items-center justify-between rounded-xl border border-line px-2 py-1">
         <Button size="sm" variant="ghost" aria-label="Previous month" onClick={() => shift(-1)}>
           ‹
@@ -297,7 +295,7 @@ function AttendanceCalendar({ contract }: { contract: MonthlyServiceContract }) 
           ) : null}
         </>
       )}
-    </Card>
+    </FoldCard>
   );
 }
 
@@ -570,9 +568,12 @@ function BillsCard({ contract }: { contract: MonthlyServiceContract }) {
     onError: (error) => toast("error", describeError(error)),
   });
 
+  // Folded like the rest, but an unpaid bill stays in sight on the fold.
+  const due = bills.filter((b) => b.status !== MonthlyServiceInvoiceStatus.Paid).reduce((sum, b) => sum + b.amount, 0);
   return (
-    <Card
+    <FoldCard
       title={contract.billingMode === MonthlyServiceBillingMode.DailyWallet ? "Monthly statements" : "Monthly bills"}
+      badge={due > 0 ? <Badge tone="warning">{inr(due)} due</Badge> : null}
       description={
         contract.billingMode === MonthlyServiceBillingMode.DailyWallet
           ? "Each month's visits, already paid day by day from your wallet."
@@ -628,7 +629,7 @@ function BillsCard({ contract }: { contract: MonthlyServiceContract }) {
           ))}
         </ul>
       )}
-    </Card>
+    </FoldCard>
   );
 }
 
