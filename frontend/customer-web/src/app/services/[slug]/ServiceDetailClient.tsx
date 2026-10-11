@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { MealBookingFlow } from "@/components/meals/MealBookingFlow";
+import type { CookPageState } from "@/lib/meals";
 import { PriceCalculator } from "@/components/PriceCalculator";
 import { ReviewsSummary } from "@/components/ReviewsSummary";
 import { ServiceAvailability } from "@/components/ServiceAvailability";
@@ -30,9 +31,12 @@ import type { ServiceDetail } from "@/lib/types";
 export default function ServiceDetailPage({
   initialService,
   slug,
+  cookState,
 }: {
   initialService: ServiceDetail | null;
   slug: string;
+  /** A cook's choices from the page URL (see MealBookingFlow). */
+  cookState?: CookPageState;
 }) {
   const { city } = useSelectedCity();
 
@@ -69,7 +73,7 @@ export default function ServiceDetailPage({
   // A cook is booked by meals and people, not variants and quantity: it gets
   // its own focused flow instead of the generic detail layout.
   if (service.pricingType === "MealBased" && (service.mealOptions?.length ?? 0) > 0) {
-    return <MealBookingFlow service={service} />;
+    return <MealBookingFlow service={service} initial={cookState} />;
   }
 
   return (

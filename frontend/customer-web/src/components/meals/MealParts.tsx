@@ -156,12 +156,13 @@ export function MealPicker({
       {options.map((option) => {
         const on = selected.includes(option.meal);
         const session = sessionOf(option.meal);
+        const rate = rateFor(option, persons);
         return (
           <motion.button
             key={option.meal}
             type="button"
             aria-pressed={on}
-            aria-label={`${MEAL_LABELS[option.meal]}, ${formatClock(option.defaultStartTime)}, ${rupees(rateFor(option, persons))}`}
+            aria-label={`${MEAL_LABELS[option.meal]}, ${formatClock(option.defaultStartTime)}, ${rupees(rate)}${persons > 1 ? `, ${rupees(rate / persons)} per person` : ""}`}
             onClick={() => onToggle(option.meal)}
             whileTap={{ scale: 0.97 }}
             transition={SPRING}
@@ -210,10 +211,15 @@ export function MealPicker({
             <span className="text-[0.9375rem] font-semibold text-fg">
               {MEAL_LABELS[option.meal]}
             </span>
-            <AnimatedRupees
-              value={rateFor(option, persons)}
-              className="text-sm text-fg-muted"
-            />
+            <span className="flex flex-col gap-0.5">
+              <AnimatedRupees value={rate} className="text-sm text-fg-muted" />
+              {/* The more people, the less each costs - shown where it's chosen. */}
+              {persons > 1 ? (
+                <span className="text-xs text-fg-subtle">
+                  <AnimatedRupees value={rate / persons} /> per person
+                </span>
+              ) : null}
+            </span>
           </motion.button>
         );
       })}

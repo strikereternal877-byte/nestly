@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { AddressPicker } from "@/components/AddressPicker";
+import { FoodPreferencesCard, useFoodPreferences } from "@/components/meals/FoodPreferences";
 import { preferredAddress, resolveAddress } from "@/lib/addresses";
 import type { AddressPick } from "@/lib/addresses";
 import { BookingHelpLink } from "@/components/BookingHelpLink";
@@ -24,6 +25,7 @@ import { Alert, Button, Card, LinkButton, cx, useToast } from "@/components/ui";
 import { useSelectedCity } from "@/hooks/useSelectedCity";
 import { API_V1, apiFetch, describeError, errorCode } from "@/lib/api";
 import {
+  cookPageHref,
   describeMeals,
   discountedRate,
   formatDuration,
@@ -31,6 +33,7 @@ import {
   mealsFromParam,
   monthlyEstimate,
   quoteMeals,
+  readCookPageState,
   rupees,
   sessionContains,
   startChoices,
@@ -105,6 +108,10 @@ function SummaryScreen() {
     morning: searchParams.get("morning"),
     evening: searchParams.get("evening"),
   };
+
+  // "Keep this cook monthly": the cook of an earlier visit, asked for by name.
+  const askedFor = readCookPageState((key) => searchParams.get(key)).provider;
+  const food = useFoodPreferences();
 
   const [billing, setBilling] = useState<Billing>(searchParams.get("billing") === "month" ? "month" : "wallet");
   // `newAddressId` comes back from the "add a new address" detour, `address`
@@ -284,8 +291,30 @@ function SummaryScreen() {
       eveningVisitTime: visits.find((v) => v.session === "evening")?.start ?? null,
       payFromWallet: false,
       billingMode: billing === "wallet" ? MonthlyServiceBillingMode.DailyWallet : MonthlyServiceBillingMode.MonthEnd,
+      mealPreferences: food.value,
+      preferredProviderId: askedFor?.id ?? null,
     });
   };
+
+  // Back to the cook page as the customer left it.
+  const changeHref = cookPageHref(service.slug, {
+    mode: "monthly",
+    meals: visits.flatMap((v) => v.meals),
+    persons,
+    days,
+    start: startDate,
+    morning: visits.find((v) => v.session === "morning")?.start,
+    evening: visits.find((v) => v.session === "evening")?.start,
+    provider: askedFor,
+  });
+  const changeLink = (
+    <Link
+      href={changeHref}
+      className="text-sm font-medium text-brand-600 underline-offset-4 hover:underline dark:text-brand-400"
+    >
+      Change
+    </Link>
+  );
 
   const visitLabel = (session: MealSession) => (session === "morning" ? "Morning visit" : "Evening visit");
   const visitEnd = (start: string, minutes: number) => formatClock(fromMinutes(toMinutes(start) + minutes));
@@ -317,7 +346,7 @@ function SummaryScreen() {
         )}
       >
         <div className="flex min-w-0 flex-col gap-6 md:col-start-1">
-          <Card title="Service">
+          <Card title="Service" actions={changeLink}>
             <div className="flex flex-col gap-4">
               {visits.map((visit) => (
                 <div key={visit.session} className="flex items-baseline justify-between gap-4">
@@ -335,6 +364,8 @@ function SummaryScreen() {
               ))}
             </div>
           </Card>
+
+          <FoodPreferencesCard value={food.value} onChange={food.onChange} />
 
           <Card title="Service address" description="Where should your cook come?">
             <AddressPicker
@@ -358,8 +389,14 @@ function SummaryScreen() {
                     {visitLabel(visit.session)}, {formatClock(visit.start)} – {visitEnd(visit.start, visit.durationMinutes)}
                   </span>
                 ))}
+                {askedFor ? (
+                  <span className="text-sm text-fg-muted">
+                    Cook: <span className="font-medium text-fg">{askedFor.name}</span>, asked for by you - we confirm when we
+                    assign
+                  </span>
+                ) : null}
               </span>
-              <LinkButton size="sm" variant="secondary" href={`/services/${service.slug}`}>
+              <LinkButton size="sm" variant="secondary" href={changeHref}>
                 Change
               </LinkButton>
             </div>
@@ -468,6 +505,7 @@ function SummaryScreen() {
             >
               Request cook
             </Button>
+
           </StickyActionBar>
 
           <BookingHelpLink />

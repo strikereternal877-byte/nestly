@@ -6,7 +6,7 @@
  * property names here are the camelCase form of the C# ones.
  */
 
-import type { MealOption } from "./meals";
+import type { MealOption, MealPreferences, MealType } from "./meals";
 
 export interface LoginResponse {
   accessToken: string;
@@ -390,6 +390,8 @@ export interface PriceBreakdown {
 export interface BookingSummaryRequestBody {
   /** A cook's meals and people (docs/MEAL-SERVICE.md) - required for, and only accepted by, a MealBased service. */
   meals?: { meals: number[]; persons: number } | null;
+  /** A cook booking only: the household's food preferences, remembered for next time. */
+  mealPreferences?: MealPreferences | null;
   serviceId: string;
   cityId: string;
   addressId: string;
@@ -422,6 +424,10 @@ export interface BookingServiceSummary {
   variantId?: string | null;
   variantName?: string | null;
   variantDurationMinutes?: number | null;
+  /** A cook booking only (docs/MEAL-SERVICE.md): what was cooked, for how many, and the food preferences given. */
+  meals?: MealType[] | null;
+  persons?: number | null;
+  mealPreferences?: MealPreferences | null;
 }
 
 export interface BookingAddressSummary {
@@ -580,6 +586,8 @@ export interface BookingDetail {
  * must read as "no rating" rather than a bad one.
  */
 export interface BookingProviderSummary {
+  /** Lets the customer ask for this professional again ("keep this cook monthly"). */
+  id?: string | null;
   displayName: string;
   photoUrl: string | null;
   rating: number | null;

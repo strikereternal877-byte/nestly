@@ -223,3 +223,154 @@ const RUPEES = new Intl.NumberFormat("en-IN", {
 export function rupees(amount: number): string {
   return RUPEES.format(Math.round(amount));
 }
+
+/* ---- Food preferences (docs/MEAL-SERVICE.md FOOD PREFERENCES) ---- */
+
+/** Ordinals match the backend's DietType / SpiceLevel / Cuisine - they cross the wire as numbers. */
+export enum DietType {
+  Veg = 0,
+  NonVeg = 1,
+  Eggetarian = 2,
+  Jain = 3,
+  NoOnionGarlic = 4,
+}
+
+export enum SpiceLevel {
+  Mild = 0,
+  Medium = 1,
+  Spicy = 2,
+}
+
+export enum Cuisine {
+  NorthIndian = 0,
+  Rajasthani = 1,
+  SouthIndian = 2,
+  Gujarati = 3,
+  Punjabi = 4,
+  Bengali = 5,
+}
+
+/** No cuisines means any. */
+export interface MealPreferences {
+  diet: DietType;
+  spice: SpiceLevel;
+  cuisines: Cuisine[];
+}
+
+export const DIET_LABELS: Record<DietType, string> = {
+  [DietType.Veg]: "Veg",
+  [DietType.NonVeg]: "Non-veg",
+  [DietType.Eggetarian]: "Egg",
+  [DietType.Jain]: "Jain",
+  [DietType.NoOnionGarlic]: "No onion, garlic",
+};
+
+export const SPICE_LABELS: Record<SpiceLevel, string> = {
+  [SpiceLevel.Mild]: "Mild",
+  [SpiceLevel.Medium]: "Medium",
+  [SpiceLevel.Spicy]: "Spicy",
+};
+
+export const CUISINE_LABELS: Record<Cuisine, string> = {
+  [Cuisine.NorthIndian]: "North Indian",
+  [Cuisine.Rajasthani]: "Rajasthani",
+  [Cuisine.SouthIndian]: "South Indian",
+  [Cuisine.Gujarati]: "Gujarati",
+  [Cuisine.Punjabi]: "Punjabi",
+  [Cuisine.Bengali]: "Bengali",
+};
+
+/** "Jain · mild · Rajasthani, Gujarati" */
+export function describePreferences(preferences: MealPreferences): string {
+  const cuisines = preferences.cuisines.length
+    ? preferences.cuisines.map((c) => CUISINE_LABELS[c]).join(", ")
+    : "any cuisine";
+  return `${DIET_LABELS[preferences.diet]} · ${SPICE_LABELS[preferences.spice].toLowerCase()} · ${cuisines}`;
+}
+
+/* ---- The cook page's URL (docs/MEAL-SERVICE.md) ---- */
+
+/**
+ * What the cook page starts from. Its choices travel in the URL, so a
+ * "Change" link from a review page, or "keep this cook monthly" from a past
+ * booking, opens it as the customer left it. Everything is optional and
+ * checked here: a bad value is dropped, never trusted (the server re-checks
+ * whatever is finally sent anyway).
+ */
+export interface CookPageState {
+  mode?: "monthly" | "once";
+  meals?: MealType[];
+  persons?: number;
+  /** Weekday numbers, Sunday = 0. */
+  days?: number[];
+  /** Monthly first day, "YYYY-MM-DD". */
+  start?: string;
+  morning?: string;
+  evening?: string;
+  /** One-time visit day, "YYYY-MM-DD". */
+  date?: string;
+  /** One-time visit's slot window id. */
+  slot?: string;
+  /** The cook asked for ("keep this cook monthly"); the name is for display only. */
+  provider?: { id: string; name: string };
+}
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const CLOCK = /^([01]\d|2[0-3]):[0-5]\d$/;
+const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function readCookPageState(
+  get: (key: string) => string | null | undefined,
+): CookPageState {
+  const state: CookPageState = {};
+  const mode = get("mode");
+  if (mode === "monthly" || mode === "once") state.mode = mode;
+  const meals = mealsFromParam(get("meals") ?? null);
+  if (meals.length) state.meals = meals;
+  const persons = Number(get("persons"));
+  if (Number.isInteger(persons) && persons >= 1 && persons <= MAX_PERSONS)
+    state.persons = persons;
+  const days = (get("days") ?? "").split(",").filter(Boolean).map(Number);
+  if (days.length && days.every((d) => Number.isInteger(d) && d >= 0 && d <= 6))
+    state.days = [...new Set(days)];
+  for (const key of ["start", "date"] as const) {
+    const value = get(key);
+    if (value && ISO_DATE.test(value)) state[key] = value;
+  }
+  for (const key of ["morning", "evening"] as const) {
+    const value = get(key);
+    if (value && CLOCK.test(value)) state[key] = value;
+  }
+  const slot = get("slot");
+  if (slot && GUID.test(slot)) state.slot = slot;
+  const provider = get("provider");
+  if (provider && GUID.test(provider)) {
+    state.provider = {
+      id: provider,
+      name: (get("providerName") ?? "").slice(0, 60) || "your cook",
+    };
+  }
+  return state;
+}
+
+/** The cook page's URL for a state - the inverse of {@link readCookPageState}. */
+export function cookPageHref(
+  serviceSlug: string,
+  state: CookPageState,
+): string {
+  const params = new URLSearchParams();
+  if (state.mode) params.set("mode", state.mode);
+  if (state.meals?.length) params.set("meals", mealsToParam(state.meals));
+  if (state.persons) params.set("persons", String(state.persons));
+  if (state.days?.length) params.set("days", state.days.join(","));
+  for (const key of ["start", "morning", "evening", "date", "slot"] as const) {
+    const value = state[key];
+    if (value) params.set(key, value);
+  }
+  if (state.provider) {
+    params.set("provider", state.provider.id);
+    params.set("providerName", state.provider.name);
+  }
+  const query = params.toString();
+  return `/services/${serviceSlug}${query ? `?${query}` : ""}`;
+}

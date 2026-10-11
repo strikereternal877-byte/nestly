@@ -39,7 +39,7 @@ import {
   startChoices,
   toMinutes,
 } from "@/lib/meals";
-import type { MealSession } from "@/lib/meals";
+import type { CookPageState, MealSession } from "@/lib/meals";
 import {
   MonthlyServicePlanBasis,
   WEEKDAYS,
@@ -71,7 +71,14 @@ const isOpenDay = (day: SlotDayAvailability) =>
  * chosen for the customer), then hands everything to the normal checkout for
  * address and payment. How to pay is asked on those review pages, not here.
  */
-export function MealBookingFlow({ service }: { service: ServiceDetail }) {
+export function MealBookingFlow({
+  service,
+  initial = {},
+}: {
+  service: ServiceDetail;
+  /** Where to start: the page's own URL, from a review page's "Change" or "keep this cook monthly". */
+  initial?: CookPageState;
+}) {
   const options = useMemo(
     () => service.mealOptions ?? [],
     [service.mealOptions],
@@ -79,24 +86,42 @@ export function MealBookingFlow({ service }: { service: ServiceDetail }) {
   const { city, locality } = useSelectedCity();
   const { isUnserviceable } = useServiceability(service.id);
 
-  const [persons, setPersons] = useState(2);
-  const [meals, setMeals] = useState<MealType[]>(() =>
-    options.some((o) => o.meal === MealType.Lunch)
+  const [persons, setPersons] = useState(initial.persons ?? 2);
+  const [meals, setMeals] = useState<MealType[]>(() => {
+    const offered = initial.meals?.filter((m) =>
+      options.some((o) => o.meal === m),
+    );
+    if (offered?.length) return offered;
+    return options.some((o) => o.meal === MealType.Lunch)
       ? [MealType.Lunch]
-      : options.slice(0, 1).map((o) => o.meal),
+      : options.slice(0, 1).map((o) => o.meal);
+  });
+  const [chosenMode, setChosenMode] = useState<Mode | null>(
+    initial.mode ?? null,
   );
-  const [chosenMode, setChosenMode] = useState<Mode | null>(null);
-  const [days, setDays] = useState<number[]>(MON_TO_SAT);
-  const [startDate, setStartDate] = useState(isoDateOffsetFromToday(1));
+  const [days, setDays] = useState<number[]>(initial.days ?? MON_TO_SAT);
+  // A first day already past (an old link) falls back to tomorrow.
+  const [startDate, setStartDate] = useState(() =>
+    initial.start && initial.start >= isoDateOffsetFromToday(0)
+      ? initial.start
+      : isoDateOffsetFromToday(1),
+  );
   const upcomingDates = useUpcomingDates();
-  const [times, setTimes] = useState<Partial<Record<MealSession, string>>>({});
+  const [times, setTimes] = useState<Partial<Record<MealSession, string>>>({
+    morning: initial.morning,
+    evening: initial.evening,
+  });
   // What the customer picked for a one-time visit; null until they do.
-  const [onceDate, setOnceDate] = useState<string | null>(null);
+  const [onceDate, setOnceDate] = useState<string | null>(initial.date ?? null);
   // Remembered with its session: a morning window means nothing once the meals move to the evening.
   const [onceSlot, setOnceSlot] = useState<{
     id: string;
     session: MealSession;
-  } | null>(null);
+  } | null>(() =>
+    initial.slot && initial.meals?.length
+      ? { id: initial.slot, session: sessionOf(initial.meals[0]) }
+      : null,
+  );
 
   const plansQuery = useQuery({
     queryKey: ["monthly-plans", city?.id ?? "all"],
@@ -188,7 +213,11 @@ export function MealBookingFlow({ service }: { service: ServiceDetail }) {
   // pay, confirm), as a one-time visit does at checkout.
   const timeFor = (session: MealSession) =>
     visits.find((v) => v.session === session)?.start ?? "";
-  const monthlyHref = `/monthly-service/summary?serviceSlug=${service.slug}&meals=${mealsToParam(meals)}&persons=${persons}&days=${days.join(",")}&start=${startDate}&morning=${timeFor("morning")}&evening=${timeFor("evening")}`;
+  const monthlyHref = `/monthly-service/summary?serviceSlug=${service.slug}&meals=${mealsToParam(meals)}&persons=${persons}&days=${days.join(",")}&start=${startDate}&morning=${timeFor("morning")}&evening=${timeFor("evening")}${
+    initial.provider
+      ? `&provider=${initial.provider.id}&providerName=${encodeURIComponent(initial.provider.name)}`
+      : ""
+  }`;
   const checkoutHref = `/booking/summary?serviceSlug=${service.slug}&meals=${mealsToParam(meals)}&persons=${persons}&date=${onceDay?.date ?? ""}&slot=${onceWindow?.slotWindowId ?? ""}&wallet=1`;
 
   return (
@@ -345,8 +374,10 @@ export function MealBookingFlow({ service }: { service: ServiceDetail }) {
                   />
 
                   <p className="text-sm text-fg-muted">
-                    The same cook comes on your days. You’ll choose the address
-                    and how to pay next.
+                    {initial.provider
+                      ? `We'll ask ${initial.provider.name} first, the cook you had before.`
+                      : "The same cook comes on your days."}{" "}
+                    You’ll choose the address and how to pay next.
                   </p>
                 </motion.div>
               ) : (
@@ -438,7 +469,15 @@ export function MealBookingFlow({ service }: { service: ServiceDetail }) {
                 ) : null}
               </p>
               <p className="truncate text-xs text-fg-muted">
-                About <AnimatedRupees value={estimate} /> a month
+                {persons > 1 ? (
+                  <>
+                    <AnimatedRupees value={perDay / persons} /> per person ·
+                    about{" "}
+                  </>
+                ) : (
+                  "About "
+                )}
+                <AnimatedRupees value={estimate} /> a month
               </p>
             </>
           ) : (
@@ -452,7 +491,15 @@ export function MealBookingFlow({ service }: { service: ServiceDetail }) {
                 <span className="text-sm text-fg-muted">for the visit</span>
               </p>
               <p className="truncate text-xs text-fg-muted">
-                Taxes and fees shown at checkout
+                {persons > 1 ? (
+                  <>
+                    <AnimatedRupees value={quotes[0].rate / persons} /> per
+                    person ·{" "}
+                  </>
+                ) : null}
+                {persons > 1
+                  ? "taxes and fees at checkout"
+                  : "Taxes and fees at checkout"}
               </p>
             </>
           )}

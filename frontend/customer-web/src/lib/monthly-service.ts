@@ -9,6 +9,7 @@
  * DayOfWeek - Sunday = 0 through Saturday = 6, same as JS `Date.getDay()`.
  */
 import { API_V1, apiFetch } from "./api";
+import type { MealPreferences } from "./meals";
 
 export enum MonthlyServicePlanBasis {
   Hourly = 0,
@@ -198,6 +199,10 @@ export interface MonthlyServiceContract {
   /** Month-end bills are paid from the wallet automatically when the balance covers them. */
   payFromWallet: boolean;
   billingMode: MonthlyServiceBillingMode;
+  /** Meal plans only: the food preferences given when it was requested. */
+  mealPreferences?: MealPreferences | null;
+  /** The cook the customer asked for, until one is assigned. */
+  preferredProvider?: { id: string; displayName: string; photoUrl: string | null } | null;
 }
 
 export interface MonthlyServiceInvoice {
@@ -254,6 +259,9 @@ export interface MonthlyMealRequestBody {
   eveningVisitTime: string | null;
   payFromWallet: boolean;
   billingMode: MonthlyServiceBillingMode;
+  mealPreferences?: MealPreferences | null;
+  /** "Keep this cook monthly": a professional who has cooked for this customer before. */
+  preferredProviderId?: string | null;
 }
 
 export const MONTHLY_SERVICE_ACTIONS = {

@@ -23,6 +23,7 @@ import { RequireAuth } from "@/components/RequireAuth";
 import { Alert, Badge, Button, Card, LinkButton, Skeleton, cx } from "@/components/ui";
 import { isBookingTrackable, useBookingTracking } from "@/hooks/useBookingTracking";
 import { API_V1, apiFetch, describeError } from "@/lib/api";
+import { cookPageHref, describePreferences } from "@/lib/meals";
 import {
   bookingTotalLabel,
   canCancelBooking,
@@ -130,9 +131,14 @@ function BookingDetailScreen() {
       <div className="flex min-w-0 flex-col gap-6">
         <StatusSummaryCard booking={booking} />
 
+        {booking.status === BookingStatus.Completed ? <KeepCookCard booking={booking} /> : null}
+
         <Card title="Slot">
           <DetailList>
             {booking.service.variantName ? <DetailRow label="Booked for">{booking.service.variantName}</DetailRow> : null}
+            {booking.service.mealPreferences ? (
+              <DetailRow label="Food">{describePreferences(booking.service.mealPreferences)}</DetailRow>
+            ) : null}
             <DetailRow label="Date">{formatCalendarDate(booking.slot.date)}</DetailRow>
             <DetailRow label="Time window" numeric>
               {booking.slot.name} · {formatTimeRange(booking.slot.startTime, booking.slot.endTime)}
@@ -603,6 +609,30 @@ function CompletionProofCard({ bookingId }: { bookingId: string }) {
           ))}
         </ul>
       ) : null}
+    </Card>
+  );
+}
+
+/**
+ * After a cook's visit (docs/MEAL-SERVICE.md, "keep this cook monthly"):
+ * the same meals and people, as a monthly cook asking for this professional.
+ * Only for a cook booking that a professional completed.
+ */
+function KeepCookCard({ booking }: { booking: BookingDetail }) {
+  const { meals, persons, slug } = booking.service;
+  const cook = booking.provider;
+  if (!meals?.length || !persons || !cook?.id) return null;
+
+  return (
+    <Card
+      title={`Keep ${cook.displayName} as your monthly cook?`}
+      description="The same meals, on the days you choose. We ask them first when we assign your monthly cook."
+    >
+      <LinkButton
+        href={cookPageHref(slug, { mode: "monthly", meals, persons, provider: { id: cook.id, name: cook.displayName } })}
+      >
+        Keep this cook monthly
+      </LinkButton>
     </Card>
   );
 }

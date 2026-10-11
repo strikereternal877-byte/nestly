@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { MealType, closestWindow, discountedRate, startChoices, mealsFromParam, mealsToParam, quoteMeals, sessionContains } from "./meals";
+import { Cuisine, DietType, MealType, SpiceLevel, closestWindow, cookPageHref, describePreferences, discountedRate, readCookPageState, startChoices, mealsFromParam, mealsToParam, quoteMeals, sessionContains } from "./meals";
 import type { MealOption } from "./meals";
 
 /**
@@ -93,5 +93,43 @@ describe("startChoices", () => {
   it("gives one meal an hour either side", () => {
     const dinner = quoteMeals(COOK, [MealType.Dinner], 2)[0];
     assert.deepEqual(startChoices(dinner), ["18:00", "18:30", "19:00", "19:30", "20:00"]);
+  });
+});
+
+describe("cook page URL", () => {
+  const provider = { id: "6f9619ff-8b86-d011-b42d-00c04fc964ff", name: "Sunita" };
+
+  it("round-trips everything the cook page keeps", () => {
+    const state = {
+      mode: "monthly" as const,
+      meals: [MealType.Breakfast, MealType.Dinner],
+      persons: 4,
+      days: [1, 3, 5],
+      start: "2026-10-12",
+      morning: "07:30",
+      evening: "19:00",
+      provider,
+    };
+    const url = new URL(cookPageHref("home-cook", state), "https://x.test");
+    assert.equal(url.pathname, "/services/home-cook");
+    assert.deepEqual(readCookPageState((k) => url.searchParams.get(k)), state);
+  });
+
+  it("drops anything malformed instead of trusting it", () => {
+    const bad: Record<string, string> = {
+      mode: "weekly", persons: "40", days: "1,9", start: "12/10/2026", morning: "25:00",
+      slot: "not-a-guid", provider: "x", meals: "7",
+    };
+    assert.deepEqual(readCookPageState((k) => bad[k]), {});
+  });
+});
+
+describe("describePreferences", () => {
+  it("names the diet, spice and cuisines, or any cuisine when none were picked", () => {
+    assert.equal(
+      describePreferences({ diet: DietType.Jain, spice: SpiceLevel.Mild, cuisines: [Cuisine.Rajasthani, Cuisine.Gujarati] }),
+      "Jain · mild · Rajasthani, Gujarati",
+    );
+    assert.equal(describePreferences({ diet: DietType.Veg, spice: SpiceLevel.Medium, cuisines: [] }), "Veg · medium · any cuisine");
   });
 });

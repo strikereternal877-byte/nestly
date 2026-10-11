@@ -9,6 +9,7 @@ import { PageBanner } from "@/components/PageBanner";
 import { RequireAuth } from "@/components/RequireAuth";
 import { Alert, Badge, Button, Card, CheckboxField, EmptyState, Modal, Textarea, cx, useToast } from "@/components/ui";
 import { API_V1, apiFetch, describeError } from "@/lib/api";
+import { describePreferences } from "@/lib/meals";
 import {
   MONTHLY_SERVICE_ACTIONS,
   MonthlyServiceAttendanceStatus,
@@ -219,7 +220,10 @@ function SummaryCard({ contract }: { contract: MonthlyServiceContract }) {
       <dl className="mt-4 flex flex-col gap-3 border-t border-line pt-4 text-sm">
         <div>
           <dt className="text-xs text-fg-subtle">Professional</dt>
-          <dd className="font-medium text-fg">{contract.provider?.displayName ?? "Being assigned"}</dd>
+          <dd className="font-medium text-fg">
+            {contract.provider?.displayName ??
+              (contract.preferredProvider ? `Being assigned (you asked for ${contract.preferredProvider.displayName})` : "Being assigned")}
+          </dd>
         </div>
         {contract.address ? (
           <div>
@@ -233,6 +237,12 @@ function SummaryCard({ contract }: { contract: MonthlyServiceContract }) {
           <dt className="text-xs text-fg-subtle">Started</dt>
           <dd className="text-fg">{formatDay(contract.startDate)}</dd>
         </div>
+        {contract.mealPreferences ? (
+          <div>
+            <dt className="text-xs text-fg-subtle">Food</dt>
+            <dd className="text-fg">{describePreferences(contract.mealPreferences)}</dd>
+          </div>
+        ) : null}
         {contract.includedTasks.length > 0 ? (
           <div>
             <dt className="text-xs text-fg-subtle">Included</dt>

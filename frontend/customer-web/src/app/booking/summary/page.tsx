@@ -28,6 +28,7 @@ import {
   recurringFrequencyLabel,
 } from "@/components/patterns";
 import { RequireAuth } from "@/components/RequireAuth";
+import { FoodPreferencesCard, useFoodPreferences } from "@/components/meals/FoodPreferences";
 import { AreaSlotPicker } from "@/components/SlotPicker";
 import {
   Alert,
@@ -43,7 +44,7 @@ import {
 import { useSelectedCity } from "@/hooks/useSelectedCity";
 import { API_V1, ApiError, apiFetch, describeError, errorCode } from "@/lib/api";
 import { useFeatureFlags } from "@/lib/feature-flags";
-import { MEAL_LABELS, formatDuration, mealsFromParam, mealsToParam, quoteMeals, sessionContains } from "@/lib/meals";
+import { MEAL_LABELS, cookPageHref, formatDuration, mealsFromParam, mealsToParam, quoteMeals, sessionContains } from "@/lib/meals";
 import { type BookingDraft, type RepeatPlanKind, readDraft, writeDraft } from "@/lib/booking-draft";
 import { addRecurrenceInterval, openEndedCycleVisitCount, todayIsoDate } from "@/lib/date";
 import { PAUSE_AFTER_UNPAID_VISITS, WALLET_LOW_BALANCE_VISITS } from "@/lib/recurring-plan";
@@ -436,6 +437,8 @@ function BookingSummaryScreen() {
     const quotes = quoteMeals(service?.mealOptions ?? [], mealsFromParam(mealsParam), persons);
     return quotes.length === 1 ? { ...quotes[0], persons } : null;
   }, [isMealBased, service?.mealOptions, mealsParam, personsParam]);
+  // A cook booking asks how the household likes its food; pre-filled from the last one.
+  const food = useFoodPreferences(isMealBased);
   const mealSlotFilter = useCallback(
     (startTime: string) => (mealQuote ? sessionContains(mealQuote.session, startTime.slice(0, 5)) : true),
     [mealQuote],
@@ -492,6 +495,7 @@ function BookingSummaryScreen() {
         applyWalletCredit,
         serviceVariantId: selectedVariantId,
         meals: mealQuote ? { meals: mealQuote.meals, persons: mealQuote.persons } : null,
+        mealPreferences: mealQuote ? food.value : null,
       }
     : null;
 
@@ -881,7 +885,25 @@ function BookingSummaryScreen() {
         ) : null}
 
         {/* Cart: service + add-ons (task 62a). */}
-        <Card title="Service">
+        <Card
+          title="Service"
+          actions={
+            mealQuote ? (
+              <Link
+                href={cookPageHref(service.slug, {
+                  mode: "once",
+                  meals: mealQuote.meals,
+                  persons: mealQuote.persons,
+                  date: selectedDate,
+                  slot: selectedSlotWindowId ?? undefined,
+                })}
+                className="text-sm font-medium text-brand-600 underline-offset-4 hover:underline dark:text-brand-400"
+              >
+                Change
+              </Link>
+            ) : undefined
+          }
+        >
           {isMealBased ? (
             mealQuote ? (
               <div className="flex items-baseline justify-between gap-4">
@@ -986,6 +1008,8 @@ function BookingSummaryScreen() {
         </Card>
 
         {/* Address selection (task 62b). */}
+        {isMealBased && mealQuote ? <FoodPreferencesCard value={food.value} onChange={food.onChange} /> : null}
+
         <Card
           title="Service address"
           description={isMealBased ? "Where should your cook come?" : "Where should we send your professional?"}
@@ -1300,6 +1324,7 @@ function BookingSummaryScreen() {
           >
             Proceed to book
           </Button>
+
 
           {/* Announced rather than shown as a blocking overlay: the button's
               own spinner covers the visual case, this covers screen readers. */}

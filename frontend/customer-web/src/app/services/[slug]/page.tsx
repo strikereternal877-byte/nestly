@@ -3,6 +3,7 @@ import Link from "next/link";
 
 import { PageBanner } from "@/components/PageBanner";
 import { ServiceRatingBadge } from "@/components/ServiceRatingBadge";
+import { readCookPageState } from "@/lib/meals";
 import { serverJson } from "@/lib/server-api";
 import type { ServiceDetail } from "@/lib/types";
 
@@ -48,10 +49,19 @@ export async function generateMetadata({
 
 export default async function ServiceDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ slug: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { slug } = await params;
+  // A cook's page opens as the customer left it (a review page's "Change",
+  // "keep this cook monthly"); readCookPageState drops anything malformed.
+  const query = await searchParams;
+  const cookState = readCookPageState((key) => {
+    const value = query[key];
+    return Array.isArray(value) ? value[0] : value;
+  });
   const service = await serverJson<ServiceDetail>(`/services/${slug}`);
 
   return (
@@ -79,7 +89,7 @@ export default async function ServiceDetailPage({
         />
       ) : null}
 
-      <ServiceDetailClient initialService={service} slug={slug} />
+      <ServiceDetailClient initialService={service} slug={slug} cookState={cookState} />
     </main>
   );
 }
