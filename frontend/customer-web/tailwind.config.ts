@@ -132,7 +132,12 @@ const config: Config = {
 
       animation: {
         "fade-in": "nestly-fade-in var(--dur) var(--ease-out) both",
-        rise: "nestly-rise var(--dur-slow) var(--ease-out) both",
+        // `backwards`, not `both`: the end state equals the element's own
+        // style, and a fill that keeps `transform` applied afterwards turns
+        // the page into the containing block of every `position: fixed`
+        // child (StickyActionBar landed at the bottom of the page instead
+        // of the screen on mobile).
+        rise: "nestly-rise var(--dur-slow) var(--ease-out) backwards",
         pop: "nestly-pop var(--dur) var(--ease-out) both",
         shimmer: "nestly-shimmer 1.6s linear infinite",
       },
