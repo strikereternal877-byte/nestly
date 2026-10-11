@@ -61,6 +61,17 @@ public class MonthlyServiceContract : AggregateRoot<Guid>
     /// <summary>Meal plans only: the meals cooked on each visit, as a <see cref="MealTypeExtensions.ToMask"/> bitmask; 0 otherwise.</summary>
     public int MealsMask { get; private set; }
 
+    /// <summary>Meal plans only: the household's food preferences when it was requested. Null otherwise, or when none were given.</summary>
+    public MealPreferences? MealPreferencesSnapshot { get; private set; }
+
+    /// <summary>
+    /// The professional the customer asked for - the cook of an earlier visit
+    /// ("keep this cook monthly"). A wish for the admin who assigns, not an
+    /// assignment: <see cref="ProviderId"/> is still set by
+    /// <see cref="AssignProvider"/>.
+    /// </summary>
+    public Guid? PreferredProviderId { get; private set; }
+
     /// <summary>
     /// Pay each month-end invoice from the customer's wallet as soon as it is
     /// issued. When the balance falls short the invoice simply stays unpaid,
@@ -126,7 +137,9 @@ public class MonthlyServiceContract : AggregateRoot<Guid>
         int monthDaysMask = 0,
         MealVisitQuote? mealQuote = null,
         bool payFromWallet = false,
-        MonthlyServiceBillingMode billingMode = MonthlyServiceBillingMode.MonthEnd)
+        MonthlyServiceBillingMode billingMode = MonthlyServiceBillingMode.MonthEnd,
+        MealPreferences? mealPreferences = null,
+        Guid? preferredProviderId = null)
         : base(id)
     {
         ArgumentNullException.ThrowIfNull(plan);
@@ -166,6 +179,8 @@ public class MonthlyServiceContract : AggregateRoot<Guid>
             : Math.Round(mealQuote.Rate * (100m - plan.MonthlyDiscountPercent) / 100m, 2, MidpointRounding.AwayFromZero);
         PersonsSnapshot = mealQuote?.Persons;
         MealsMask = mealQuote is null ? 0 : MealTypeExtensions.ToMask(mealQuote.Meals);
+        MealPreferencesSnapshot = mealQuote is null ? null : mealPreferences;
+        PreferredProviderId = preferredProviderId;
         if (!Enum.IsDefined(billingMode))
         {
             throw new ArgumentOutOfRangeException(nameof(billingMode));

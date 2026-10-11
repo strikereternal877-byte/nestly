@@ -21,5 +21,6 @@ public class BookingSummaryRequestValidator : AbstractValidator<BookingSummaryRe
             addOn.RuleFor(a => a.Quantity).GreaterThan(0);
         });
         RuleFor(x => x.CouponCode).MaximumLength(50).When(x => x.CouponCode is not null);
+        RuleFor(x => x.MealPreferences!).SetValidator(new Meals.MealPreferencesValidator()).When(x => x.MealPreferences is not null);
     }
 }

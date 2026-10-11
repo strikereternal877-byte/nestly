@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Nestly.Application;
 using Nestly.Application.Abstractions.Observability;
 using Nestly.Application.Bookings;
+using Nestly.Application.Meals;
 using Nestly.Application.Coupons;
 using Nestly.Application.ProviderManagement;
 using Nestly.Application.Reviews;
@@ -102,6 +103,7 @@ public class BookingService : IBookingService
     // in booking for that (slotWindowId, date).
     private readonly NestlyDbContext _context;
     private readonly IPlatformRules _platformRules;
+    private readonly IMealPreferenceService _mealPreferences;
 
     public BookingService(
         IBookingSummaryService summaryService,
@@ -117,7 +119,8 @@ public class BookingService : IBookingService
         IWalletService walletService,
         IEligibleProviderSearchService eligibleProviderSearchService,
         NestlyDbContext context,
-        IPlatformRules? platformRules = null)
+        IPlatformRules? platformRules = null,
+        IMealPreferenceService? mealPreferences = null)
     {
         _summaryService = summaryService;
         _bookingRepository = bookingRepository;
@@ -133,6 +136,7 @@ public class BookingService : IBookingService
         _eligibleProviderSearchService = eligibleProviderSearchService;
         _context = context;
         _platformRules = platformRules ?? NoPlatformRules.Instance;
+        _mealPreferences = mealPreferences ?? new MealPreferenceService(context);
     }
 
     public async Task<Result<BookingDetailResponse>> CreateAsync(
@@ -453,6 +457,20 @@ public class BookingService : IBookingService
                 }
             }
 
+            // A cook booking keeps what it is for (the cook's job card, and
+            // "keep this cook monthly" starts from it), and the household's
+            // food preferences are remembered for the next one. Pricing has
+            // already refused meals for any service not priced by meals.
+            if (request.Meals is { } meals)
+            {
+                var preferences = request.MealPreferences?.ToDomain();
+                item.RecordMeals(meals.Meals, meals.Persons, preferences);
+                if (preferences is not null)
+                {
+                    await _mealPreferences.RememberAsync(customerId, preferences);
+                }
+            }
+
             // Task 331: a booking with nothing left to pay is confirmed here
             // and never enters PaymentPending. Stated as "is anything
             // payable", not "is this an AMC redemption", because three
@@ -660,7 +678,10 @@ public class BookingService : IBookingService
                 item?.ServiceId ?? Guid.Empty, item?.NameSnapshot ?? string.Empty, item?.SlugSnapshot ?? string.Empty,
                 item?.ServiceVariantId, item?.VariantNameSnapshot, item?.VariantDurationMinutesSnapshot,
                 item?.ServiceGroupId, item?.ServiceGroupNameSnapshot,
-                booking.ServiceDurationMinutesSnapshot, booking.IsDurationBasedSnapshot),
+                booking.ServiceDurationMinutesSnapshot, booking.IsDurationBasedSnapshot,
+                item is { MealsMask: > 0 } ? Domain.Meals.MealTypeExtensions.FromMask(item.MealsMask) : null,
+                item?.PersonsSnapshot,
+                item?.MealPreferencesSnapshot?.ToDto()),
             addOns,
             new BookingAddressSummary(
                 booking.SourceAddressId ?? Guid.Empty, booking.AddressLabelSnapshot, booking.AddressLine1Snapshot,

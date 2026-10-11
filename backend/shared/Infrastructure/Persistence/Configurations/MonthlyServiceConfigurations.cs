@@ -105,6 +105,9 @@ public class MonthlyServiceContractConfiguration : IEntityTypeConfiguration<Mont
         builder.Property(x => x.MonthDaysMask).IsRequired();
         builder.Property(x => x.PersonsSnapshot);
         builder.Property(x => x.MealsMask).IsRequired().HasDefaultValue(0);
+        MealPreferencesColumn.Configure(builder.Property(x => x.MealPreferencesSnapshot));
+        // Not a foreign key: a wish shown to the admin who assigns, like the snapshots around it.
+        builder.Property(x => x.PreferredProviderId);
         builder.Property(x => x.PayFromWallet).IsRequired().HasDefaultValue(false);
         builder.Property(x => x.BillingMode).IsRequired().HasConversion<string>().HasMaxLength(20)
             .HasDefaultValue(MonthlyServiceBillingMode.MonthEnd);

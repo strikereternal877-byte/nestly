@@ -446,6 +446,7 @@ public static class DependencyInjection
         services.AddScoped<ICityPricingPolicyRepository, CityPricingPolicyRepository>();
         services.AddScoped<IPromotionalPriceRepository, PromotionalPriceRepository>();
         services.AddScoped<IPriceCalculationService, PriceCalculationService>();
+        services.AddScoped<Nestly.Application.Meals.IMealPreferenceService, MealPreferenceService>();
         services.AddScoped<IPricingManagementService, PricingManagementService>();
         services.AddScoped<IServiceabilityRepository, ServiceabilityRepository>();
         services.AddScoped<IServiceabilityValidationService, ServiceabilityValidationService>();

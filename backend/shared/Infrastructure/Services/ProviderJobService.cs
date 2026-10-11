@@ -2,6 +2,7 @@ using Nestly.Application;
 using Nestly.Application.Abstractions.Time;
 using Nestly.Application.Bookings;
 using Nestly.Application.Payments;
+using Nestly.Application.Meals;
 using Nestly.Application.ProviderJobs;
 using Nestly.Application.ProviderManagement;
 using Nestly.Application.RecurringBookings;
@@ -585,7 +586,8 @@ public class ProviderJobService : IProviderJobService
             booking.SlotDate,
             booking.SlotStartTimeSnapshot,
             booking.SlotEndTimeSnapshot,
-            booking.Items.Select(i => new ProviderJobItemResponse(i.NameSnapshot, i.Quantity, i.UnitPriceSnapshot, i.VariantNameSnapshot)).ToList(),
+            booking.Items.Select(i => new ProviderJobItemResponse(
+                i.NameSnapshot, i.Quantity, i.UnitPriceSnapshot, i.VariantNameSnapshot, i.MealPreferencesSnapshot?.ToDto())).ToList(),
             booking.TotalPayableSnapshot,
             assignment.AssignedAt,
             assignment.RespondedAt,

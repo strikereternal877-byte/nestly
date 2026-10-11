@@ -1045,11 +1045,25 @@ namespace Nestly.Infrastructure.Migrations
                         .HasColumnType("numeric(12,2)")
                         .HasColumnName("line_total_snapshot");
 
+                    b.Property<string>("MealPreferencesSnapshot")
+                        .HasColumnType("text")
+                        .HasColumnName("meal_preferences_snapshot");
+
+                    b.Property<int>("MealsMask")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0)
+                        .HasColumnName("meals_mask");
+
                     b.Property<string>("NameSnapshot")
                         .IsRequired()
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)")
                         .HasColumnName("name_snapshot");
+
+                    b.Property<int?>("PersonsSnapshot")
+                        .HasColumnType("integer")
+                        .HasColumnName("persons_snapshot");
 
                     b.Property<int>("Quantity")
                         .HasColumnType("integer")
@@ -2847,6 +2861,36 @@ namespace Nestly.Infrastructure.Migrations
                     b.ToTable("login_attempt", (string)null);
                 });
 
+            modelBuilder.Entity("Nestly.Domain.Meals.CustomerMealPreference", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("CustomerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("customer_id");
+
+                    b.Property<string>("Preferences")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("preferences");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at_utc");
+
+                    b.HasKey("Id")
+                        .HasName("pk_customer_meal_preference");
+
+                    b.HasIndex("CustomerId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_customer_meal_preference_customer_id");
+
+                    b.ToTable("customer_meal_preference", (string)null);
+                });
+
             modelBuilder.Entity("Nestly.Domain.MonthlyService.MonthlyServiceAttendance", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3062,6 +3106,10 @@ namespace Nestly.Infrastructure.Migrations
                         .HasColumnType("character varying(2100)")
                         .HasColumnName("included_tasks_snapshot");
 
+                    b.Property<string>("MealPreferencesSnapshot")
+                        .HasColumnType("text")
+                        .HasColumnName("meal_preferences_snapshot");
+
                     b.Property<int>("MealsMask")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("integer")
@@ -3096,6 +3144,10 @@ namespace Nestly.Infrastructure.Migrations
                         .HasMaxLength(150)
                         .HasColumnType("character varying(150)")
                         .HasColumnName("plan_name_snapshot");
+
+                    b.Property<Guid?>("PreferredProviderId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("preferred_provider_id");
 
                     b.Property<DateTime?>("ProviderAssignedAtUtc")
                         .HasColumnType("timestamp with time zone")

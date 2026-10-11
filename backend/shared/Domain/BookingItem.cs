@@ -1,4 +1,5 @@
 using Nestly.BuildingBlocks.Primitives;
+using Nestly.Domain.Meals;
 
 namespace Nestly.Domain;
 
@@ -42,9 +43,37 @@ public class BookingItem : Entity<Guid>
     public Guid? ServiceGroupId { get; private set; }
     public string? ServiceGroupNameSnapshot { get; private set; }
 
+    /// <summary>
+    /// A cook booking only (docs/MEAL-SERVICE.md): the meals cooked, as a
+    /// <see cref="MealTypeExtensions.ToMask"/> bitmask (0 otherwise), for how
+    /// many people, and the food preferences asked at booking time - what the
+    /// cook needs, and what "keep this cook monthly" starts from.
+    /// </summary>
+    public int MealsMask { get; private set; }
+    public int? PersonsSnapshot { get; private set; }
+    public MealPreferences? MealPreferencesSnapshot { get; private set; }
+
     public IReadOnlyList<BookingAddOnItem> AddOns => _addOns;
 
     protected BookingItem() { }
+
+    /// <summary>Records what a cook booking is for; see <see cref="MealsMask"/>.</summary>
+    public void RecordMeals(IReadOnlyCollection<MealType> meals, int persons, MealPreferences? preferences)
+    {
+        if (meals.Count == 0)
+        {
+            throw new ArgumentException("Choose at least one meal.", nameof(meals));
+        }
+
+        if (persons is < 1 or > MealPricing.MaxPersons)
+        {
+            throw new ArgumentOutOfRangeException(nameof(persons), $"Cooking is for 1 to {MealPricing.MaxPersons} persons.");
+        }
+
+        MealsMask = MealTypeExtensions.ToMask(meals);
+        PersonsSnapshot = persons;
+        MealPreferencesSnapshot = preferences;
+    }
 
     public BookingItem(Guid id, Guid bookingId, Guid serviceId, string nameSnapshot, string slugSnapshot, decimal unitPriceSnapshot, int quantity)
         : base(id)

@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using Nestly.Application.Meals;
 using Nestly.Application.MonthlyService;
 using Nestly.BuildingBlocks.Results;
 using Nestly.Domain.MonthlyService;
@@ -66,7 +67,8 @@ public class MonthlyServiceProviderService : IMonthlyServiceProviderService
             c.FrequencySnapshot,
             c.TimesPerPeriodSnapshot,
             MonthlyServiceEngine.MonthDates(c),
-            c.PersonsSnapshot)).ToList();
+            c.PersonsSnapshot,
+            c.MealPreferencesSnapshot?.ToDto())).ToList();
     }
 
     public async Task<Result<MonthlyServiceAttendanceMonthResponse>> GetAttendanceAsync(Guid providerId, Guid contractId, int year, int month)
@@ -116,7 +118,8 @@ public class MonthlyServiceProviderService : IMonthlyServiceProviderService
                     c.IncludedTasksSnapshot,
                     customers.TryGetValue(r.CustomerId, out var cu) ? cu.Name : string.Empty,
                     MonthlyServiceEngine.ToAddress(addresses.GetValueOrDefault(c.AddressId)),
-                    c.PersonsSnapshot);
+                    c.PersonsSnapshot,
+                    c.MealPreferencesSnapshot?.ToDto());
             })
             .ToList();
     }

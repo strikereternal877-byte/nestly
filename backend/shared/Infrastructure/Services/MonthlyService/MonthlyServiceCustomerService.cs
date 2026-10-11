@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Nestly.Application;
+using Nestly.Application.Meals;
 using Nestly.Application.MonthlyService;
 using Nestly.Application.Payments;
 using Nestly.BuildingBlocks.Results;
@@ -22,6 +23,7 @@ public class MonthlyServiceCustomerService : IMonthlyServiceCustomerService
     private readonly ISandboxPaymentSimulator _paymentSimulator;
     private readonly MonthlyServiceEngine _engine;
     private readonly ILogger<MonthlyServiceCustomerService> _logger;
+    private readonly IMealPreferenceService? _mealPreferences;
 
     public MonthlyServiceCustomerService(
         IMonthlyServicePlanRepository planRepository,
@@ -33,7 +35,8 @@ public class MonthlyServiceCustomerService : IMonthlyServiceCustomerService
         IPaymentGateway paymentGateway,
         ISandboxPaymentSimulator paymentSimulator,
         MonthlyServiceEngine engine,
-        ILogger<MonthlyServiceCustomerService> logger)
+        ILogger<MonthlyServiceCustomerService> logger,
+        IMealPreferenceService? mealPreferences = null)
     {
         _planRepository = planRepository;
         _contractRepository = contractRepository;
@@ -45,6 +48,7 @@ public class MonthlyServiceCustomerService : IMonthlyServiceCustomerService
         _paymentSimulator = paymentSimulator;
         _engine = engine;
         _logger = logger;
+        _mealPreferences = mealPreferences;
     }
 
     public async Task<IReadOnlyList<MonthlyServicePlanBrowseResponse>> BrowsePlansAsync(Guid? cityId)
@@ -131,6 +135,14 @@ public class MonthlyServiceCustomerService : IMonthlyServiceCustomerService
             return Error.Validation("MonthlyService.InvalidMeals", ex.Message);
         }
 
+        if (request.PreferredProviderId is { } preferredId && !await _engine.HasServedAsync(preferredId, customerId))
+        {
+            return Error.Validation("MonthlyService.PreferredProviderUnknown",
+                "You can ask for a professional who has completed a visit for you.");
+        }
+
+        var preferences = request.MealPreferences?.ToDomain();
+
         // One contract per session (docs/MEAL-SERVICE.md): each has its own
         // rate, visit time and length, so attendance, billing and the
         // professional's clash check need no meal awareness at all.
@@ -158,12 +170,20 @@ public class MonthlyServiceCustomerService : IMonthlyServiceCustomerService
                     request.StartDate, request.EndDate, request.Note, _engine.NowUtc,
                     mealQuote: quote,
                     payFromWallet: request.PayFromWallet,
-                    billingMode: request.BillingMode));
+                    billingMode: request.BillingMode,
+                    mealPreferences: preferences,
+                    preferredProviderId: request.PreferredProviderId));
             }
             catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
             {
                 return Error.Validation("MonthlyService.InvalidRequest", MonthlyServiceEngine.UserMessage(ex));
             }
+        }
+
+        // Saved with the first contract (same unit of work), for the next booking.
+        if (preferences is not null && _mealPreferences is not null)
+        {
+            await _mealPreferences.RememberAsync(customerId, preferences);
         }
 
         // Every visit is validated before any is saved, so a bad evening
@@ -396,7 +416,9 @@ public class MonthlyServiceCustomerService : IMonthlyServiceCustomerService
     {
         var services = await _engine.ServiceNamesAsync([contract.ServiceIdSnapshot]);
         var addresses = await _engine.AddressesAsync([contract.AddressId]);
-        var providers = contract.ProviderId is { } pid ? await _engine.ProvidersAsync([pid]) : new();
+        // The assigned professional, and until there is one, the one asked for.
+        var preferredId = contract.ProviderId is null ? contract.PreferredProviderId : null;
+        var providers = await _engine.ProvidersAsync(new[] { contract.ProviderId, preferredId }.OfType<Guid>());
 
         var today = _engine.Today;
         var (monthStart, monthEnd) = MonthlyServiceEngine.MonthRange(today.Year, today.Month);
@@ -435,7 +457,9 @@ public class MonthlyServiceCustomerService : IMonthlyServiceCustomerService
             nextVisit,
             contract.PersonsSnapshot,
             contract.PayFromWallet,
-            contract.BillingMode);
+            contract.BillingMode,
+            contract.MealPreferencesSnapshot?.ToDto(),
+            preferredId is { } pref && providers.TryGetValue(pref, out var preferred) ? MonthlyServiceEngine.ToProviderSummary(preferred) : null);
     }
 
     private static Error ContractNotFound() =>

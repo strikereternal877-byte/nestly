@@ -82,7 +82,7 @@ public sealed class NestlyCoinsServiceTests : IClassFixture<TestDatabase>
     }
 
     /// <summary>Builds a Completed booking directly via the domain constructor + TransitionTo chain, same as ReferralQualificationAndRewardTests - the full BookingService orchestration is out of scope for what this test needs.</summary>
-    private static Booking SeedCompletedBooking(Nestly.Infrastructure.Persistence.NestlyDbContext context, Guid customerId, decimal totalPayable, Guid? assignedProviderId = null)
+    internal static Booking SeedCompletedBooking(Nestly.Infrastructure.Persistence.NestlyDbContext context, Guid customerId, decimal totalPayable, Guid? assignedProviderId = null)
     {
         var booking = new Booking(
             Guid.NewGuid(), customerId,

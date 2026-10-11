@@ -83,6 +83,18 @@ public sealed class MealPricingTests : IClassFixture<TestDatabase>
     }
 
     [Fact]
+    public void Food_preferences_keep_each_cuisine_once_in_a_fixed_order_and_refuse_unknown_values()
+    {
+        var preferences = MealPreferences.Create(DietType.NoOnionGarlic, SpiceLevel.Spicy, [Cuisine.Gujarati, Cuisine.NorthIndian, Cuisine.Gujarati]);
+        preferences.Cuisines.Should().Equal(Cuisine.NorthIndian, Cuisine.Gujarati);
+        preferences.Should().Be(MealPreferences.Create(DietType.NoOnionGarlic, SpiceLevel.Spicy, [Cuisine.NorthIndian, Cuisine.Gujarati]),
+            "two equal sets of preferences are equal, whatever order they were picked in");
+
+        FluentActions.Invoking(() => MealPreferences.Create((DietType)99, SpiceLevel.Mild, [])).Should().Throw<ArgumentOutOfRangeException>();
+        FluentActions.Invoking(() => MealPreferences.Create(DietType.Veg, SpiceLevel.Mild, [(Cuisine)99])).Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
     public void Quote_rejects_nothing_chosen_unoffered_meals_and_out_of_range_people()
     {
         FluentActions.Invoking(() => MealPricing.Quote(CookMeals, [], 2)).Should().Throw<ArgumentException>();

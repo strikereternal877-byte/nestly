@@ -64,7 +64,9 @@ public record BookingSummaryRequest(
     string? IdempotencyKey = null,
     bool ApplyWalletCredit = false,
     Guid? ServiceVariantId = null,
-    MealSelection? Meals = null);
+    MealSelection? Meals = null,
+    /// <summary>A cook booking only: the household's food preferences, remembered for next time.</summary>
+    MealPreferencesDto? MealPreferences = null);
 
 /// <summary>
 /// The <c>Variant*</c> fields are null when no variant was selected (Phase 3
@@ -81,7 +83,10 @@ public record BookingServiceSummary(
     // Carried so the booking can snapshot the provider-commitment at creation
     // (duration + whether the service is time-based) - see Booking's
     // ServiceDurationMinutesSnapshot / IsDurationBasedSnapshot.
-    int DurationMinutes = 0, bool IsDurationBased = false);
+    int DurationMinutes = 0, bool IsDurationBased = false,
+    // A cook booking only (docs/MEAL-SERVICE.md): what was cooked, for how
+    // many, and the food preferences given - null otherwise.
+    IReadOnlyList<Nestly.Domain.Meals.MealType>? Meals = null, int? Persons = null, MealPreferencesDto? MealPreferences = null);
 
 public record BookingAddressSummary(
     Guid Id,
@@ -152,7 +157,8 @@ public record BookingStatusTimelineEntry(BookingStatus? FromStatus, BookingStatu
 /// frontends: they already render a null photo as the placeholder avatar and
 /// a null rating as no stars.
 /// </summary>
-public record BookingProviderSummary(string DisplayName, string? PhotoUrl, double? Rating)
+/// <param name="Id">Lets a customer ask for this professional again ("keep this cook monthly"); the monthly views already carry it.</param>
+public record BookingProviderSummary(string DisplayName, string? PhotoUrl, double? Rating, Guid? Id = null)
 {
     /// <summary>
     /// The single mapping from the aggregate, shared by the booking detail
@@ -183,7 +189,7 @@ public record BookingProviderSummary(string DisplayName, string? PhotoUrl, doubl
     /// one.
     /// </summary>
     public static BookingProviderSummary From(Provider provider, ProviderRatingSummary? rating) =>
-        new(provider.DisplayName, provider.PublicPhotoUrl, rating?.AverageRating);
+        new(provider.DisplayName, provider.PublicPhotoUrl, rating?.AverageRating, provider.Id);
 }
 
 /// <summary>

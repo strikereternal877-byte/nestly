@@ -554,6 +554,15 @@ public class MonthlyServiceEngine
             : await _context.Set<Customer>().AsNoTracking().Where(c => list.Contains(c.Id)).ToDictionaryAsync(c => c.Id);
     }
 
+    /// <summary>
+    /// Whether the professional has completed a booking for the customer -
+    /// the only professionals a customer may ask for by name ("keep this cook
+    /// monthly"), so a request can't name just anyone.
+    /// </summary>
+    public Task<bool> HasServedAsync(Guid providerId, Guid customerId) =>
+        _context.Set<Booking>().AnyAsync(b =>
+            b.CustomerId == customerId && b.AssignedProviderId == providerId && b.Status == BookingStatus.Completed);
+
     public async Task<Dictionary<Guid, Provider>> ProvidersAsync(IEnumerable<Guid> ids)
     {
         var list = ids.Distinct().ToList();

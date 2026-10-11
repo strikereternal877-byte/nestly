@@ -17,6 +17,22 @@ public sealed record MealOptionDto(
 /// <summary>What the customer chose for a meal-priced service: which meals, for how many people.</summary>
 public sealed record MealSelection(IReadOnlyList<MealType> Meals, int Persons);
 
+/// <summary>A household's food preferences (docs/MEAL-SERVICE.md FOOD PREFERENCES). No cuisines means any.</summary>
+public sealed record MealPreferencesDto(DietType Diet, SpiceLevel Spice, IReadOnlyList<Cuisine> Cuisines);
+
+/// <summary>
+/// The customer's saved food preferences: read to pre-fill the next cook
+/// booking, and remembered whenever a cook booking or monthly request
+/// carries them.
+/// </summary>
+public interface IMealPreferenceService
+{
+    Task<MealPreferencesDto?> GetAsync(Guid customerId);
+
+    /// <summary>Stages the save on the shared unit of work; the caller's SaveChanges commits it with its own changes.</summary>
+    Task RememberAsync(Guid customerId, MealPreferences preferences);
+}
+
 /// <summary>Replaces every meal rate of a meal-priced service at once.</summary>
 public sealed record MealOptionsUpdateRequest(IReadOnlyList<MealOptionDto> Options);
 
@@ -34,6 +50,13 @@ public static class MealOptionMapping
         MonthlyServiceTimeFormat.TryParse(dto.DefaultStartTime, out var start);
         return new MealOption(dto.Meal, dto.BaseRate, dto.IncludedPersons, dto.ExtraPersonRate, dto.BaseMinutes, dto.MinutesPerExtraPerson, start);
     }
+
+    public static MealPreferencesDto ToDto(this MealPreferences preferences) =>
+        new(preferences.Diet, preferences.Spice, preferences.Cuisines);
+
+    /// <summary>Values are already checked by <see cref="MealPreferencesValidator"/>.</summary>
+    public static MealPreferences ToDomain(this MealPreferencesDto dto) =>
+        MealPreferences.Create(dto.Diet, dto.Spice, dto.Cuisines ?? []);
 
     /// <summary>A cache/idempotency-safe key for a selection: same meals in any order give the same key.</summary>
     public static string Key(this MealSelection selection) =>
@@ -71,5 +94,16 @@ public class MealSelectionValidator : AbstractValidator<MealSelection>
         RuleFor(x => x.Meals).NotEmpty().WithMessage("Choose at least one meal.");
         RuleForEach(x => x.Meals).IsInEnum();
         RuleFor(x => x.Persons).InclusiveBetween(1, MealPricing.MaxPersons);
+    }
+}
+
+public class MealPreferencesValidator : AbstractValidator<MealPreferencesDto>
+{
+    public MealPreferencesValidator()
+    {
+        RuleFor(x => x.Diet).IsInEnum();
+        RuleFor(x => x.Spice).IsInEnum();
+        RuleFor(x => x.Cuisines).NotNull();
+        RuleForEach(x => x.Cuisines).IsInEnum();
     }
 }

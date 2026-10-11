@@ -1,3 +1,4 @@
+using Nestly.Application.Meals;
 using System.Globalization;
 using FluentValidation;
 using Nestly.Domain.Meals;
@@ -91,6 +92,7 @@ public class MonthlyServiceMealContractRequestValidator : AbstractValidator<Mont
         RuleForEach(x => x.Days).IsInEnum();
         RuleFor(x => x.Meals).NotEmpty().WithMessage("Choose at least one meal.");
         RuleForEach(x => x.Meals).IsInEnum();
+        RuleFor(x => x.MealPreferences!).SetValidator(new MealPreferencesValidator()).When(x => x.MealPreferences is not null);
         RuleFor(x => x.Persons).InclusiveBetween(1, MealPricing.MaxPersons);
         RuleFor(x => x.MorningVisitTime)
             .Must(v => MonthlyServiceTimeFormat.TryParse(v, out _))

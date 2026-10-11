@@ -35,6 +35,11 @@ public class BookingItemConfiguration : IEntityTypeConfiguration<BookingItem>
         builder.Property(x => x.ServiceGroupId);
         builder.Property(x => x.ServiceGroupNameSnapshot).HasMaxLength(200);
 
+        // A cook booking's meals, people and food preferences (docs/MEAL-SERVICE.md).
+        builder.Property(x => x.MealsMask).IsRequired().HasDefaultValue(0);
+        builder.Property(x => x.PersonsSnapshot);
+        MealPreferencesColumn.Configure(builder.Property(x => x.MealPreferencesSnapshot));
+
         builder.HasMany(x => x.AddOns)
             .WithOne()
             .HasForeignKey(x => x.BookingItemId)

@@ -6,6 +6,7 @@ using Nestly.Application;
 using Nestly.Application.Abstractions.Auditing;
 using Nestly.Application.MonthlyService;
 using Nestly.Domain;
+using Nestly.Application.Meals;
 using Nestly.Domain.Meals;
 using Nestly.Domain.MonthlyService;
 using Nestly.Infrastructure.Auditing;
@@ -458,6 +459,39 @@ public sealed class MonthlyServiceTests : IClassFixture<TestDatabase>
     }
 
     [Fact]
+    public async Task A_monthly_cook_can_ask_for_a_cook_who_has_cooked_here_and_keeps_the_food_preferences()
+    {
+        var clock = new MutableTimeProvider(new DateTime(2026, 10, 1, 2, 0, 0, DateTimeKind.Utc));
+        await using var context = _db.CreateContext();
+        var seed = await SeedAsync(context, cook: true);
+        var app = Build(context, clock);
+        var plan = await app.Admin.CreatePlanAsync(
+            new MonthlyServicePlanUpsertRequest(seed.ServiceId, seed.CityId, "Home cook " + Guid.NewGuid().ToString("N")[..6], null,
+                MonthlyServicePlanBasis.MealBased, null, null, 0m, 10m),
+            Guid.NewGuid());
+        var preferences = new MealPreferencesDto(DietType.Jain, SpiceLevel.Mild, [Cuisine.Gujarati, Cuisine.Rajasthani]);
+        MonthlyServiceMealContractRequest Lunch() => new(
+            plan.Value.Id, seed.AddressId, [DayOfWeek.Monday], new DateOnly(2026, 10, 5), null, null, [MealType.Lunch], 2,
+            MealPreferences: preferences, PreferredProviderId: seed.ProviderId);
+
+        var stranger = await app.Customer.RequestMealContractsAsync(seed.CustomerId, Lunch());
+        stranger.Error.Code.Should().Be("MonthlyService.PreferredProviderUnknown", "only a cook who has completed a visit here can be asked for");
+
+        NestlyCoinsServiceTests.SeedCompletedBooking(context, seed.CustomerId, 150m, seed.ProviderId);
+        var requested = await app.Customer.RequestMealContractsAsync(seed.CustomerId, Lunch());
+        requested.IsSuccess.Should().BeTrue(requested.IsFailure ? requested.Error.Message : null);
+
+        var contract = requested.Value.Single();
+        contract.Provider.Should().BeNull("asking is not assigning - the admin still assigns");
+        contract.PreferredProvider!.Id.Should().Be(seed.ProviderId);
+        contract.MealPreferences!.Cuisines.Should().Equal(Cuisine.Rajasthani, Cuisine.Gujarati);
+        (await new MealPreferenceService(context).GetAsync(seed.CustomerId))!.Diet.Should().Be(DietType.Jain, "remembered for next time");
+
+        var detail = await app.Admin.GetContractAsync(contract.Id);
+        detail.Value.PreferredProvider!.Id.Should().Be(seed.ProviderId, "offered first when assigning");
+    }
+
+    [Fact]
     public async Task Cook_for_breakfast_and_dinner_is_a_morning_and_an_evening_contract_one_professional_can_take()
     {
         // 07:30 IST on Thu 1 Oct 2026.
@@ -752,7 +786,8 @@ public sealed class MonthlyServiceTests : IClassFixture<TestDatabase>
             new MonthlyServiceAdminService(planRepo, contractRepo, attendanceRepo, invoiceRepo, job,
                 new AuditLogWriter(context, new StubAuditContextProvider()), engine, context, NullLogger<MonthlyServiceAdminService>.Instance),
             new MonthlyServiceCustomerService(planRepo, contractRepo, attendanceRepo, invoiceRepo,
-                new CustomerAddressRepository(context), new ServiceRepository(context), gateway, gateway, engine, NullLogger<MonthlyServiceCustomerService>.Instance),
+                new CustomerAddressRepository(context), new ServiceRepository(context), gateway, gateway, engine, NullLogger<MonthlyServiceCustomerService>.Instance,
+                new MealPreferenceService(context, clock)),
             new MonthlyServiceProviderService(contractRepo, attendanceRepo, invoiceRepo, engine, NullLogger<MonthlyServiceProviderService>.Instance),
             job);
     }

@@ -1,3 +1,4 @@
+using Nestly.Application.Meals;
 using Nestly.Domain.Meals;
 using Nestly.Domain.MonthlyService;
 
@@ -146,7 +147,11 @@ public sealed record MonthlyServiceMealContractRequest(
     /// <summary>Pay each month-end invoice from the wallet automatically.</summary>
     bool PayFromWallet = false,
     /// <summary>Month-end bill, or each day paid from the wallet before it happens.</summary>
-    MonthlyServiceBillingMode BillingMode = MonthlyServiceBillingMode.MonthEnd);
+    MonthlyServiceBillingMode BillingMode = MonthlyServiceBillingMode.MonthEnd,
+    /// <summary>The household's food preferences; remembered on the customer for next time.</summary>
+    MealPreferencesDto? MealPreferences = null,
+    /// <summary>"Keep this cook monthly": a professional who has cooked for this customer before.</summary>
+    Guid? PreferredProviderId = null);
 
 public sealed record MonthlyServiceContractResponse(
     Guid Id,
@@ -181,7 +186,10 @@ public sealed record MonthlyServiceContractResponse(
     int? Persons = null,
     /// <summary>Whether month-end invoices are paid from the wallet automatically.</summary>
     bool PayFromWallet = false,
-    MonthlyServiceBillingMode BillingMode = MonthlyServiceBillingMode.MonthEnd);
+    MonthlyServiceBillingMode BillingMode = MonthlyServiceBillingMode.MonthEnd,
+    MealPreferencesDto? MealPreferences = null,
+    /// <summary>The cook the customer asked for, until one is assigned.</summary>
+    MonthlyServiceProviderSummary? PreferredProvider = null);
 
 public sealed record MonthlyServiceCancelRequest(string? Reason);
 
@@ -243,7 +251,8 @@ public sealed record MonthlyServiceProviderContractResponse(
     MonthlyServiceFrequency Frequency,
     int? TimesPerPeriod,
     IReadOnlyList<int> MonthDates,
-    int? Persons = null);
+    int? Persons = null,
+    MealPreferencesDto? MealPreferences = null);
 
 /// <summary>One visit on the professional's day list: the attendance row plus where and what.</summary>
 public sealed record MonthlyServiceProviderVisitResponse(
@@ -254,7 +263,8 @@ public sealed record MonthlyServiceProviderVisitResponse(
     IReadOnlyList<string> IncludedTasks,
     string CustomerName,
     MonthlyServiceAddressSummary? Address,
-    int? Persons = null);
+    int? Persons = null,
+    MealPreferencesDto? MealPreferences = null);
 
 public sealed record MonthlyServiceCheckInRequest(string Code, decimal? Latitude, decimal? Longitude);
 
@@ -300,7 +310,10 @@ public sealed record MonthlyServiceContractAdminDetailResponse(
     DateTime? CancelledAtUtc,
     string? CancellationReason,
     int? Persons = null,
-    MonthlyServiceBillingMode BillingMode = MonthlyServiceBillingMode.MonthEnd);
+    MonthlyServiceBillingMode BillingMode = MonthlyServiceBillingMode.MonthEnd,
+    MealPreferencesDto? MealPreferences = null,
+    /// <summary>The cook the customer asked for ("keep this cook monthly"); offer them first.</summary>
+    MonthlyServiceProviderSummary? PreferredProvider = null);
 
 public sealed record MonthlyServiceEligibleProvider(
     Guid Id,

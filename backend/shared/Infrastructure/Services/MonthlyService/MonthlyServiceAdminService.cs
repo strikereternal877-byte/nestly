@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Nestly.Application.Abstractions.Auditing;
+using Nestly.Application.Meals;
 using Nestly.Application.MonthlyService;
 using Nestly.BuildingBlocks.Results;
 using Nestly.Domain;
@@ -406,6 +407,11 @@ public class MonthlyServiceAdminService : IMonthlyServiceAdminService
         var (start, end) = MonthlyServiceEngine.MonthRange(today.Year, today.Month);
         var rows = await _attendanceRepository.ListByContractAsync(contract.Id, start, end);
         var invoices = await _engine.ToInvoiceResponsesAsync(await _invoiceRepository.ListByContractAsync(contract.Id), includeCommission: true);
+        // "Keep this cook monthly": the cook the customer asked for, offered first when assigning.
+        var preferred = contract.PreferredProviderId is { } preferredId
+            ? MonthlyServiceEngine.ToProviderSummary((await _engine.ProvidersAsync([preferredId])).GetValueOrDefault(preferredId))
+            : null;
+
         return new MonthlyServiceContractAdminDetailResponse(
             item,
             contract.BasisSnapshot,
@@ -420,7 +426,9 @@ public class MonthlyServiceAdminService : IMonthlyServiceAdminService
             contract.CancelledAtUtc,
             contract.CancellationReason,
             contract.PersonsSnapshot,
-            contract.BillingMode);
+            contract.BillingMode,
+            contract.MealPreferencesSnapshot?.ToDto(),
+            preferred);
     }
 
     private async Task<Result> ChangeContractAsync(

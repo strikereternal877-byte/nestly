@@ -234,7 +234,8 @@ public sealed class RescheduleServiceTests : IClassFixture<TestDatabase>
             var request = new BookingSummaryRequest(
                 service.Id, city.Id, address.Id, locality.Id, window.Id, futureDate, Quantity: 1, [],
                 ApplyWalletCredit: walletCreditToApply > 0,
-                Meals: cookLunch ? new MealSelection([MealType.Lunch], 2) : null);
+                Meals: cookLunch ? new MealSelection([MealType.Lunch], 2) : null,
+                MealPreferences: cookLunch ? CookPreferences.ToDto() : null);
             var created = await BuildBookingService(context).CreateAsync(customer.Id, request);
             created.IsSuccess.Should().BeTrue();
             bookingId = created.Value.Id;
@@ -340,6 +341,23 @@ public sealed class RescheduleServiceTests : IClassFixture<TestDatabase>
 
         result.Value.IsEligible.Should().BeFalse();
         result.Value.IneligibilityReason.Should().Contain("Service in Progress").And.NotContain("InProgress");
+    }
+
+    private static readonly MealPreferences CookPreferences = MealPreferences.Create(DietType.Jain, SpiceLevel.Mild, [Cuisine.Rajasthani]);
+
+    [Fact]
+    public async Task A_cook_booking_keeps_its_meals_and_saves_the_households_food_preferences()
+    {
+        var fixture = await SeedPaidBookingAsync(BuildGateway(), cookLunch: true);
+
+        using var context = _db.CreateContext();
+        var item = context.Set<BookingItem>().Single(i => i.BookingId == fixture.BookingId);
+        item.MealsMask.Should().Be(MealTypeExtensions.ToMask([MealType.Lunch]));
+        item.PersonsSnapshot.Should().Be(2);
+        item.MealPreferencesSnapshot.Should().Be(CookPreferences, "the cook sees what was asked when it was booked");
+
+        (await new MealPreferenceService(context).GetAsync(fixture.Customer.Id))
+            .Should().BeEquivalentTo(CookPreferences.ToDto(), "the next cook booking starts from them");
     }
 
     [Fact]
