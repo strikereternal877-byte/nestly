@@ -56,7 +56,7 @@ export function useBookingTracking(bookingId: string | undefined) {
       connection.invoke("JoinBooking", bookingId).catch(() => {});
     });
 
-    connection
+    const started = connection
       .start()
       .then(() => connection.invoke("JoinBooking", bookingId))
       .catch(() => {
@@ -64,8 +64,13 @@ export function useBookingTracking(bookingId: string | undefined) {
       });
 
     return () => {
-      connection.invoke("LeaveBooking", bookingId).catch(() => {});
-      connection.stop();
+      // Stop only once start has settled: stopping mid-negotiation makes
+      // SignalR log an error (dev StrictMode remounts every effect, so the
+      // Next.js overlay showed one issue per hub on each visit).
+      started
+        .then(() => connection.invoke("LeaveBooking", bookingId))
+        .catch(() => {})
+        .finally(() => connection.stop());
     };
   }, [bookingId, queryClient]);
 }
@@ -144,7 +149,7 @@ export function useLiveBookingTracking(bookingId: string | undefined) {
       connection.invoke("JoinBooking", bookingId).catch(() => {});
     });
 
-    connection
+    const started = connection
       .start()
       .then(() => connection.invoke("JoinBooking", bookingId))
       .catch(() => {
@@ -152,8 +157,13 @@ export function useLiveBookingTracking(bookingId: string | undefined) {
       });
 
     return () => {
-      connection.invoke("LeaveBooking", bookingId).catch(() => {});
-      connection.stop();
+      // Stop only once start has settled: stopping mid-negotiation makes
+      // SignalR log an error (dev StrictMode remounts every effect, so the
+      // Next.js overlay showed one issue per hub on each visit).
+      started
+        .then(() => connection.invoke("LeaveBooking", bookingId))
+        .catch(() => {})
+        .finally(() => connection.stop());
     };
   }, [bookingId, queryClient]);
 }

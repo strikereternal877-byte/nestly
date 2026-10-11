@@ -95,7 +95,7 @@ export function ChatWidget({ contextType, contextId }: { contextType: ChatContex
       connection.invoke("JoinThread", threadId).catch(() => {});
     });
 
-    connection
+    const started = connection
       .start()
       .then(() => connection.invoke("JoinThread", threadId))
       .catch(() => {
@@ -104,8 +104,13 @@ export function ChatWidget({ contextType, contextId }: { contextType: ChatContex
       });
 
     return () => {
-      connection.invoke("LeaveThread", threadId).catch(() => {});
-      connection.stop();
+      // Stop only once start has settled: stopping mid-negotiation makes
+      // SignalR log an error (dev StrictMode remounts every effect, so the
+      // Next.js overlay showed one issue per hub on each visit).
+      started
+        .then(() => connection.invoke("LeaveThread", threadId))
+        .catch(() => {})
+        .finally(() => connection.stop());
     };
     // Reconnects only when the thread changes - markReadMutation is a fresh
     // object every render (useMutation) and would otherwise tear the socket
