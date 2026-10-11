@@ -1,8 +1,13 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import type { UseQueryResult } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { ComponentProps, ReactNode } from "react";
+import { CitySelector } from "@/components/CitySelector";
+import { LocalitySelector } from "@/components/LocalitySelector";
 import { Alert, Button, Skeleton, cx } from "@/components/ui";
+import { useSelectedCity } from "@/hooks/useSelectedCity";
 import { API_V1, apiFetch, describeError } from "@/lib/api";
 import { SlotUnavailabilityReason } from "@/lib/types";
 import type { SlotDayAvailability, SlotRange } from "@/lib/types";
@@ -101,6 +106,63 @@ function partOfDay(startTime: string): (typeof PARTS)[number]["key"] {
   return (PARTS.find((part) => hour < part.until) ?? PARTS[PARTS.length - 1]).key;
 }
 
+/** Today and the next VISIBLE_DAYS - 1 days as "YYYY-MM-DD"; empty until mounted. */
+export function useUpcomingDates(): string[] {
+  // Computed on mount rather than via useMemo: `new Date()` and the
+  // locale-dependent weekday/day labels below would otherwise run during the
+  // server render too, and the server's default locale/clock can legitimately
+  // differ from the browser's (a different `Intl` default locale renders a
+  // different weekday string, e.g. "Mon" vs "Lundi") - a hydration mismatch
+  // on every page load rather than a rare one. Starting from `[]` keeps the
+  // server- and first-client-render markup identical (the strip is simply
+  // empty on both) until this effect fills it in just after hydration.
+  const [dates, setDates] = useState<string[]>([]);
+  // Not a lazy initializer: that runs during server-side prerendering too,
+  // defeating the exact hydration-mismatch avoidance described above.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => setDates(upcomingDates()), []);
+  return dates;
+}
+
+/**
+ * The next VISIBLE_DAYS days and their bookable slots, fetched in one request
+ * (nothing while `localityId` is null). Shared by SlotPicker and the cook's
+ * meal flow so both read the same cache.
+ */
+export function useSlotDays(
+  serviceId: string,
+  localityId: string | null,
+  /** Keeps only slots whose "HH:mm:ss" start passes. Must be stable (memoised). */
+  slotFilter?: (startTime: string) => boolean,
+): { dates: string[]; days: SlotDayAvailability[]; query: UseQueryResult<SlotRange> } {
+  const dates = useUpcomingDates();
+
+  // One request for the whole strip. This used to be one query per visible
+  // day - seven serial round-trips before the picker could say anything,
+  // which on a slow connection was the longest wait in the booking flow.
+  const rangeFrom = dates[0];
+  const rangeTo = dates[dates.length - 1];
+
+  const rangeQuery = useQuery({
+    queryKey: ["slots-range", serviceId, localityId, rangeFrom, rangeTo],
+    queryFn: () =>
+      apiFetch<SlotRange>(
+        `${API_V1}/slots/range?serviceId=${serviceId}&localityId=${localityId}&from=${rangeFrom}&to=${rangeTo}`,
+      ),
+    enabled: dates.length > 0 && localityId !== null,
+  });
+
+  const rangeDays = useMemo(
+    () =>
+      (rangeQuery.data?.days ?? []).map((day) =>
+        slotFilter ? { ...day, slots: day.slots.filter((slot) => slotFilter(slot.startTime)) } : day,
+      ),
+    [rangeQuery.data, slotFilter],
+  );
+
+  return { dates, days: rangeDays, query: rangeQuery };
+}
+
 /**
  * Date picker + time window selection (SRS 11.8, tasks 63a-c).
  *
@@ -138,42 +200,7 @@ export function SlotPicker({
   /** Keeps only slots whose "HH:mm:ss" start passes - e.g. a cook's morning meals need a morning slot. Must be stable (memoised). */
   slotFilter?: (startTime: string) => boolean;
 }) {
-  // Computed on mount rather than via useMemo: `new Date()` and the
-  // locale-dependent weekday/day labels below would otherwise run during the
-  // server render too, and the server's default locale/clock can legitimately
-  // differ from the browser's (a different `Intl` default locale renders a
-  // different weekday string, e.g. "Mon" vs "Lundi") - a hydration mismatch
-  // on every page load rather than a rare one. Starting from `[]` keeps the
-  // server- and first-client-render markup identical (the strip is simply
-  // empty on both) until this effect fills it in just after hydration.
-  const [dates, setDates] = useState<string[]>([]);
-  // Not a lazy initializer: that runs during server-side prerendering too,
-  // defeating the exact hydration-mismatch avoidance described above.
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => setDates(upcomingDates()), []);
-
-  // One request for the whole strip. This used to be one query per visible
-  // day - seven serial round-trips before the picker could say anything,
-  // which on a slow connection was the longest wait in the booking flow.
-  const rangeFrom = dates[0];
-  const rangeTo = dates[dates.length - 1];
-
-  const rangeQuery = useQuery({
-    queryKey: ["slots-range", serviceId, localityId, rangeFrom, rangeTo],
-    queryFn: () =>
-      apiFetch<SlotRange>(
-        `${API_V1}/slots/range?serviceId=${serviceId}&localityId=${localityId}&from=${rangeFrom}&to=${rangeTo}`,
-      ),
-    enabled: dates.length > 0,
-  });
-
-  const rangeDays = useMemo(
-    () =>
-      (rangeQuery.data?.days ?? []).map((day) =>
-        slotFilter ? { ...day, slots: day.slots.filter((slot) => slotFilter(slot.startTime)) } : day,
-      ),
-    [rangeQuery.data, slotFilter],
-  );
+  const { dates, days: rangeDays, query: rangeQuery } = useSlotDays(serviceId, localityId, slotFilter);
   const dayByDate = new Map(rangeDays.map((day) => [day.date, day]));
   const selectedDay = dayByDate.get(selectedDate);
 
@@ -350,4 +377,27 @@ export function SlotPicker({
       </div>
     </div>
   );
+}
+
+/**
+ * Slots are per locality: renders `children` for the area chosen in the header,
+ * asking for the city or the locality first when there isn't one yet.
+ */
+export function AreaGate({ children }: { children: (localityId: string) => ReactNode }) {
+  const { city, locality } = useSelectedCity();
+  if (city === undefined) return <Skeleton className="h-24 rounded-xl" />;
+  if (city === null) {
+    return (
+      <div className="flex flex-col items-start gap-2.5">
+        <p className="text-sm text-fg-muted">Select your city first.</p>
+        <CitySelector />
+      </div>
+    );
+  }
+  if (locality === null) return <LocalitySelector cityId={city.id} />;
+  return children(locality.id);
+}
+
+export function AreaSlotPicker(props: Omit<ComponentProps<typeof SlotPicker>, "localityId">) {
+  return <AreaGate>{(localityId) => <SlotPicker {...props} localityId={localityId} />}</AreaGate>;
 }

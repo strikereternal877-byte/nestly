@@ -1,91 +1,82 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "motion/react";
-import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { useMemo, useState, useSyncExternalStore } from "react";
+import { useCallback, useMemo, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import type { ReactNode } from "react";
-import { MY_MONTHLY_SERVICES_KEY } from "@/app/monthly-service/_components/shared";
 import {
   AnimatedRupees,
+  ChoiceChips,
   chipClass,
-  DayStrip,
+  DateChips,
   MealPicker,
   PersonStepper,
-  TimeChips,
-  timeChoices,
 } from "@/components/meals/MealParts";
-import type { PlannedVisit } from "@/components/meals/MealParts";
 import { SegmentedChoice } from "@/components/SegmentedChoice";
 import {
-  Alert,
-  Button,
-  Field,
-  LinkButton,
-  Select,
-  cx,
-  useToast,
-} from "@/components/ui";
+  AreaGate,
+  useSlotDays,
+  useUpcomingDates,
+} from "@/components/SlotPicker";
+import { Alert, Button, LinkButton, Skeleton, cx } from "@/components/ui";
 import { useSelectedCity } from "@/hooks/useSelectedCity";
 import { useServiceability } from "@/hooks/useServiceability";
-import { API_V1, apiFetch, describeError } from "@/lib/api";
-import { isAuthenticated, subscribeToAuthChanges } from "@/lib/auth";
+import { describeError } from "@/lib/api";
 import { isoDateOffsetFromToday } from "@/lib/date";
 import {
   MealType,
+  closestWindow,
+  describeMeals,
+  discountedRate,
+  formatDuration,
+  fromMinutes,
   mealsToParam,
+  monthlyEstimate,
   quoteMeals,
-  rupees,
+  sessionContains,
   sessionOf,
+  startChoices,
+  toMinutes,
 } from "@/lib/meals";
 import type { MealSession } from "@/lib/meals";
 import {
-  MonthlyServiceBillingMode,
   MonthlyServicePlanBasis,
   WEEKDAYS,
   browseMonthlyPlans,
-  requestMonthlyMealService,
+  formatClock,
 } from "@/lib/monthly-service";
-import { buildLoginHref } from "@/lib/return-to";
-import type { CustomerAddress, ServiceDetail } from "@/lib/types";
+import type {
+  ServiceDetail,
+  SlotDayAvailability,
+  SlotOption,
+} from "@/lib/types";
 
-/** Average weeks in a month - only for the "about Rs X a month" line, never for billing. */
-const WEEKS_PER_MONTH = 4.33;
 const MON_TO_SAT = [1, 2, 3, 4, 5, 6];
 
 type Mode = "monthly" | "once";
-type Payment = "online" | "wallet";
 
 const EASE = [0.16, 1, 0.3, 1] as const;
 
-function useSignedIn(): boolean {
-  return useSyncExternalStore(
-    subscribeToAuthChanges,
-    isAuthenticated,
-    () => false,
-  );
-}
+const isOpenDay = (day: SlotDayAvailability) =>
+  day.isServiceable && day.slots.length > 0;
 
 /**
  * Booking a cook (docs/MEAL-SERVICE.md): how many people, which meals, how
  * often. Everything the customer picks moves the price and the visit times
- * live; nothing is asked that does not change one of them. Monthly sends a
- * request straight from here; "just once" hands the selection to the normal
- * checkout for date, slot and payment.
+ * live; nothing is asked that does not change one of them. Monthly picks its
+ * days, times and first day here, then reviews them (address, how to pay,
+ * confirm) on /monthly-service/summary; "just once" picks its day and time window here
+ * too (the first open day and the window the meals' usual time falls in are
+ * chosen for the customer), then hands everything to the normal checkout for
+ * address and payment. How to pay is asked on those review pages, not here.
  */
 export function MealBookingFlow({ service }: { service: ServiceDetail }) {
   const options = useMemo(
     () => service.mealOptions ?? [],
     [service.mealOptions],
   );
-  const router = useRouter();
-  const pathname = usePathname();
-  const toast = useToast();
-  const queryClient = useQueryClient();
-  const signedIn = useSignedIn();
-  const { city } = useSelectedCity();
+  const { city, locality } = useSelectedCity();
   const { isUnserviceable } = useServiceability(service.id);
 
   const [persons, setPersons] = useState(2);
@@ -97,9 +88,15 @@ export function MealBookingFlow({ service }: { service: ServiceDetail }) {
   const [chosenMode, setChosenMode] = useState<Mode | null>(null);
   const [days, setDays] = useState<number[]>(MON_TO_SAT);
   const [startDate, setStartDate] = useState(isoDateOffsetFromToday(1));
+  const upcomingDates = useUpcomingDates();
   const [times, setTimes] = useState<Partial<Record<MealSession, string>>>({});
-  const [addressId, setAddressId] = useState<string | null>(null);
-  const [chosenPayment, setChosenPayment] = useState<Payment | null>(null);
+  // What the customer picked for a one-time visit; null until they do.
+  const [onceDate, setOnceDate] = useState<string | null>(null);
+  // Remembered with its session: a morning window means nothing once the meals move to the evening.
+  const [onceSlot, setOnceSlot] = useState<{
+    id: string;
+    session: MealSession;
+  } | null>(null);
 
   const plansQuery = useQuery({
     queryKey: ["monthly-plans", city?.id ?? "all"],
@@ -114,36 +111,6 @@ export function MealBookingFlow({ service }: { service: ServiceDetail }) {
     ) ?? null;
   const mode: Mode = chosenMode ?? (plan ? "monthly" : "once");
   const monthly = mode === "monthly" && plan !== null;
-  // Monthly defaults to paying day by day from the wallet (a day is on once
-  // it's paid); a one-time visit defaults to paying online at checkout.
-  const payment: Payment = chosenPayment ?? (monthly ? "wallet" : "online");
-
-  const addressesQuery = useQuery({
-    queryKey: ["addresses"],
-    queryFn: () =>
-      apiFetch<CustomerAddress[]>(`${API_V1}/addresses`, {
-        authenticated: true,
-      }),
-    enabled: signedIn && mode === "monthly",
-  });
-
-  // Same key as the wallet page and checkout, so all three share one cache entry.
-  const walletQuery = useQuery({
-    queryKey: ["wallet-balance"],
-    queryFn: () =>
-      apiFetch<{ balance: number }>(`${API_V1}/wallet/balance`, {
-        authenticated: true,
-      }),
-    enabled: signedIn,
-  });
-  const balance = walletQuery.data?.balance;
-
-  // The saved default (or first) address until the customer picks another.
-  const effectiveAddressId =
-    addressId ??
-    addressesQuery.data?.find((a) => a.isDefault)?.id ??
-    addressesQuery.data?.[0]?.id ??
-    null;
 
   const quotes = useMemo(
     () => quoteMeals(options, meals, persons),
@@ -152,35 +119,52 @@ export function MealBookingFlow({ service }: { service: ServiceDetail }) {
 
   // A chosen time survives meal changes only while it is still one of the
   // offered choices for its session; otherwise the meals' own default wins.
-  const visits: PlannedVisit[] = quotes.map((quote) => {
-    const choices = timeChoices(quote.session, quote.defaultStartTime);
+  const visits = quotes.map((quote) => {
+    const choices = startChoices(quote);
     const chosen = times[quote.session];
     return {
       session: quote.session,
       meals: quote.meals,
+      choices,
       start:
         chosen && choices.includes(chosen) ? chosen : quote.defaultStartTime,
       durationMinutes: quote.durationMinutes,
     };
   });
 
-  // Same rounding as the server's monthly discount (MonthlyServiceContract).
   const discount = monthly ? (plan?.monthlyDiscountPercent ?? 0) : 0;
   const perDay = quotes.reduce(
-    (sum, q) => sum + Math.round(q.rate * (100 - discount)) / 100,
+    (sum, q) => sum + discountedRate(q.rate, discount),
     0,
   );
   const spansSessions = quotes.length > 1;
-  const monthlyEstimate = perDay * days.length * WEEKS_PER_MONTH;
-  const daysCovered =
-    balance === undefined || perDay <= 0 ? null : Math.floor(balance / perDay);
-  const walletHint = !signedIn
-    ? "Sign in to use it"
-    : balance === undefined
-      ? "Balance loading"
-      : monthly && daysCovered !== null
-        ? `${rupees(balance)} covers ${daysCovered} day${daysCovered === 1 ? "" : "s"}`
-        : `Balance ${rupees(balance)}`;
+  const onceSession = quotes.length === 1 ? quotes[0].session : null;
+  const onceSlotId =
+    onceSlot && onceSlot.session === onceSession ? onceSlot.id : null;
+  const onceSlotFilter = useCallback(
+    (startTime: string) =>
+      onceSession !== null &&
+      sessionContains(onceSession, startTime.slice(0, 5)),
+    [onceSession],
+  );
+  // Fetched as soon as the meals fit one visit, so "Just once" opens ready.
+  const onceSlots = useSlotDays(
+    service.id,
+    onceSession ? (locality?.id ?? null) : null,
+    onceSlotFilter,
+  );
+  // Picked for the customer, like monthly's start time: the first open day,
+  // and the window the meals' usual start time falls in.
+  const onceDay =
+    onceSlots.days.find((d) => d.date === onceDate && isOpenDay(d)) ??
+    onceSlots.days.find(isOpenDay) ??
+    null;
+  const onceWindow =
+    onceDay && onceSession
+      ? (onceDay.slots.find((s) => s.slotWindowId === onceSlotId) ??
+        closestWindow(onceDay.slots, quotes[0].defaultStartTime))
+      : null;
+  const estimate = monthlyEstimate(perDay, days.length);
 
   const toggleMeal = (meal: MealType) =>
     setMeals((current) =>
@@ -199,51 +183,13 @@ export function MealBookingFlow({ service }: { service: ServiceDetail }) {
         : [...current, day],
     );
 
-  const requestMutation = useMutation({
-    mutationFn: requestMonthlyMealService,
-    onSuccess: (created) => {
-      queryClient.invalidateQueries({ queryKey: MY_MONTHLY_SERVICES_KEY });
-      toast(
-        "success",
-        created.length > 1
-          ? "Morning and evening cook requested. We'll assign your cook shortly."
-          : "Cook requested. We'll assign your cook shortly.",
-      );
-      router.push(
-        created.length === 1
-          ? `/monthly-service/${created[0].id}`
-          : "/monthly-service",
-      );
-    },
-  });
-
-  const submitMonthly = () => {
-    if (!plan || !effectiveAddressId) return;
-    const timeFor = (session: MealSession) =>
-      visits.find((v) => v.session === session)?.start ?? null;
-    requestMutation.mutate({
-      planId: plan.id,
-      addressId: effectiveAddressId,
-      days,
-      startDate,
-      endDate: null,
-      note: null,
-      meals,
-      persons,
-      morningVisitTime: timeFor("morning"),
-      eveningVisitTime: timeFor("evening"),
-      payFromWallet: false,
-      billingMode:
-        payment === "wallet"
-          ? MonthlyServiceBillingMode.DailyWallet
-          : MonthlyServiceBillingMode.MonthEnd,
-    });
-  };
-
   const noMeals = quotes.length === 0;
-  const checkoutHref = `/booking/summary?serviceSlug=${service.slug}&meals=${mealsToParam(meals)}&persons=${persons}${
-    payment === "wallet" ? "&wallet=1" : ""
-  }`;
+  // Monthly reviews what and when on its own summary page (address, how to
+  // pay, confirm), as a one-time visit does at checkout.
+  const timeFor = (session: MealSession) =>
+    visits.find((v) => v.session === session)?.start ?? "";
+  const monthlyHref = `/monthly-service/summary?serviceSlug=${service.slug}&meals=${mealsToParam(meals)}&persons=${persons}&days=${days.join(",")}&start=${startDate}&morning=${timeFor("morning")}&evening=${timeFor("evening")}`;
+  const checkoutHref = `/booking/summary?serviceSlug=${service.slug}&meals=${mealsToParam(meals)}&persons=${persons}&date=${onceDay?.date ?? ""}&slot=${onceWindow?.slotWindowId ?? ""}&wallet=1`;
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 pb-44 pt-10 sm:px-6 sm:pt-14">
@@ -289,7 +235,6 @@ export function MealBookingFlow({ service }: { service: ServiceDetail }) {
             selected={meals}
             onToggle={toggleMeal}
           />
-          <DayStrip visits={visits} />
         </section>
 
         <section
@@ -369,18 +314,18 @@ export function MealBookingFlow({ service }: { service: ServiceDetail }) {
                   </div>
 
                   {visits.map((visit) => (
-                    <TimeChips
+                    <ChoiceChips
                       key={visit.session}
-                      label={
-                        visit.session === "morning"
-                          ? "Morning visit starts at"
-                          : "Evening visit starts at"
-                      }
-                      choices={timeChoices(
-                        visit.session,
-                        quotes.find((q) => q.session === visit.session)!
-                          .defaultStartTime,
-                      )}
+                      label={`${visit.session === "morning" ? "Morning" : "Evening"} visit · ${describeMeals(visit.meals)}, starts at`}
+                      options={visit.choices.map((time) => ({
+                        value: time,
+                        label: formatClock(time),
+                      }))}
+                      note={`Your cook is there ${formatClock(visit.start)} – ${formatClock(
+                        fromMinutes(
+                          toMinutes(visit.start) + visit.durationMinutes,
+                        ),
+                      )}, about ${formatDuration(visit.durationMinutes)}.`}
                       value={visit.start}
                       onChange={(next) =>
                         setTimes((current) => ({
@@ -391,39 +336,17 @@ export function MealBookingFlow({ service }: { service: ServiceDetail }) {
                     />
                   ))}
 
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <Field
-                      label="First day"
-                      type="date"
-                      value={startDate}
-                      min={isoDateOffsetFromToday(0)}
-                      onChange={(event) => setStartDate(event.target.value)}
-                    />
-                    {signedIn ? (
-                      addressesQuery.data && addressesQuery.data.length > 0 ? (
-                        <Select
-                          label="Cook at"
-                          value={effectiveAddressId ?? ""}
-                          onChange={(event) => setAddressId(event.target.value)}
-                          options={addressesQuery.data.map((a) => ({
-                            value: a.id,
-                            label: `${a.label}, ${a.line1}`,
-                          }))}
-                        />
-                      ) : addressesQuery.isSuccess ? (
-                        <div className="flex flex-col justify-end gap-2">
-                          <span className="text-sm text-fg-muted">Cook at</span>
-                          <LinkButton href="/addresses/new" variant="secondary">
-                            Add your address
-                          </LinkButton>
-                        </div>
-                      ) : null
-                    ) : null}
-                  </div>
+                  <DateChips
+                    label="First day"
+                    dates={upcomingDates}
+                    isOpen={() => true}
+                    value={startDate}
+                    onChange={setStartDate}
+                  />
 
                   <p className="text-sm text-fg-muted">
-                    The same cook comes on your days. You pay at the end of each
-                    month, only for the days they cooked.
+                    The same cook comes on your days. You’ll choose the address
+                    and how to pay next.
                   </p>
                 </motion.div>
               ) : (
@@ -433,7 +356,7 @@ export function MealBookingFlow({ service }: { service: ServiceDetail }) {
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -8 }}
                   transition={{ duration: 0.3, ease: EASE }}
-                  className="flex flex-col gap-4"
+                  className="flex flex-col gap-6"
                 >
                   {spansSessions ? (
                     <Alert tone="info" title="One booking is one visit">
@@ -458,74 +381,31 @@ export function MealBookingFlow({ service }: { service: ServiceDetail }) {
                         </span>
                       </span>
                     </Alert>
-                  ) : (
-                    <p className="text-sm text-fg-muted">
-                      You’ll pick the date, time and address next.
-                    </p>
-                  )}
+                  ) : onceSession ? (
+                    <AreaGate>
+                      {() => (
+                        <OnceVisit
+                          slots={onceSlots}
+                          day={onceDay}
+                          window={onceWindow}
+                          session={onceSession}
+                          meals={quotes[0].meals}
+                          durationMinutes={quotes[0].durationMinutes}
+                          onDay={(date) => {
+                            setOnceDate(date);
+                            setOnceSlot(null);
+                          }}
+                          onWindow={(id) =>
+                            setOnceSlot({ id, session: onceSession })
+                          }
+                        />
+                      )}
+                    </AreaGate>
+                  ) : null}
                 </motion.div>
               )}
             </AnimatePresence>
           )}
-
-          {requestMutation.isError ? (
-            <Alert tone="error" title="Couldn't request your cook">
-              {describeError(requestMutation.error)}
-            </Alert>
-          ) : null}
-        </section>
-
-        <section aria-labelledby="pay-heading" className="flex flex-col gap-4">
-          <h2
-            id="pay-heading"
-            className="text-xl font-semibold tracking-tight text-fg"
-          >
-            How will you pay?
-          </h2>
-          <SegmentedChoice
-            label="How will you pay"
-            layoutId="meal-payment-pill"
-            value={payment}
-            onChange={setChosenPayment}
-            options={
-              monthly
-                ? [
-                    {
-                      value: "wallet",
-                      label: "Pay daily from wallet",
-                      hint: walletHint,
-                    },
-                    {
-                      value: "online",
-                      label: "Monthly bill",
-                      hint: "Pay at month end",
-                    },
-                  ]
-                : [
-                    {
-                      value: "online",
-                      label: "Pay online",
-                      hint: "At checkout",
-                    },
-                    { value: "wallet", label: "Use wallet", hint: walletHint },
-                  ]
-            }
-          />
-          {payment === "wallet" ? (
-            <p className="text-sm text-fg-muted">
-              {monthly
-                ? "Each day’s visit is paid from your wallet the night before. A day your wallet can’t pay for isn’t booked, and we let you know a day ahead when it’s running low. Skipped days and days your cook doesn’t come go back to your wallet."
-                : "Your wallet balance is used at checkout. Anything it doesn’t cover is paid online."}{" "}
-              {signedIn ? (
-                <Link
-                  href={`/wallet?addMoney=1&returnTo=${encodeURIComponent(pathname ?? "/")}`}
-                  className="font-medium text-brand-600 underline-offset-4 hover:underline dark:text-brand-400"
-                >
-                  Add money
-                </Link>
-              ) : null}
-            </p>
-          ) : null}
         </section>
 
         <IncludedDetails
@@ -558,12 +438,7 @@ export function MealBookingFlow({ service }: { service: ServiceDetail }) {
                 ) : null}
               </p>
               <p className="truncate text-xs text-fg-muted">
-                About <AnimatedRupees value={monthlyEstimate} /> a month
-                <span className="hidden sm:inline">
-                  {payment === "wallet"
-                    ? ", paid daily from wallet"
-                    : ", billed at month end"}
-                </span>
+                About <AnimatedRupees value={estimate} /> a month
               </p>
             </>
           ) : (
@@ -588,31 +463,109 @@ export function MealBookingFlow({ service }: { service: ServiceDetail }) {
             Not available in your area
           </Button>
         ) : mode === "monthly" && plan ? (
-          signedIn ? (
-            <Button
-              size="lg"
-              onClick={submitMonthly}
-              loading={requestMutation.isPending}
-              disabled={noMeals || days.length === 0 || !effectiveAddressId}
-            >
-              Request cook
+          noMeals || days.length === 0 ? (
+            <Button size="lg" disabled>
+              Continue
             </Button>
           ) : (
-            <LinkButton size="lg" href={buildLoginHref(pathname ?? "/")}>
-              Sign in to continue
+            <LinkButton size="lg" href={monthlyHref}>
+              Continue
             </LinkButton>
           )
-        ) : noMeals || spansSessions ? (
+        ) : noMeals || spansSessions || !onceWindow ? (
           <Button size="lg" disabled>
-            Choose date and time
+            Pick a time
           </Button>
         ) : (
           <LinkButton size="lg" href={checkoutHref}>
-            Choose date and time
+            Continue
           </LinkButton>
         )}
       </QuoteBar>
     </div>
+  );
+}
+
+/** A one-time visit's day and time window, laid out like the monthly schedule. */
+function OnceVisit({
+  slots,
+  day,
+  window,
+  session,
+  meals,
+  durationMinutes,
+  onDay,
+  onWindow,
+}: {
+  slots: ReturnType<typeof useSlotDays>;
+  day: SlotDayAvailability | null;
+  window: SlotOption | null;
+  session: MealSession;
+  meals: MealType[];
+  durationMinutes: number;
+  onDay: (date: string) => void;
+  onWindow: (slotWindowId: string) => void;
+}) {
+  if (slots.query.isError) {
+    return (
+      <Alert
+        tone="error"
+        title="Couldn't load visit times"
+        action={
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => slots.query.refetch()}
+          >
+            Retry
+          </Button>
+        }
+      >
+        {describeError(slots.query.error)}
+      </Alert>
+    );
+  }
+  if (slots.query.isPending) {
+    return (
+      <div aria-hidden className="flex flex-col gap-6">
+        <Skeleton className="h-14 rounded-xl" />
+        <Skeleton className="h-9 w-64 rounded-full" />
+      </div>
+    );
+  }
+  if (!day) {
+    return (
+      <p className="text-sm text-fg-muted">
+        No {session} visits are open this week. Try the{" "}
+        {session === "morning" ? "evening" : "morning"} meals, or Monthly.
+      </p>
+    );
+  }
+  const open = new Set(slots.days.filter(isOpenDay).map((d) => d.date));
+  return (
+    <>
+      <DateChips
+        label="Day"
+        dates={slots.dates}
+        isOpen={(date) => open.has(date)}
+        value={day.date}
+        onChange={onDay}
+      />
+      <ChoiceChips
+        label={`${session === "morning" ? "Morning" : "Evening"} visit · ${describeMeals(meals)}, starts between`}
+        options={day.slots.map((slot) => ({
+          value: slot.slotWindowId,
+          label: `${formatClock(slot.startTime.slice(0, 5))} – ${formatClock(slot.endTime.slice(0, 5))}`,
+        }))}
+        value={window?.slotWindowId ?? null}
+        onChange={onWindow}
+      />
+      <p className="text-sm text-fg-muted">
+        Your cook arrives in this window and cooks for about{" "}
+        {formatDuration(durationMinutes)}. You’ll choose the address and pay at
+        checkout.
+      </p>
+    </>
   );
 }
 

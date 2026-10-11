@@ -58,6 +58,7 @@ function hideOnRoute(pathname: string): boolean {
   if (pathname.startsWith("/recurring-bookings/new")) return true;
   if (pathname.startsWith("/amc/")) return true; // new, [id], [id]/redeem
   if (pathname.startsWith("/services/")) return true; // the "Book now" bar, or a meal-priced service's price bar
+  if (pathname === "/monthly-service/summary") return true; // the monthly cook's "Request cook" bar
   return false;
 }
 

@@ -39,8 +39,18 @@ For the meals chosen, grouped by session (morning = before 15:00):
 ```
 visit rate     = sum over its meals of  BaseRate + max(0, people - IncludedPersons) x ExtraPersonRate
 visit minutes  = sum over its meals of  BaseMinutes + max(0, people - IncludedPersons) x MinutesPerExtraPerson
-visit start    = earliest DefaultStartTime of its meals (monthly: the customer may move it +/- 1 hour)
+visit start    = earliest DefaultStartTime of its meals
 ```
+
+Monthly: the customer may move a visit's start (product owner, 2026-10-11)
+from an hour before its first meal's usual time to its last meal's usual
+time, and never less than an hour either side of the first, in half-hour
+steps, between 06:00 and 21:30, a morning visit staying before 15:00
+(`MealVisitQuote.EarliestStart` / `LatestStart`, enforced when the contract
+is created; `startChoices` in `lib/meals.ts` offers the same times). So
+breakfast (7:30) + lunch (11:30) can start 6:30-11:30, snacks (16:30) +
+dinner (19:00) 15:30-19:00, dinner alone 18:00-20:00. The cook page names
+each visit's meals and shows how long the cook stays.
 
 The pure rules live in `Nestly.Domain.Meals.MealPricing`; the customer site
 mirrors them (`lib/meals.ts`) only to show live prices. The server always
@@ -57,6 +67,13 @@ the cheapest meal's base rate whenever the meal rates are saved.
 - One booking is one visit: meals spanning both sessions are rejected
   (`Pricing.MealsSpanSessions`), and the slot must start in the meals'
   session (`Booking.MealSlotMismatch`).
+- The date and time window are picked on the cook page itself, laid out like
+  the monthly schedule (day chips, then time pills). Only windows in the
+  meals' session are offered, and the first open day and the window the
+  meals' usual start time falls in (else the nearest) are pre-selected, as
+  monthly pre-selects its start time. They go to checkout as `date` and
+  `slot`. Checkout shows them read-only with a Change button; it asks only
+  for the address and payment.
 - The quote is snapshotted through the booking's existing variant fields:
   `VariantNameSnapshot = "Lunch + Dinner · 4 persons"`,
   `VariantDurationMinutesSnapshot = cooking minutes`. Every booking screen
@@ -74,6 +91,20 @@ the cheapest meal's base rate whenever the meal rates are saved.
   (`RatePerVisit = 0`) and must use `Frequency = Weekdays`. Its
   `MonthlyDiscountPercent` (0-50) makes each monthly visit that much cheaper
   than the same meals booked one-time.
+- The cook page picks meals, people, days, start times and first day, then
+  sends them in the URL to `/monthly-service/summary`, the monthly twin of
+  checkout: the customer picks the address there (same address list as
+  checkout; picked for them like checkout's, `lib/addresses.ts`: an address
+  in the area chosen in the header, else one in the plan's city, never one
+  outside), confirms how to pay, sees the price per day and per month, and
+  presses "Request cook". It is laid out like checkout (Service, Service
+  address, Schedule where checkout has Slot, the same price summary). If
+  the customer already has a live cook for that plan, address and session,
+  the page says so with a link to it and keeps "Request cook" off (the
+  server refuses that anyway). Nothing is charged on confirm (product owner,
+  2026-10-11): a daily-wallet plan pays each day the night before, a monthly
+  bill comes at month end. A wallet that can't pay for the first day gets a
+  warning, not a block.
 - `POST /api/v1/monthly-service/meal-contracts` takes plan, address, days,
   start date, meals, persons and optional morning/evening visit times, and
   creates **one contract per session** (so up to two), validated together
@@ -89,11 +120,13 @@ the cheapest meal's base rate whenever the meal rates are saved.
 
 ## PAYMENT
 
-The customer chooses on the cook page:
+The cook page doesn't ask; the customer chooses on the next page (checkout
+for one-time, `/monthly-service/summary` for monthly), with the wallet chosen
+by default:
 
 | | Online | Wallet |
 |---|---|---|
-| **One-time** | Normal checkout payment | Checkout opens with "use wallet balance" on (`wallet=1`). The wallet covers what it can; the rest is paid online. A booking the wallet covers fully is confirmed with no payment step (existing checkout rule) |
+| **One-time** | Normal checkout payment | **Default.** Checkout opens with "use wallet balance" on (`wallet=1`). The wallet covers what it can; the rest is paid online. A booking the wallet covers fully is confirmed with no payment step (existing checkout rule) |
 | **Monthly** | One bill at month end (`BillingMode = MonthEnd`); can be set to auto-pay from wallet on the contract page | **Default.** Each day paid from the wallet before the visit (`BillingMode = DailyWallet`); a day the wallet can't pay for is not booked - see MONTHLY-SERVICE.md DAILY WALLET |
 
 ## ADMIN

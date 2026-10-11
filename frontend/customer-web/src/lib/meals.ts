@@ -34,6 +34,8 @@ export interface MealVisitQuote {
   durationMinutes: number;
   /** "HH:mm" - the earliest default time among this visit's meals. */
   defaultStartTime: string;
+  /** "HH:mm" - the latest default time among this visit's meals. */
+  lastMealStartTime: string;
 }
 
 export const MAX_PERSONS = 12;
@@ -69,6 +71,70 @@ export function fromMinutes(total: number): string {
 export function sessionContains(session: MealSession, hhmm: string): boolean {
   const before = toMinutes(hhmm) < toMinutes(EVENING_STARTS_AT);
   return session === "morning" ? before : !before;
+}
+
+/**
+ * The time window a one-time visit should start in: the one the meals' usual
+ * start time falls in, else the one starting nearest to it. Times are
+ * "HH:mm" or "HH:mm:ss".
+ */
+export function closestWindow<T extends { startTime: string; endTime: string }>(
+  windows: T[],
+  hhmm: string,
+): T | null {
+  const at = toMinutes(hhmm);
+  const start = (w: T) => toMinutes(w.startTime);
+  return (
+    windows.find((w) => start(w) <= at && at < toMinutes(w.endTime)) ??
+    [...windows].sort(
+      (a, b) => Math.abs(start(a) - at) - Math.abs(start(b) - at),
+    )[0] ??
+    null
+  );
+}
+
+/** A visit may start this much before its first meal's usual time, and at least this much after. */
+const START_SHIFT_MINUTES = 60;
+
+/**
+ * Start times a monthly visit may be moved to, half an hour apart - the
+ * server's MealVisitQuote.EarliestStart..LatestStart: from an hour before the
+ * first meal's usual time to the last meal's (at least an hour after the
+ * first), between 06:00 and 21:30, a morning visit staying before the evening.
+ */
+export function startChoices(
+  quote: Pick<
+    MealVisitQuote,
+    "session" | "defaultStartTime" | "lastMealStartTime"
+  >,
+): string[] {
+  const first = toMinutes(quote.defaultStartTime);
+  const evening = toMinutes(EVENING_STARTS_AT);
+  const from = Math.max(
+    toMinutes("06:00"),
+    quote.session === "evening" ? evening : 0,
+    first - START_SHIFT_MINUTES,
+  );
+  const to = Math.min(
+    toMinutes("21:30"),
+    quote.session === "morning" ? evening - 30 : Infinity,
+    Math.max(toMinutes(quote.lastMealStartTime), first + START_SHIFT_MINUTES),
+  );
+  const choices: string[] = [];
+  for (let m = from; m <= to; m += 30) choices.push(fromMinutes(m));
+  return choices;
+}
+
+/** A monthly visit's rate: the one-time rate less the plan's discount, rounded like the server (MonthlyServiceContract). */
+export function discountedRate(rate: number, discountPercent: number): number {
+  return Math.round(rate * (100 - discountPercent)) / 100;
+}
+
+/** Average weeks in a month - only for "about Rs X a month", never for billing. */
+const WEEKS_PER_MONTH = 4.33;
+
+export function monthlyEstimate(perDay: number, daysPerWeek: number): number {
+  return perDay * daysPerWeek * WEEKS_PER_MONTH;
 }
 
 export function rateFor(option: MealOption, persons: number): number {
@@ -110,9 +176,20 @@ export function quoteMeals(
           0,
         ),
         defaultStartTime: picked.map((o) => o.defaultStartTime).sort()[0],
+        lastMealStartTime: picked
+          .map((o) => o.defaultStartTime)
+          .sort()
+          .at(-1)!,
       };
     })
     .filter((q): q is MealVisitQuote => q !== null);
+}
+
+/** "Breakfast and lunch" - a visit's meals in a sentence. */
+export function describeMeals(meals: MealType[]): string {
+  return meals
+    .map((m, i) => (i === 0 ? MEAL_LABELS[m] : MEAL_LABELS[m].toLowerCase()))
+    .join(" and ");
 }
 
 /** "1 hr 20 min" */

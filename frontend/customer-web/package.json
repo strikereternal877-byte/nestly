@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "test:unit": "tsx --test src/lib/geolocation.test.ts src/lib/booking-actions.test.ts src/lib/session-storage.test.ts src/lib/meals.test.ts",
+    "test:unit": "tsx --test src/lib/geolocation.test.ts src/lib/booking-actions.test.ts src/lib/session-storage.test.ts src/lib/meals.test.ts src/lib/addresses.test.ts",
     "seed:ci": "tsx e2e/setup/seed-for-ci.ts",
     "lhci": "lhci autorun"
   },

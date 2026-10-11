@@ -7,12 +7,9 @@ import { cx } from "@/components/ui";
 import {
   MAX_PERSONS,
   MEAL_LABELS,
-  fromMinutes,
   rateFor,
   rupees,
-  sessionContains,
   sessionOf,
-  toMinutes,
 } from "@/lib/meals";
 import type { MealOption, MealSession, MealType } from "@/lib/meals";
 import { formatClock } from "@/lib/monthly-service";
@@ -134,19 +131,12 @@ export function PersonStepper({
 }
 
 /** Morning reads warm (amber), evening reads deep (brand navy) - the one colour cue used across the meal flow. */
-export const SESSION_TONE: Record<
-  MealSession,
-  { dot: string; bar: string; text: string }
-> = {
+export const SESSION_TONE: Record<MealSession, { dot: string }> = {
   morning: {
     dot: "bg-accent-500",
-    bar: "bg-gradient-to-r from-accent-400 to-accent-500",
-    text: "text-accent-700 dark:text-accent-300",
   },
   evening: {
     dot: "bg-brand-600",
-    bar: "bg-gradient-to-r from-brand-500 to-brand-700",
-    text: "text-brand-700 dark:text-brand-300",
   },
 };
 
@@ -231,135 +221,6 @@ export function MealPicker({
   );
 }
 
-const DAY_START = toMinutes("06:00");
-const DAY_END = toMinutes("22:00");
-/** End labels hug the track's edges; middle ones centre on their tick. */
-const HOUR_LABELS = [
-  { hour: 6, label: "6 AM", align: "translate-x-0" },
-  { hour: 12, label: "12 PM", align: "-translate-x-1/2" },
-  { hour: 18, label: "6 PM", align: "-translate-x-1/2" },
-  { hour: 22, label: "10 PM", align: "-translate-x-full" },
-];
-const position = (minutes: number) =>
-  ((Math.min(Math.max(minutes, DAY_START), DAY_END) - DAY_START) /
-    (DAY_END - DAY_START)) *
-  100;
-
-export interface PlannedVisit {
-  session: MealSession;
-  meals: MealType[];
-  /** "HH:mm" */
-  start: string;
-  durationMinutes: number;
-}
-
-/**
- * The flow's one signature moment: the customer's day from 6 am to 10 pm,
- * with each cooking visit drawn where it falls and as long as it takes. It
- * shows the two things a price table cannot - that breakfast and dinner are
- * two separate visits, and that cooking for more people takes longer.
- */
-export function DayStrip({ visits }: { visits: PlannedVisit[] }) {
-  return (
-    <div className="rounded-2xl border border-line bg-surface p-4 sm:p-5">
-      <div className="relative h-12">
-        <div
-          aria-hidden
-          className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-line"
-        />
-        {[6, 9, 12, 15, 18, 21].map((hour) => (
-          <span
-            key={hour}
-            aria-hidden
-            className="absolute top-1/2 h-2 w-px -translate-y-1/2 bg-line-strong"
-            style={{ left: `${position(hour * 60)}%` }}
-          />
-        ))}
-        {visits.map((visit) => {
-          const start = toMinutes(visit.start);
-          // Enters in place (grows from its start), then slides/stretches
-          // when the time or the number of people changes.
-          const place = {
-            left: `${position(start)}%`,
-            width: `${Math.max(position(start + visit.durationMinutes) - position(start), 1.5)}%`,
-          };
-          return (
-            <motion.div
-              key={visit.session}
-              aria-hidden
-              className={cx(
-                "absolute top-1/2 h-3 -translate-y-1/2 rounded-full shadow-sm",
-                SESSION_TONE[visit.session].bar,
-              )}
-              initial={{ opacity: 0, scaleX: 0.4, ...place }}
-              animate={{ opacity: 1, scaleX: 1, ...place }}
-              transition={{ type: "spring", stiffness: 260, damping: 30 }}
-              style={{ originX: 0 }}
-            />
-          );
-        })}
-      </div>
-      <div
-        aria-hidden
-        className="relative mt-1 h-4 whitespace-nowrap text-[0.6875rem] text-fg-subtle"
-      >
-        {HOUR_LABELS.map(({ hour, label, align }) => (
-          <span
-            key={label}
-            className={cx("absolute", align)}
-            style={{ left: `${position(hour * 60)}%` }}
-          >
-            {label}
-          </span>
-        ))}
-      </div>
-
-      <ul className="mt-4 flex flex-col gap-2 border-t border-line pt-4 text-sm">
-        {visits.length === 0 ? (
-          <li className="text-fg-muted">
-            Choose a meal to see when your cook comes.
-          </li>
-        ) : (
-          visits.map((visit) => (
-            <motion.li
-              key={visit.session}
-              layout
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5"
-            >
-              <span className="flex items-center gap-2 font-medium text-fg">
-                <span
-                  aria-hidden
-                  className={cx(
-                    "h-2 w-2 rounded-full",
-                    SESSION_TONE[visit.session].dot,
-                  )}
-                />
-                {visit.session === "morning"
-                  ? "Morning visit"
-                  : "Evening visit"}
-                <span className="font-normal text-fg-muted">
-                  for{" "}
-                  {visit.meals
-                    .map((m) => MEAL_LABELS[m].toLowerCase())
-                    .join(" and ")}
-                </span>
-              </span>
-              <span className="nums text-fg-muted">
-                {formatClock(visit.start)} to{" "}
-                {formatClock(
-                  fromMinutes(toMinutes(visit.start) + visit.durationMinutes),
-                )}
-              </span>
-            </motion.li>
-          ))
-        )}
-      </ul>
-    </div>
-  );
-}
-
 /** Selected/idle look for every choice chip in the meal flow: a tint, not a fill - the solid brand colour is kept for the one main action. */
 export function chipClass(on: boolean): string {
   return cx(
@@ -370,49 +231,109 @@ export function chipClass(on: boolean): string {
   );
 }
 
-/** Start-time choices around a session's default, half-hour apart, never crossing into the other session. */
-export function timeChoices(
-  session: MealSession,
-  defaultStart: string,
-): string[] {
-  const base = toMinutes(defaultStart);
-  return [-60, -30, 0, 30, 60]
-    .map((offset) => base + offset)
-    .filter((m) => m >= toMinutes("06:00") && m <= toMinutes("21:30"))
-    .map(fromMinutes)
-    .filter((t) => sessionContains(session, t));
+export interface Choice {
+  value: string;
+  label: string;
 }
 
-export function TimeChips({
+/** A labelled row of single-choice pills: monthly start times, one-time time windows. */
+export function ChoiceChips({
   label,
-  choices,
+  options,
   value,
   onChange,
+  note,
 }: {
   label: string;
-  choices: string[];
-  value: string;
+  options: Choice[];
+  value: string | null;
   onChange: (next: string) => void;
+  /** A line under the chips about the current choice. */
+  note?: string;
 }) {
   return (
     <div role="radiogroup" aria-label={label} className="flex flex-col gap-2">
       <span className="text-sm text-fg-muted">{label}</span>
       <div className="flex flex-wrap gap-2">
-        {choices.map((choice) => {
-          const on = choice === value;
+        {options.map((option) => {
+          const on = option.value === value;
           return (
             <button
-              key={choice}
+              key={option.value}
               type="button"
               role="radio"
               aria-checked={on}
-              onClick={() => onChange(choice)}
+              onClick={() => onChange(option.value)}
               className={cx(
                 "nums rounded-full px-3.5 py-1.5 text-sm",
                 chipClass(on),
               )}
             >
-              {formatClock(choice)}
+              {option.label}
+            </button>
+          );
+        })}
+      </div>
+      {note ? <p className="text-xs text-fg-muted">{note}</p> : null}
+    </div>
+  );
+}
+
+/**
+ * The next few days as chips, the same shape as the monthly "Cooking days"
+ * ones. A day with nothing open is shown but can't be picked. Render only
+ * after mount: the labels depend on the browser's clock and locale.
+ */
+export function DateChips({
+  label,
+  dates,
+  isOpen,
+  value,
+  onChange,
+}: {
+  label: string;
+  /** "YYYY-MM-DD" */
+  dates: string[];
+  isOpen: (date: string) => boolean;
+  value: string | null;
+  onChange: (date: string) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-2">
+      <span className="text-sm text-fg-muted">{label}</span>
+      <div
+        role="radiogroup"
+        aria-label={label}
+        className="grid grid-cols-7 gap-1.5 sm:flex sm:gap-2"
+      >
+        {dates.map((date) => {
+          const on = date === value;
+          const day = new Date(`${date}T00:00:00`);
+          return (
+            <button
+              key={date}
+              type="button"
+              role="radio"
+              aria-checked={on}
+              aria-label={day.toLocaleDateString(undefined, {
+                weekday: "long",
+                day: "numeric",
+                month: "long",
+              })}
+              disabled={!isOpen(date)}
+              onClick={() => onChange(date)}
+              className={cx(
+                "flex h-14 flex-col items-center justify-center gap-0.5 rounded-xl text-sm sm:w-14",
+                chipClass(on),
+                "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-line disabled:hover:bg-surface",
+              )}
+            >
+              <span>
+                {day.toLocaleDateString(undefined, { weekday: "short" })}
+              </span>
+              <span className={cx("nums text-xs", !on && "text-fg-muted")}>
+                {day.getDate()}
+              </span>
             </button>
           );
         })}

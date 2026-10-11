@@ -5,9 +5,10 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import { AddressPicker } from "@/components/AddressPicker";
+import { resolveAddress } from "@/lib/addresses";
+import type { AddressPick } from "@/lib/addresses";
 import { BookingHelpLink } from "@/components/BookingHelpLink";
-import { CitySelector } from "@/components/CitySelector";
-import { LocalitySelector } from "@/components/LocalitySelector";
 import { PageBanner } from "@/components/PageBanner";
 import { PlanKindPicker } from "@/components/PlanKindPicker";
 import {
@@ -27,7 +28,7 @@ import {
   recurringFrequencyLabel,
 } from "@/components/patterns";
 import { RequireAuth } from "@/components/RequireAuth";
-import { SlotPicker } from "@/components/SlotPicker";
+import { AreaSlotPicker } from "@/components/SlotPicker";
 import {
   Alert,
   Button,
@@ -55,6 +56,7 @@ import type {
   CustomerAddress,
   RecurringBookingPlanResponse,
   ServiceDetail,
+  SlotRange,
   SlotRevalidation,
   WalletBalanceResponse,
 } from "@/lib/types";
@@ -109,13 +111,20 @@ function BookingSummaryScreen() {
   // A cook's meals and people arrive from its service page (docs/MEAL-SERVICE.md).
   const mealsParam = searchParams.get("meals");
   const personsParam = searchParams.get("persons");
+  // A cook's date and time window are chosen on its service page too; checkout only shows them.
+  const datePinned = /^\d{4}-\d{2}-\d{2}$/.test(searchParams.get("date") ?? "");
+  const pinnedSlotId = datePinned ? searchParams.get("slot") : null;
 
   const [quantity, setQuantity] = useState(1);
   const [selectedAddOnIds, setSelectedAddOnIds] = useState<Set<string>>(new Set());
   const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
-  const [selectedAddressId, setSelectedAddressId] = useState<string | null>(null);
-  const [selectedDate, setSelectedDate] = useState<string>(todayIsoDate);
-  const [selectedSlotWindowId, setSelectedSlotWindowId] = useState<string | null>(null);
+  // What the customer chose; the address actually used is resolved below.
+  const [addressPick, setAddressPick] = useState<AddressPick | null>(null);
+  const [selectedDate, setSelectedDate] = useState<string>(() =>
+    pinnedSlotId ? searchParams.get("date")! : todayIsoDate(),
+  );
+  const [selectedSlotWindowId, setSelectedSlotWindowId] = useState<string | null>(pinnedSlotId);
+  const [changingSlot, setChangingSlot] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -260,25 +269,17 @@ function BookingSummaryScreen() {
   const isAddressInSelectedArea = (address: CustomerAddress): boolean =>
     !locality?.pincodeId || address.pincodeId === locality.pincodeId;
 
-  // Default to the customer's default address once addresses load - but only
-  // to one that can actually be served here. A default address in another city
-  // is exactly what nobody re-reads before paying, and pre-selecting it walked
-  // customers into a booking no provider could fulfil.
-  useEffect(() => {
-    if (selectedAddressId !== null || !addressesQuery.data) return;
-    const serviceable = addressesQuery.data.filter(isAddressInSelectedArea);
-    const preferred =
-      serviceable.find((a) => a.isDefault) ??
-      serviceable[0] ??
-      addressesQuery.data.find((a) => a.isDefault) ??
-      addressesQuery.data[0];
-    // Reacting to addressesQuery.data arriving from an async query, not a
-    // render-time prop change; see the doc comment above for why this can't
-    // pre-select before the data (and the serviceable area) are known.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (preferred) setSelectedAddressId(preferred.id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [addressesQuery.data, selectedAddressId, locality?.pincodeId]);
+  // Picked automatically for the area in the header (lib/addresses.ts): the
+  // default address there, else the first one there - never one the service
+  // can't reach from this area. Derived rather than set once, so changing the
+  // location re-picks, and a stale draft address gives way.
+  const selectedAddress = resolveAddress(
+    addressesQuery.data ?? [],
+    addressPick,
+    locality?.pincodeId ?? null,
+    isAddressInSelectedArea,
+  );
+  const selectedAddressId = selectedAddress?.id ?? null;
 
   /**
    * Whether the restore below has run yet.
@@ -307,9 +308,12 @@ function BookingSummaryScreen() {
       setQuantity(draft.quantity);
       setSelectedAddOnIds(new Set(draft.addOnIds));
       setSelectedVariantId(draft.serviceVariantId ?? null);
-      setSelectedAddressId(draft.addressId);
-      setSelectedDate(draft.date);
-      setSelectedSlotWindowId(draft.slotWindowId);
+      setAddressPick(draft.addressId ? { id: draft.addressId, areaKey: null } : null);
+      // The service page's own choice wins over an older draft's.
+      if (!pinnedSlotId) {
+        setSelectedDate(draft.date);
+        setSelectedSlotWindowId(draft.slotWindowId);
+      }
       setPendingBookingId(draft.pendingBookingId ?? null);
       setRepeatEnabled(draft.repeatEnabled ?? false);
       if (draft.repeatFrequency !== null && draft.repeatFrequency !== undefined) {
@@ -351,7 +355,7 @@ function BookingSummaryScreen() {
     // A one-time mount action consuming a URL param handed off by
     // /addresses/new, not a render-time sync (see the doc comment above).
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setSelectedAddressId(newAddressId);
+    setAddressPick({ id: newAddressId, areaKey: null });
     const cleaned = new URLSearchParams(searchParams.toString());
     cleaned.delete("newAddressId");
     router.replace(`/booking/summary?${cleaned.toString()}`, { scroll: false });
@@ -436,15 +440,34 @@ function BookingSummaryScreen() {
     (startTime: string) => (mealQuote ? sessionContains(mealQuote.session, startTime.slice(0, 5)) : true),
     [mealQuote],
   );
-  // Keeps the meals on every round trip out of this page (new address, wallet top-up).
+  // Keeps the meals, date and time on every round trip out of this page (new address, wallet top-up).
   const summaryPath = `/booking/summary?serviceSlug=${serviceSlug ?? ""}${
     mealQuote ? `&meals=${mealsToParam(mealQuote.meals)}&persons=${mealQuote.persons}` : ""
-  }${applyWalletCredit ? "&wallet=1" : ""}`;
+  }${mealQuote && selectedSlotWindowId ? `&date=${selectedDate}&slot=${selectedSlotWindowId}` : ""}${
+    applyWalletCredit ? "&wallet=1" : ""
+  }`;
+
+  // The pinned window's name and times, read back for display only; the
+  // server re-checks the slot itself when the booking is placed.
+  const showPinnedSlot = isMealBased && pinnedSlotId !== null && !changingSlot;
+  const pinnedSlotQuery = useQuery({
+    queryKey: ["slots-range", service?.id, locality?.id, selectedDate, selectedDate],
+    queryFn: () =>
+      apiFetch<SlotRange>(
+        `${API_V1}/slots/range?serviceId=${service!.id}&localityId=${locality!.id}&from=${selectedDate}&to=${selectedDate}`,
+      ),
+    enabled: showPinnedSlot && !!service && !!locality,
+  });
+  const pinnedSlot = pinnedSlotQuery.data?.days[0]?.slots.find((slot) => slot.slotWindowId === selectedSlotWindowId);
+  // Not priced until it is one of the customer's addresses and inside the area:
+  // the server would only refuse it, and the address card already says why.
+  const addressOutsideArea = !!selectedAddress && !isAddressInSelectedArea(selectedAddress);
   const requestReady =
     !!service &&
     !!city &&
     !!locality &&
-    !!selectedAddressId &&
+    !!selectedAddress &&
+    !addressOutsideArea &&
     !!selectedSlotWindowId &&
     (!isMealBased || mealQuote !== null);
 
@@ -452,7 +475,7 @@ function BookingSummaryScreen() {
     ? {
         serviceId: service.id,
         cityId: city.id,
-        addressId: selectedAddressId,
+        addressId: selectedAddress.id,
         localityId: locality.id,
         slotWindowId: selectedSlotWindowId,
         slotDate: selectedDate,
@@ -963,108 +986,40 @@ function BookingSummaryScreen() {
         </Card>
 
         {/* Address selection (task 62b). */}
-        <Card title="Service address" description="Where should we send your professional?">
-          {addressesQuery.isPending ? (
-            <div className="flex flex-col gap-2" aria-hidden>
-              <Skeleton className="h-[4.5rem] rounded-xl" />
-              <Skeleton className="h-[4.5rem] rounded-xl" />
-            </div>
-          ) : addressesQuery.isError ? (
-            <Alert
-              tone="error"
-              title="Couldn't load your addresses"
-              action={
-                <Button size="sm" variant="secondary" onClick={() => addressesQuery.refetch()}>
-                  Retry
-                </Button>
-              }
-            >
-              {describeError(addressesQuery.error)}
-            </Alert>
-          ) : addressesQuery.data.length === 0 ? (
-            <EmptyState
-              title="No saved addresses"
-              description="Add the address you'd like this service delivered to."
-              action={<LinkButton href={addNewAddressHref}>Add an address</LinkButton>}
-            />
-          ) : (
-            <div className="flex flex-col gap-2">
-              {addressesQuery.data.map((address) => {
-                const isSelected = address.id === selectedAddressId;
-                const isOutsideArea = !isAddressInSelectedArea(address);
-                return (
-                  <label
-                    key={address.id}
-                    className={cx(
-                      "flex cursor-pointer items-start gap-3 rounded-xl border p-3.5 text-sm transition duration-fast ease-out",
-                      isSelected
-                        ? "border-brand-600 bg-brand-50 shadow-xs dark:bg-brand-500/10"
-                        : "border-line bg-surface hover:border-line-strong hover:bg-surface-2",
-                      isOutsideArea && !isSelected && "opacity-70",
-                    )}
-                  >
-                    <input
-                      type="radio"
-                      name="address"
-                      className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-brand-600"
-                      checked={isSelected}
-                      onChange={() => setSelectedAddressId(address.id)}
-                    />
-                    <span className="min-w-0">
-                      <span className="flex items-center gap-2 font-medium text-fg">
-                        {address.label}
-                        {address.isDefault ? (
-                          <span className="rounded-full bg-surface-3 px-2 py-0.5 text-xs font-medium text-fg-muted">
-                            Default
-                          </span>
-                        ) : null}
-                        {isOutsideArea ? (
-                          <span className="rounded-full bg-warning-soft px-2 py-0.5 text-xs font-medium text-warning">
-                            Outside {locality?.name ?? "this area"}
-                          </span>
-                        ) : null}
-                      </span>
-                      <span className="mt-0.5 block leading-relaxed text-fg-muted">
-                        {address.line1}
-                        {address.line2 ? `, ${address.line2}` : ""}, {address.city}{" "}
-                        <span className="nums">{address.pincode}</span>
-                      </span>
-                      {isOutsideArea && isSelected ? (
-                        <span className="mt-1.5 block text-xs leading-relaxed text-warning">
-                          We can&apos;t serve this address from the area you&apos;re booking in.
-                          Pick an address in {locality?.name ?? "this area"}, or change your
-                          location at the top of the page.
-                        </span>
-                      ) : null}
-                    </span>
-                  </label>
-                );
-              })}
-              <Link
-                href={addNewAddressHref}
-                className="mt-1 inline-flex w-fit items-center gap-1 text-sm font-medium text-brand-600 underline-offset-4 hover:underline dark:text-brand-400"
-              >
-                + Add a new address
-              </Link>
-            </div>
-          )}
+        <Card
+          title="Service address"
+          description={isMealBased ? "Where should your cook come?" : "Where should we send your professional?"}
+        >
+          <AddressPicker
+            query={addressesQuery}
+            selectedId={selectedAddressId}
+            onSelect={(id) => setAddressPick({ id, areaKey: locality?.pincodeId ?? null })}
+            isOutside={(address) => !isAddressInSelectedArea(address)}
+            areaName={locality?.name ?? "this area"}
+            addHref={addNewAddressHref}
+          />
         </Card>
 
         {/* Slot selection (task 62c, 63a-c). */}
-        <Card title="Slot" description="Pick a date and time window.">
-          {city === undefined ? (
-            <Skeleton className="h-24 rounded-xl" />
-          ) : city === null ? (
-            <div className="flex flex-col items-start gap-2.5">
-              <p className="text-sm text-fg-muted">Select your city first.</p>
-              <CitySelector />
+        <Card title="Slot" description={showPinnedSlot ? undefined : "Pick a date and time window."}>
+          {showPinnedSlot && pinnedSlotQuery.isPending ? (
+            <Skeleton className="h-12 rounded-xl" />
+          ) : showPinnedSlot && pinnedSlot ? (
+            <div className="flex items-center justify-between gap-4">
+              <span className="flex flex-col">
+                <span className="text-sm font-medium text-fg">{formatCalendarDate(selectedDate)}</span>
+                <span className="nums text-sm text-fg-muted">
+                  {pinnedSlot.name}, {pinnedSlot.startTime.slice(0, 5)}–{pinnedSlot.endTime.slice(0, 5)}
+                </span>
+              </span>
+              <Button size="sm" variant="secondary" onClick={() => setChangingSlot(true)}>
+                Change
+              </Button>
             </div>
-          ) : locality === null ? (
-            <LocalitySelector cityId={city.id} />
           ) : (
-            <SlotPicker
+            // Also the fallback when the pinned window is no longer offered.
+            <AreaSlotPicker
               serviceId={service.id}
-              localityId={locality.id}
               selectedDate={selectedDate}
               onDateChange={setSelectedDate}
               selectedSlotWindowId={selectedSlotWindowId}
@@ -1302,7 +1257,9 @@ function BookingSummaryScreen() {
         ) : (
           <Card title="Price summary">
             <p className="text-sm leading-relaxed text-fg-muted">
-              Choose your address and slot to see the full price breakdown.
+              {addressOutsideArea
+                ? `Choose an address in ${locality?.name ?? "this area"} to see the price.`
+                : "Choose your address and slot to see the full price breakdown."}
             </p>
           </Card>
         )}
