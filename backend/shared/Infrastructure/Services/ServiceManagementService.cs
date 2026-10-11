@@ -4,6 +4,7 @@ using Nestly.Application.Abstractions.Auditing;
 using Nestly.Application.Abstractions.Caching;
 using Nestly.Application.Bookings;
 using Nestly.Application.Catalog;
+using Nestly.Application.Meals;
 using Nestly.Application.Serviceability;
 using Nestly.BuildingBlocks.Results;
 using Nestly.Domain;
@@ -223,6 +224,40 @@ public class ServiceManagementService : IServiceManagementService
         return Result.Success();
     }
 
+    public async Task<Result<ServiceAdminResponse>> SetMealOptionsAsync(Guid id, MealOptionsUpdateRequest request)
+    {
+        var service = await _serviceRepository.GetByIdAsync(id);
+        if (service is null)
+        {
+            return NotFound();
+        }
+
+        if (service.PricingType != ServicePricingType.MealBased)
+        {
+            return Error.Business("Service.NotMealBased", "Set this service's pricing type to MealBased before adding meal rates.");
+        }
+
+        var category = await _categoryRepository.GetByIdAsync(service.CategoryId);
+        string categoryName = category?.Name ?? string.Empty;
+        string oldValues = Serialize(service, categoryName);
+
+        try
+        {
+            service.SetMealOptions(request.Options.Select(o => o.ToDomain()));
+        }
+        catch (ArgumentException ex)
+        {
+            return Error.Validation("Service.InvalidMealOptions", ex.Message);
+        }
+
+        service.MarkUpdated(service.CategoryId);
+        await _auditLogWriter.WriteAsync(new AuditEntry(
+            "Service", service.Id.ToString(), "MealOptionsUpdated", oldValues, Serialize(service, categoryName)));
+        await _serviceRepository.UpdateAsync(service);
+
+        return ToResponse(service, categoryName);
+    }
+
     public async Task<Result<IReadOnlyList<ServiceMediaResponse>>> ListMediaAsync(Guid serviceId)
     {
         if (await _serviceRepository.GetByIdAsync(serviceId) is null)
@@ -420,7 +455,8 @@ public class ServiceManagementService : IServiceManagementService
         service.IsCustomerNoteAllowed,
         service.IsDurationBased,
         service.CoverImageUrl,
-        service.ServiceGroupId);
+        service.ServiceGroupId,
+        service.MealOptions.ToDtos());
 
     private static ServiceMediaResponse ToResponse(ServiceMedia media) => new(media.Id, media.ServiceId, media.Url);
 }

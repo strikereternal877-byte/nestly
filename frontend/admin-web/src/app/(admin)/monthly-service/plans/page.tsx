@@ -66,9 +66,24 @@ export default function MonthlyServicePlansPage() {
       key: "visit",
       header: "Visit",
       cell: (p) =>
-        p.basis === MonthlyServicePlanBasis.Hourly ? `${p.hoursPerVisit} h` : `${p.includedTasks.length} task(s)`,
+        p.basis === MonthlyServicePlanBasis.MealBased
+          ? "Meals and people"
+          : p.basis === MonthlyServicePlanBasis.Hourly
+            ? `${p.hoursPerVisit} h`
+            : `${p.includedTasks.length} task(s)`,
     },
-    { key: "rate", header: "Per visit", numeric: true, cell: (p) => formatCurrency(p.ratePerVisit), sortValue: (p) => p.ratePerVisit },
+    {
+      key: "rate",
+      header: "Per visit",
+      numeric: true,
+      cell: (p) =>
+        p.basis === MonthlyServicePlanBasis.MealBased
+          ? p.monthlyDiscountPercent > 0
+            ? `From meal rates, ${p.monthlyDiscountPercent}% off`
+            : "From meal rates"
+          : formatCurrency(p.ratePerVisit),
+      sortValue: (p) => p.ratePerVisit,
+    },
     { key: "commission", header: "Commission", numeric: true, cell: (p) => `${p.commissionPercent}%`, sortValue: (p) => p.commissionPercent },
     { key: "contracts", header: "Engagements", numeric: true, cell: (p) => p.activeContractCount, sortValue: (p) => p.activeContractCount },
     {
@@ -142,6 +157,7 @@ function PlanFormModal({ editing, onClose }: { editing: MonthlyServicePlanAdmin 
     tasks: "",
     ratePerVisit: "",
     commissionPercent: "10",
+    monthlyDiscountPercent: "0",
     frequency: MonthlyServiceFrequency.Weekdays,
     timesPerPeriod: "",
   });
@@ -162,6 +178,7 @@ function PlanFormModal({ editing, onClose }: { editing: MonthlyServicePlanAdmin 
             tasks: plan.includedTasks.join("\n"),
             ratePerVisit: String(plan.ratePerVisit),
             commissionPercent: String(plan.commissionPercent),
+            monthlyDiscountPercent: String(plan.monthlyDiscountPercent ?? 0),
             frequency: plan.frequency,
             timesPerPeriod: plan.timesPerPeriod ? String(plan.timesPerPeriod) : "",
           }
@@ -175,6 +192,7 @@ function PlanFormModal({ editing, onClose }: { editing: MonthlyServicePlanAdmin 
             tasks: "",
             ratePerVisit: "",
             commissionPercent: "10",
+            monthlyDiscountPercent: "0",
             frequency: MonthlyServiceFrequency.Weekdays,
             timesPerPeriod: "",
           },
@@ -197,10 +215,15 @@ function PlanFormModal({ editing, onClose }: { editing: MonthlyServicePlanAdmin 
     const tasks = form.tasks.split("\n").map((t) => t.trim()).filter(Boolean);
     const rate = Number(form.ratePerVisit);
     const commission = Number(form.commissionPercent);
+    const monthlyDiscount = Number(form.monthlyDiscountPercent);
     const hours = Number(form.hoursPerVisit);
     if (!form.serviceId || !form.cityId || !form.name.trim()) return setError("Service, city and name are required.");
-    if (!(rate > 0)) return setError("Rate per visit must be more than zero.");
+    const isMeal = form.basis === MonthlyServicePlanBasis.MealBased;
+    if (!isMeal && !(rate > 0)) return setError("Rate per visit must be more than zero.");
+    if (isMeal && form.frequency !== MonthlyServiceFrequency.Weekdays)
+      return setError("A meal plan is scheduled on chosen weekdays.");
     if (!(commission >= 0 && commission <= 50)) return setError("Commission must be between 0 and 50%.");
+    if (isMeal && !(monthlyDiscount >= 0 && monthlyDiscount <= 50)) return setError("Monthly discount must be between 0 and 50%.");
     if (form.basis === MonthlyServicePlanBasis.Hourly && !(hours > 0 && hours <= 12)) return setError("Hours per visit must be between 0 and 12.");
     if (form.basis === MonthlyServicePlanBasis.TaskBased && tasks.length === 0) return setError("List at least one task, one per line.");
     const times = Number(form.timesPerPeriod);
@@ -217,8 +240,9 @@ function PlanFormModal({ editing, onClose }: { editing: MonthlyServicePlanAdmin 
       basis: form.basis,
       hoursPerVisit: form.basis === MonthlyServicePlanBasis.Hourly ? hours : null,
       includedTasks: tasks,
-      ratePerVisit: rate,
+      ratePerVisit: isMeal ? 0 : rate,
       commissionPercent: commission,
+      monthlyDiscountPercent: isMeal ? monthlyDiscount : 0,
       frequency: form.frequency,
       timesPerPeriod: form.frequency === MonthlyServiceFrequency.Weekdays ? null : times,
     });
@@ -269,6 +293,7 @@ function PlanFormModal({ editing, onClose }: { editing: MonthlyServicePlanAdmin 
           options={[
             { value: String(MonthlyServicePlanBasis.Hourly), label: "Hourly (fixed hours per visit)" },
             { value: String(MonthlyServicePlanBasis.TaskBased), label: "Task-based (fixed tasks per visit)" },
+            { value: String(MonthlyServicePlanBasis.MealBased), label: "Meal-based (cook: priced from the service's meal rates)" },
           ]}
         />
         {form.basis === MonthlyServicePlanBasis.Hourly ? (
@@ -303,7 +328,20 @@ function PlanFormModal({ editing, onClose }: { editing: MonthlyServicePlanAdmin 
             onChange={set("timesPerPeriod")}
           />
         )}
-        <Field label="Rate per visit (₹)" type="number" min={1} step={1} value={form.ratePerVisit} onChange={set("ratePerVisit")} />
+        {form.basis === MonthlyServicePlanBasis.MealBased ? (
+          <Field
+            label="Monthly discount (%)"
+            type="number"
+            min={0}
+            max={50}
+            step={1}
+            hint="Each request is priced from the service's meal rates, less this much for booking monthly."
+            value={form.monthlyDiscountPercent}
+            onChange={set("monthlyDiscountPercent")}
+          />
+        ) : (
+          <Field label="Rate per visit (₹)" type="number" min={1} step={1} value={form.ratePerVisit} onChange={set("ratePerVisit")} />
+        )}
         <Field
           label="Platform commission (%)"
           type="number"

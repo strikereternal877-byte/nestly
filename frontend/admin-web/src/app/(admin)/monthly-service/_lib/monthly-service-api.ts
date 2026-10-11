@@ -13,6 +13,8 @@ import { API_V1, apiFetch } from "@/lib/api";
 export enum MonthlyServicePlanBasis {
   Hourly = 0,
   TaskBased = 1,
+  /** A cook: priced per contract from the service's meal rates (docs/MEAL-SERVICE.md). */
+  MealBased = 2,
 }
 
 export enum MonthlyServiceFrequency {
@@ -46,6 +48,14 @@ export enum MonthlyServiceAttendanceStatus {
   ProviderLeave = 3,
   CustomerUnavailable = 4,
   Absent = 5,
+  /** Daily wallet: the customer's wallet couldn't pay for the day, so the visit is off (not charged). */
+  WalletShortfall = 6,
+}
+
+/** How a contract's visits are paid for (docs/MONTHLY-SERVICE.md DAILY WALLET). */
+export enum MonthlyServiceBillingMode {
+  MonthEnd = 0,
+  DailyWallet = 1,
 }
 
 export enum MonthlyServiceAttendanceActor {
@@ -73,6 +83,8 @@ export enum MonthlyServicePaymentMethod {
   Cash = 1,
   Upi = 2,
   BankTransfer = 3,
+  /** Taken from the customer's wallet (never recorded by hand). */
+  Wallet = 4,
 }
 
 export const CONTRACT_STATUS_LABELS: Record<MonthlyServiceContractStatus, string> = {
@@ -89,6 +101,7 @@ export const ATTENDANCE_LABELS: Record<MonthlyServiceAttendanceStatus, string> =
   [MonthlyServiceAttendanceStatus.ProviderLeave]: "Professional leave",
   [MonthlyServiceAttendanceStatus.CustomerUnavailable]: "Customer unavailable",
   [MonthlyServiceAttendanceStatus.Absent]: "Absent",
+  [MonthlyServiceAttendanceStatus.WalletShortfall]: "Not booked (wallet low)",
 };
 
 export const ACTOR_LABELS: Record<MonthlyServiceAttendanceActor, string> = {
@@ -109,6 +122,7 @@ export const PAYMENT_METHOD_LABELS: Record<MonthlyServicePaymentMethod, string> 
   [MonthlyServicePaymentMethod.Cash]: "Cash",
   [MonthlyServicePaymentMethod.Upi]: "UPI",
   [MonthlyServicePaymentMethod.BankTransfer]: "Bank transfer",
+  [MonthlyServicePaymentMethod.Wallet]: "Wallet",
 };
 
 export interface MonthlyServicePlanAdmin {
@@ -124,6 +138,8 @@ export interface MonthlyServicePlanAdmin {
   includedTasks: string[];
   ratePerVisit: number;
   commissionPercent: number;
+  /** MealBased plans: monthly visits cost this much less than one-time (0-50 %). */
+  monthlyDiscountPercent: number;
   isActive: boolean;
   activeContractCount: number;
   createdAtUtc: string;
@@ -144,6 +160,8 @@ export interface MonthlyServicePlanRequest {
   commissionPercent: number;
   frequency: MonthlyServiceFrequency;
   timesPerPeriod: number | null;
+  /** MealBased plans: monthly visits cost this much less than one-time (0-50 %). */
+  monthlyDiscountPercent: number;
 }
 
 export interface MonthlyServiceAddress {
@@ -239,6 +257,9 @@ export interface MonthlyServiceContractDetail {
   invoices: MonthlyServiceInvoice[];
   cancelledAtUtc: string | null;
   cancellationReason: string | null;
+  /** Meal plans only: how many people the cook cooks for. */
+  persons: number | null;
+  billingMode: MonthlyServiceBillingMode;
 }
 
 export interface MonthlyServiceAttendanceItem {

@@ -44,7 +44,26 @@ export type CategoryUpdateRequest = CategoryCreateRequest;
 
 // ---- Services / packages (SRS 12.6) ----
 
-export type ServicePricingType = "Fixed" | "Variable";
+export type ServicePricingType = "Fixed" | "Variable" | "MealBased";
+
+/** Ordinals match the backend's MealType enum (docs/MEAL-SERVICE.md). */
+export enum MealType {
+  Breakfast = 0,
+  Lunch = 1,
+  Snacks = 2,
+  Dinner = 3,
+}
+
+/** One meal's rate and timing on a MealBased service. Times are "HH:mm". */
+export interface MealOptionDto {
+  meal: MealType;
+  baseRate: number;
+  includedPersons: number;
+  extraPersonRate: number;
+  baseMinutes: number;
+  minutesPerExtraPerson: number;
+  defaultStartTime: string;
+}
 
 export interface ServiceAdminResponse {
   id: string;
@@ -79,6 +98,8 @@ export interface ServiceAdminResponse {
   isDurationBased: boolean;
   /** Null when the service renders directly under its category with no section header (the default). Appliance/Service Group catalog redesign. */
   serviceGroupId: string | null;
+  /** Meal rates of a MealBased service; empty otherwise. */
+  mealOptions: MealOptionDto[] | null;
 }
 
 export interface ServiceCreateRequest {

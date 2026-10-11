@@ -42,6 +42,7 @@ import {
 import type { ServiceVariantAdminResponse } from "@/lib/catalog-types";
 import { canWriteModule } from "@/lib/permissions";
 import { useAdminClaims } from "@/lib/use-admin-claims";
+import { MealRatesCard } from "./MealRatesCard";
 
 const slugPattern = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
@@ -62,7 +63,7 @@ const serviceSchema = z.object({
   serviceGroupId: z.string().optional().or(z.literal("")),
   seoTitle: z.string().max(200).optional().or(z.literal("")),
   seoMetaDescription: z.string().max(500).optional().or(z.literal("")),
-  pricingType: z.enum(["Fixed", "Variable"]),
+  pricingType: z.enum(["Fixed", "Variable", "MealBased"]),
   isTaxApplicable: z.boolean(),
   isAddOnAllowed: z.boolean(),
   isQuantityAllowed: z.boolean(),
@@ -458,6 +459,7 @@ export default function EditServicePage() {
               options={[
                 { value: "Fixed", label: "Fixed package price" },
                 { value: "Variable", label: "Variable (base + add-ons)" },
+                { value: "MealBased", label: "Meal-based (cook: meals and people)" },
               ]}
               {...form.register("pricingType")}
               disabled={!canWrite}
@@ -552,6 +554,10 @@ export default function EditServicePage() {
           ) : null}
         </form>
       </Card>
+
+      {serviceQuery.data.pricingType === "MealBased" ? (
+        <MealRatesCard key={serviceQuery.data.id} service={serviceQuery.data} canWrite={canWrite} />
+      ) : null}
 
       <Card
         title="Variants"

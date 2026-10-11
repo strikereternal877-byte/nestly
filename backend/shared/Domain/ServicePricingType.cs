@@ -12,5 +12,12 @@ public enum ServicePricingType
     Fixed,
 
     /// <summary>Base price plus optional add-ons and/or quantity (SRS 12.6.3).</summary>
-    Variable
+    Variable,
+
+    /// <summary>
+    /// Priced per meal and number of persons (a cook - docs/MEAL-SERVICE.md),
+    /// from <see cref="Service.MealOptions"/>. <see cref="Service.Price"/> then
+    /// only carries the "from" price shown on listing cards.
+    /// </summary>
+    MealBased
 }

@@ -57,6 +57,8 @@ Every topic has exactly **one authoritative document**.
 | [PRODUCT-ENHANCEMENTS.md](PRODUCT-ENHANCEMENTS.md) | Subscription, Recurring Bookings, In-App Chat, Completion Verification specification (Phase 10) |
 | [NESTLY-COINS.md](NESTLY-COINS.md) | Nestly Coins (reorder loyalty currency for customers and providers) specification (Phase 11) |
 | [AMC.md](AMC.md) | Annual Maintenance Contract module specification: prepaid entitlement drawdown, redemption, renewal pipeline (Phase 20) |
+| [MONTHLY-SERVICE.md](MONTHLY-SERVICE.md) | Monthly Service module specification: same professional on chosen days, attendance register, month-end billing (online, wallet, offline) |
+| [MEAL-SERVICE.md](MEAL-SERVICE.md) | Meal-priced services (a cook): meal + people pricing, morning/evening visits, one-time booking and monthly contracts, wallet payment |
 | [PRICING.md](PRICING.md) | Pricing strategy recommendation: all-in transparent pricing, no surge, quote-guarantee mechanics (pending business sign-off) |
 | [SUPPLY.md](SUPPLY.md) | Technician supply acquisition plan recommendation: sourcing, vetting pipeline, commercial offer, retention (pending ops sign-off) |
 | [INSURANCE.md](INSURANCE.md) | Liability/insurance posture recommendation: property damage and technician injury coverage shape (pending legal sign-off) |
@@ -131,6 +133,8 @@ Every topic has exactly **one authoritative document**.
 | ETA / routing pipeline | TRACKING.md |
 | Google Maps API key management | TRACKING.md |
 | AMC / entitlement contracts | AMC.md |
+| Monthly engagements, attendance, month-end bills | MONTHLY-SERVICE.md |
+| Cook / meal-based pricing | MEAL-SERVICE.md |
 | Pricing mechanics and quote-guarantee policy | PRICING.md |
 | Technician supply acquisition and vetting | SUPPLY.md |
 | Liability and insurance coverage posture | INSURANCE.md |

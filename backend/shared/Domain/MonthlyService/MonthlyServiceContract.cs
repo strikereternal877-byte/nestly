@@ -1,5 +1,6 @@
 using Nestly.BuildingBlocks.Primitives;
 using Nestly.Domain.Events;
+using Nestly.Domain.Meals;
 
 namespace Nestly.Domain.MonthlyService;
 
@@ -54,6 +55,28 @@ public class MonthlyServiceContract : AggregateRoot<Guid>
 
     public int? TimesPerPeriodSnapshot { get; private set; }
 
+    /// <summary>Meal plans only: how many people the cook cooks for. Null otherwise.</summary>
+    public int? PersonsSnapshot { get; private set; }
+
+    /// <summary>Meal plans only: the meals cooked on each visit, as a <see cref="MealTypeExtensions.ToMask"/> bitmask; 0 otherwise.</summary>
+    public int MealsMask { get; private set; }
+
+    /// <summary>
+    /// Pay each month-end invoice from the customer's wallet as soon as it is
+    /// issued. When the balance falls short the invoice simply stays unpaid,
+    /// to be paid any other way - never part-paid.
+    /// </summary>
+    public bool PayFromWallet { get; private set; }
+
+    /// <summary>
+    /// How visits are paid for, fixed at request like every other term. With
+    /// <see cref="MonthlyServiceBillingMode.DailyWallet"/> each day is paid
+    /// from the wallet before it happens and is only on once paid.
+    /// </summary>
+    public MonthlyServiceBillingMode BillingMode { get; private set; }
+
+    public bool IsDailyWallet => BillingMode == MonthlyServiceBillingMode.DailyWallet;
+
     /// <summary>Visit weekdays - used by <see cref="MonthlyServiceFrequency.Weekdays"/> and <see cref="MonthlyServiceFrequency.TimesPerWeek"/>; None for a per-month schedule.</summary>
     public MonthlyServiceWeekdays Weekdays { get; private set; }
 
@@ -100,7 +123,10 @@ public class MonthlyServiceContract : AggregateRoot<Guid>
         DateOnly? endDate,
         string? customerNote,
         DateTime nowUtc,
-        int monthDaysMask = 0)
+        int monthDaysMask = 0,
+        MealVisitQuote? mealQuote = null,
+        bool payFromWallet = false,
+        MonthlyServiceBillingMode billingMode = MonthlyServiceBillingMode.MonthEnd)
         : base(id)
     {
         ArgumentNullException.ThrowIfNull(plan);
@@ -111,6 +137,7 @@ public class MonthlyServiceContract : AggregateRoot<Guid>
         }
 
         ValidateSchedule(plan, weekdays, monthDaysMask);
+        ValidateMeals(plan, mealQuote, visitStartTime);
 
         if (endDate is { } end && end < startDate)
         {
@@ -128,9 +155,25 @@ public class MonthlyServiceContract : AggregateRoot<Guid>
         ServiceIdSnapshot = plan.ServiceId;
         CityIdSnapshot = plan.CityId;
         BasisSnapshot = plan.Basis;
-        HoursPerVisitSnapshot = plan.HoursPerVisit;
-        _includedTasksSnapshot = plan.IncludedTasks.ToList();
-        RatePerVisitSnapshot = plan.RatePerVisit;
+        // A meal plan's terms are the customer's quote, not the plan's: the
+        // meals become the visit's task list, so every screen that already
+        // shows a contract's tasks shows what to cook without any change.
+        HoursPerVisitSnapshot = mealQuote is null ? plan.HoursPerVisit : Math.Round(mealQuote.DurationMinutes / 60m, 2);
+        _includedTasksSnapshot = mealQuote is null ? plan.IncludedTasks.ToList() : mealQuote.Meals.Select(m => m.ToString()).ToList();
+        // A meal plan's monthly discount applies to the quote; other plans set their rate directly.
+        RatePerVisitSnapshot = mealQuote is null
+            ? plan.RatePerVisit
+            : Math.Round(mealQuote.Rate * (100m - plan.MonthlyDiscountPercent) / 100m, 2, MidpointRounding.AwayFromZero);
+        PersonsSnapshot = mealQuote?.Persons;
+        MealsMask = mealQuote is null ? 0 : MealTypeExtensions.ToMask(mealQuote.Meals);
+        if (!Enum.IsDefined(billingMode))
+        {
+            throw new ArgumentOutOfRangeException(nameof(billingMode));
+        }
+
+        BillingMode = billingMode;
+        // A daily-wallet contract has nothing left to pay at month end.
+        PayFromWallet = billingMode == MonthlyServiceBillingMode.MonthEnd && payFromWallet;
         CommissionPercentSnapshot = plan.CommissionPercent;
         AddressId = addressId;
         FrequencySnapshot = plan.Frequency;
@@ -151,6 +194,56 @@ public class MonthlyServiceContract : AggregateRoot<Guid>
     /// or one hour for a task-based plan (whose length is not fixed).
     /// </summary>
     public TimeSpan VisitDuration => TimeSpan.FromHours((double)(HoursPerVisitSnapshot ?? 1m));
+
+    public void SetPayFromWallet(bool payFromWallet, DateTime nowUtc)
+    {
+        if (Status == MonthlyServiceContractStatus.Cancelled)
+        {
+            throw new InvalidOperationException("This service is cancelled.");
+        }
+
+        if (IsDailyWallet)
+        {
+            throw new InvalidOperationException("This service is already paid day by day from the wallet.");
+        }
+
+        PayFromWallet = payFromWallet;
+        UpdatedAtUtc = nowUtc;
+    }
+
+    /// <summary>Raises the low-balance warning for this customer's daily-wallet visits (the daily job sends at most one a day).</summary>
+    public void WarnWalletLow(decimal balance, decimal neededForNextDays, int visitsCovered) =>
+        RaiseDomainEvent(new MonthlyServiceWalletLowEvent(Id, CustomerId, balance, neededForNextDays, visitsCovered));
+
+    /// <summary>Meal plans only: whether this is the morning or the evening cooking visit.</summary>
+    public MealSession? MealSession => MealsMask == 0 ? null : MealTypeExtensions.FromMask(MealsMask)[0].Session();
+
+    private static void ValidateMeals(MonthlyServicePlan plan, MealVisitQuote? mealQuote, TimeOnly visitStartTime)
+    {
+        if (plan.Basis != MonthlyServicePlanBasis.MealBased)
+        {
+            if (mealQuote is not null)
+            {
+                throw new ArgumentException("This plan is not priced by meals.", nameof(mealQuote));
+            }
+
+            return;
+        }
+
+        if (mealQuote is null)
+        {
+            throw new ArgumentException("Choose the meals and how many people to cook for.", nameof(mealQuote));
+        }
+
+        if (!mealQuote.Session.Contains(visitStartTime))
+        {
+            throw new ArgumentException(
+                mealQuote.Session == Meals.MealSession.Morning
+                    ? $"A morning visit must start before {MealTypeExtensions.EveningStartsAt:HH:mm}."
+                    : $"An evening visit must start at {MealTypeExtensions.EveningStartsAt:HH:mm} or later.",
+                nameof(visitStartTime));
+        }
+    }
 
     public bool IsScheduledOn(DateOnly date) =>
         date >= StartDate

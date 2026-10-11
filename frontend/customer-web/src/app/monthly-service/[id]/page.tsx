@@ -1,16 +1,18 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import { BannerBreadcrumb, ScreenSkeleton, inr } from "@/components/patterns";
 import { PageBanner } from "@/components/PageBanner";
 import { RequireAuth } from "@/components/RequireAuth";
-import { Alert, Badge, Button, Card, EmptyState, Modal, Textarea, cx, useToast } from "@/components/ui";
-import { describeError } from "@/lib/api";
+import { Alert, Badge, Button, Card, CheckboxField, EmptyState, Modal, Textarea, cx, useToast } from "@/components/ui";
+import { API_V1, apiFetch, describeError } from "@/lib/api";
 import {
   MONTHLY_SERVICE_ACTIONS,
   MonthlyServiceAttendanceStatus,
+  MonthlyServiceBillingMode,
   MonthlyServiceContractStatus,
   MonthlyServiceDisputeStatus,
   MonthlyServiceInvoiceStatus,
@@ -25,6 +27,8 @@ import {
   getMyMonthlyService,
   listMyMonthlyInvoices,
   payMonthlyInvoice,
+  payMonthlyInvoiceFromWallet,
+  setMonthlyWalletAutopay,
 } from "@/lib/monthly-service";
 import type {
   MonthlyServiceAttendanceItem,
@@ -110,6 +114,7 @@ function DetailScreen() {
         </div>
         <aside className="flex flex-col gap-6">
           <SummaryCard contract={contract} />
+          {contract.status !== MonthlyServiceContractStatus.Cancelled ? <WalletAutopayCard contract={contract} /> : null}
           {contract.status !== MonthlyServiceContractStatus.Cancelled ? <CancelCard contract={contract} /> : null}
         </aside>
       </div>
@@ -148,6 +153,23 @@ function TodayCard({ contract }: { contract: MonthlyServiceContract }) {
           </p>
         ) : null}
       </Card>
+    );
+  }
+
+  if (today.status === MonthlyServiceAttendanceStatus.WalletShortfall) {
+    return (
+      <Alert tone="warning" title="Today's visit is not booked">
+        <span className="flex flex-col gap-3">
+          Your wallet didn&apos;t have {inr(contract.ratePerVisit)} for today, so your professional won&apos;t come.
+          {today.allowedActions.includes(MONTHLY_SERVICE_ACTIONS.rebook)
+            ? " Add money, then book it again before the cutoff."
+            : " It's too late to book today; tomorrow's visit is paid as usual once your wallet covers it."}
+          <span className="flex flex-wrap gap-2">
+            <DayActions item={today} contractId={contract.id} />
+            <AddMoneyLink contractId={contract.id} />
+          </span>
+        </span>
+      </Alert>
     );
   }
 
@@ -264,7 +286,7 @@ function AttendanceCalendar({ contract }: { contract: MonthlyServiceContract }) 
       ) : (
         <>
           <MonthGrid month={query.data} selectedId={selectedId} onSelect={setSelectedId} />
-          <Legend />
+          <Legend dailyWallet={contract.billingMode === MonthlyServiceBillingMode.DailyWallet} />
           {selected ? (
             <div className="mt-4 rounded-xl border border-line bg-surface-2 p-4">
               <DayDetail item={selected} contractId={contract.id} />
@@ -356,10 +378,12 @@ const DAY_STYLE: Record<MonthlyServiceAttendanceStatus, string> = {
   [MonthlyServiceAttendanceStatus.ProviderLeave]: "bg-warning-soft text-warning hover:brightness-95",
   [MonthlyServiceAttendanceStatus.CustomerUnavailable]: "bg-accent-100 text-accent-700 hover:brightness-95 dark:bg-accent-500/15 dark:text-accent-300",
   [MonthlyServiceAttendanceStatus.Absent]: "bg-danger-soft text-danger hover:brightness-95",
+  [MonthlyServiceAttendanceStatus.WalletShortfall]: "bg-warning-soft text-warning ring-1 ring-inset ring-warning/40 hover:brightness-95",
 };
 
-function Legend() {
+function Legend({ dailyWallet }: { dailyWallet: boolean }) {
   const entries: [MonthlyServiceAttendanceStatus, string][] = [
+    ...(dailyWallet ? [[MonthlyServiceAttendanceStatus.WalletShortfall, "Not booked"] as [MonthlyServiceAttendanceStatus, string]] : []),
     [MonthlyServiceAttendanceStatus.Present, "Came"],
     [MonthlyServiceAttendanceStatus.Scheduled, "Upcoming"],
     [MonthlyServiceAttendanceStatus.CustomerSkipped, "Skipped"],
@@ -399,7 +423,13 @@ function DayDetail({ item, contractId }: { item: MonthlyServiceAttendanceItem; c
         </p>
       ) : null}
       <p className="text-xs text-fg-subtle">
-        {item.isBillable ? "Charged in this month's bill." : "Not charged."}
+        {item.prepaidAmount !== null
+          ? `Paid ${inr(item.prepaidAmount)} from your wallet.`
+          : item.status === MonthlyServiceAttendanceStatus.WalletShortfall
+            ? "Not paid: your wallet didn't have enough. Not charged."
+            : item.isBillable
+              ? "Charged in this month's bill."
+              : "Not charged."}
         {item.isInvoiced ? " Already billed." : ""}
       </p>
       <DayActions item={item} contractId={contractId} />
@@ -420,10 +450,16 @@ function DayActions({ item, contractId }: { item: MonthlyServiceAttendanceItem; 
   };
 
   const actMutation = useMutation({
-    mutationFn: (action: "skip" | "unskip" | "confirm") => actOnAttendance(item.id, action),
-    onSuccess: (updated) => {
-      toast("success", `${formatDay(updated.date, false)}: ${attendanceLabel[updated.status]}.`);
+    mutationFn: (action: "skip" | "unskip" | "confirm" | "rebook") => actOnAttendance(item.id, action),
+    onSuccess: (updated, action) => {
+      toast(
+        "success",
+        action === "rebook" && updated.prepaidAmount !== null
+          ? `${formatDay(updated.date, false)} is booked. ${inr(updated.prepaidAmount)} paid from your wallet.`
+          : `${formatDay(updated.date, false)}: ${attendanceLabel[updated.status]}.`,
+      );
       refresh();
+      queryClient.invalidateQueries({ queryKey: ["wallet-balance"] });
     },
     onError: (error) => toast("error", describeError(error)),
   });
@@ -443,6 +479,11 @@ function DayActions({ item, contractId }: { item: MonthlyServiceAttendanceItem; 
 
   return (
     <div className="flex flex-wrap gap-2">
+      {can(MONTHLY_SERVICE_ACTIONS.rebook) ? (
+        <Button size="sm" loading={actMutation.isPending} onClick={() => actMutation.mutate("rebook")}>
+          Book today&apos;s visit
+        </Button>
+      ) : null}
       {can(MONTHLY_SERVICE_ACTIONS.confirm) ? (
         <Button size="sm" loading={actMutation.isPending} onClick={() => actMutation.mutate("confirm")}>
           They came
@@ -504,25 +545,50 @@ function BillsCard({ contract }: { contract: MonthlyServiceContract }) {
   const query = useQuery({ queryKey: MY_MONTHLY_INVOICES_KEY, queryFn: listMyMonthlyInvoices });
   const bills = (query.data ?? []).filter((i) => i.contractId === contract.id);
 
+  const refreshAfterPayment = () => {
+    queryClient.invalidateQueries({ queryKey: MY_MONTHLY_INVOICES_KEY });
+    queryClient.invalidateQueries({ queryKey: ["my-monthly-service", contract.id] });
+    queryClient.invalidateQueries({ queryKey: MY_MONTHLY_SERVICES_KEY });
+  };
+
   const payMutation = useMutation({
     mutationFn: (invoice: MonthlyServiceInvoice) => payMonthlyInvoice(invoice.id),
     onSuccess: (paid) => {
       toast("success", `Paid ${inr(paid.amount)}. Thank you!`);
-      queryClient.invalidateQueries({ queryKey: MY_MONTHLY_INVOICES_KEY });
-      queryClient.invalidateQueries({ queryKey: ["my-monthly-service", contract.id] });
-      queryClient.invalidateQueries({ queryKey: MY_MONTHLY_SERVICES_KEY });
+      refreshAfterPayment();
+    },
+    onError: (error) => toast("error", describeError(error)),
+  });
+
+  const walletPayMutation = useMutation({
+    mutationFn: (invoice: MonthlyServiceInvoice) => payMonthlyInvoiceFromWallet(invoice.id),
+    onSuccess: (paid) => {
+      toast("success", `Paid ${inr(paid.amount)} from your wallet.`);
+      refreshAfterPayment();
+      queryClient.invalidateQueries({ queryKey: ["wallet-balance"] });
     },
     onError: (error) => toast("error", describeError(error)),
   });
 
   return (
-    <Card title="Monthly bills" description="Made in the first days of each month, for the visits that happened.">
+    <Card
+      title={contract.billingMode === MonthlyServiceBillingMode.DailyWallet ? "Monthly statements" : "Monthly bills"}
+      description={
+        contract.billingMode === MonthlyServiceBillingMode.DailyWallet
+          ? "Each month's visits, already paid day by day from your wallet."
+          : "Made in the first days of each month, for the visits that happened."
+      }
+    >
       {query.isPending ? (
         <div className="h-24 animate-pulse rounded-xl bg-surface-2" aria-hidden />
       ) : query.isError ? (
         <Alert tone="error">{describeError(query.error)}</Alert>
       ) : bills.length === 0 ? (
-        <EmptyState title="No bills yet" description="Your first bill arrives at the start of next month." />
+        contract.billingMode === MonthlyServiceBillingMode.DailyWallet ? (
+          <EmptyState title="No statements yet" description="Each month's statement appears at the start of the next month." />
+        ) : (
+          <EmptyState title="No bills yet" description="Your first bill arrives at the start of next month." />
+        )
       ) : (
         <ul className="flex flex-col divide-y divide-line">
           {bills.map((bill) => (
@@ -543,9 +609,19 @@ function BillsCard({ contract }: { contract: MonthlyServiceContract }) {
                 <p className="nums text-base font-semibold text-fg">{inr(bill.amount)}</p>
                 <InvoiceStatusBadge status={bill.status} />
                 {bill.status !== MonthlyServiceInvoiceStatus.Paid ? (
-                  <Button size="sm" loading={payMutation.isPending && payMutation.variables?.id === bill.id} onClick={() => payMutation.mutate(bill)}>
-                    Pay now
-                  </Button>
+                  <>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      loading={walletPayMutation.isPending && walletPayMutation.variables?.id === bill.id}
+                      onClick={() => walletPayMutation.mutate(bill)}
+                    >
+                      Pay from wallet
+                    </Button>
+                    <Button size="sm" loading={payMutation.isPending && payMutation.variables?.id === bill.id} onClick={() => payMutation.mutate(bill)}>
+                      Pay now
+                    </Button>
+                  </>
                 ) : null}
               </div>
             </li>
@@ -553,6 +629,81 @@ function BillsCard({ contract }: { contract: MonthlyServiceContract }) {
         </ul>
       )}
     </Card>
+  );
+}
+
+// ---- Wallet ----
+
+/**
+ * Auto-pay from wallet: each month's bill is taken from the wallet as soon as
+ * the balance covers it in full - never part-paid. Turning it on also settles
+ * any bill already waiting, if the balance allows.
+ */
+function WalletAutopayCard({ contract }: { contract: MonthlyServiceContract }) {
+  const toast = useToast();
+  const queryClient = useQueryClient();
+  const walletQuery = useQuery({
+    queryKey: ["wallet-balance"],
+    queryFn: () => apiFetch<{ balance: number }>(`${API_V1}/wallet/balance`, { authenticated: true }),
+  });
+
+  const mutation = useMutation({
+    mutationFn: (enabled: boolean) => setMonthlyWalletAutopay(contract.id, enabled),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(["my-monthly-service", contract.id], updated);
+      queryClient.invalidateQueries({ queryKey: MY_MONTHLY_INVOICES_KEY });
+      queryClient.invalidateQueries({ queryKey: MY_MONTHLY_SERVICES_KEY });
+      queryClient.invalidateQueries({ queryKey: ["wallet-balance"] });
+      toast("success", updated.payFromWallet ? "Bills will be paid from your wallet." : "Auto-pay from wallet is off.");
+    },
+    onError: (error) => toast("error", describeError(error)),
+  });
+
+  if (contract.billingMode === MonthlyServiceBillingMode.DailyWallet) {
+    const balance = walletQuery.data?.balance;
+    const visitsCovered = balance === undefined ? null : Math.floor(balance / contract.ratePerVisit);
+    return (
+      <Card title="Paid daily from wallet" description={`${inr(contract.ratePerVisit)} is taken before each visit.`}>
+        <div className="flex flex-col gap-3">
+          {balance !== undefined ? (
+            <p className="text-sm text-fg">
+              Balance <span className="nums font-semibold">{inr(balance)}</span>
+              <span className="text-fg-muted">
+                {" "}
+                covers {visitsCovered} visit{visitsCovered === 1 ? "" : "s"}
+              </span>
+            </p>
+          ) : null}
+          {visitsCovered !== null && visitsCovered < 2 ? (
+            <Alert tone="warning">A day your wallet can&apos;t pay for is not booked. Add money to keep your visits on.</Alert>
+          ) : null}
+          <AddMoneyLink contractId={contract.id} />
+        </div>
+      </Card>
+    );
+  }
+
+  return (
+    <Card title="Wallet" description={walletQuery.data ? `Balance ${inr(walletQuery.data.balance)}` : undefined}>
+      <CheckboxField
+        label="Auto-pay bills from wallet"
+        description="Each bill is paid as soon as your balance covers it in full. Until then it waits for you."
+        checked={contract.payFromWallet}
+        onChange={(enabled) => mutation.mutate(enabled)}
+        disabled={mutation.isPending}
+      />
+    </Card>
+  );
+}
+
+function AddMoneyLink({ contractId }: { contractId: string }) {
+  return (
+    <Link
+      href={`/wallet?addMoney=1&returnTo=${encodeURIComponent(`/monthly-service/${contractId}`)}`}
+      className="inline-flex h-8 items-center justify-center rounded-lg border border-line bg-surface px-3 text-xs font-medium text-fg transition duration-fast ease-out hover:border-line-strong hover:bg-surface-2"
+    >
+      Add money
+    </Link>
   );
 }
 
@@ -578,7 +729,9 @@ function CancelCard({ contract }: { contract: MonthlyServiceContract }) {
   return (
     <Card title="Stop this service">
       <p className="text-sm text-fg-muted">
-        Upcoming visits are removed straight away. Visits that already happened this month are billed at month end.
+        {contract.billingMode === MonthlyServiceBillingMode.DailyWallet
+          ? "Upcoming visits are removed straight away, and any day already paid for goes back to your wallet."
+          : "Upcoming visits are removed straight away. Visits that already happened this month are billed at month end."}
       </p>
       <Button className="mt-4" variant="secondary" size="sm" onClick={() => setOpen(true)}>
         Cancel monthly service

@@ -32,6 +32,10 @@ public sealed class MonthlyServiceNotificationTriggerHandler :
     INotificationHandler<DomainEventNotification<MonthlyServiceInvoiceIssuedEvent>>,
     INotificationHandler<DomainEventNotification<MonthlyServicePausedForNonPaymentEvent>>,
     INotificationHandler<DomainEventNotification<MonthlyServiceCancelledEvent>>,
+    INotificationHandler<DomainEventNotification<MonthlyServiceVisitNotBookedEvent>>,
+    INotificationHandler<DomainEventNotification<MonthlyServiceVisitRebookedEvent>>,
+    INotificationHandler<DomainEventNotification<MonthlyServiceWalletLowEvent>>,
+    INotificationHandler<DomainEventNotification<MonthlyServiceAutopayFailedEvent>>,
     INotificationTriggerHandler
 {
     // Invariant (English) formats: "Tue, 6 Oct", "8:00 AM", "October 2026" -
@@ -67,7 +71,11 @@ public sealed class MonthlyServiceNotificationTriggerHandler :
         || domainEventType == typeof(MonthlyServiceVisitSkippedEvent)
         || domainEventType == typeof(MonthlyServiceInvoiceIssuedEvent)
         || domainEventType == typeof(MonthlyServicePausedForNonPaymentEvent)
-        || domainEventType == typeof(MonthlyServiceCancelledEvent);
+        || domainEventType == typeof(MonthlyServiceCancelledEvent)
+        || domainEventType == typeof(MonthlyServiceVisitNotBookedEvent)
+        || domainEventType == typeof(MonthlyServiceVisitRebookedEvent)
+        || domainEventType == typeof(MonthlyServiceWalletLowEvent)
+        || domainEventType == typeof(MonthlyServiceAutopayFailedEvent);
 
     public Task HandleAsync(IDomainEvent domainEvent, CancellationToken cancellationToken = default) => domainEvent switch
     {
@@ -88,6 +96,24 @@ public sealed class MonthlyServiceNotificationTriggerHandler :
         MonthlyServiceCancelledEvent e => e.ProviderId is { } providerId
             ? SendAsync(e, NotificationEventType.MonthlyClientCancelled, e.ContractId, Audience.Provider, providerId, null, cancellationToken)
             : Task.CompletedTask,
+        MonthlyServiceVisitNotBookedEvent e => HandleNotBookedAsync(e, cancellationToken),
+        MonthlyServiceVisitRebookedEvent e => SendAsync(e, NotificationEventType.MonthlyVisitRebooked, e.ContractId, Audience.Provider, e.ProviderId,
+            v => v["Date"] = FormatDay(e.Date), cancellationToken),
+        MonthlyServiceWalletLowEvent e => SendAsync(e, NotificationEventType.MonthlyWalletLow, e.ContractId, Audience.Customer, null,
+            v =>
+            {
+                v["Balance"] = Money(e.Balance);
+                v["Needed"] = Money(e.NeededForNextDays);
+                v["VisitsCovered"] = e.VisitsCovered.ToString(CultureInfo.InvariantCulture);
+            },
+            cancellationToken),
+        MonthlyServiceAutopayFailedEvent e => SendAsync(e, NotificationEventType.MonthlyAutopayFailed, e.ContractId, Audience.Customer, null,
+            v =>
+            {
+                v["Amount"] = Money(e.Amount);
+                v["Balance"] = Money(e.Balance);
+            },
+            cancellationToken),
         _ => Task.CompletedTask
     };
 
@@ -109,6 +135,18 @@ public sealed class MonthlyServiceNotificationTriggerHandler :
     public Task Handle(DomainEventNotification<MonthlyServiceCancelledEvent> notification, CancellationToken cancellationToken) =>
         HandleAsync(notification.DomainEvent, cancellationToken);
 
+    public Task Handle(DomainEventNotification<MonthlyServiceVisitNotBookedEvent> notification, CancellationToken cancellationToken) =>
+        HandleAsync(notification.DomainEvent, cancellationToken);
+
+    public Task Handle(DomainEventNotification<MonthlyServiceVisitRebookedEvent> notification, CancellationToken cancellationToken) =>
+        HandleAsync(notification.DomainEvent, cancellationToken);
+
+    public Task Handle(DomainEventNotification<MonthlyServiceWalletLowEvent> notification, CancellationToken cancellationToken) =>
+        HandleAsync(notification.DomainEvent, cancellationToken);
+
+    public Task Handle(DomainEventNotification<MonthlyServiceAutopayFailedEvent> notification, CancellationToken cancellationToken) =>
+        HandleAsync(notification.DomainEvent, cancellationToken);
+
     private enum Audience
     {
         Customer,
@@ -124,6 +162,22 @@ public sealed class MonthlyServiceNotificationTriggerHandler :
             await SendAsync(e, NotificationEventType.MonthlyClientCancelled, e.ContractId, Audience.Provider, previousProviderId, null, cancellationToken);
         }
     }
+
+    /// <summary>A visit the wallet couldn't pay for: the customer to add money, the professional not to go.</summary>
+    private async Task HandleNotBookedAsync(MonthlyServiceVisitNotBookedEvent e, CancellationToken cancellationToken)
+    {
+        await SendAsync(e, NotificationEventType.MonthlyVisitNotBooked, e.ContractId, Audience.Customer, e.ProviderId,
+            v =>
+            {
+                v["Date"] = FormatDay(e.Date);
+                v["Amount"] = Money(e.Amount);
+            },
+            cancellationToken);
+        await SendAsync(e, NotificationEventType.MonthlyClientNotBooked, e.ContractId, Audience.Provider, e.ProviderId,
+            v => v["Date"] = FormatDay(e.Date), cancellationToken);
+    }
+
+    private static string Money(decimal amount) => amount.ToString("0.##", CultureInfo.InvariantCulture);
 
     private async Task SendAsync(
         IDomainEvent domainEvent,

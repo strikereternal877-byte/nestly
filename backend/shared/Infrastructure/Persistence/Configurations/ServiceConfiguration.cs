@@ -1,6 +1,10 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Nestly.Domain;
+using Nestly.Domain.Meals;
 
 namespace Nestly.Infrastructure.Persistence.Configurations;
 
@@ -45,6 +49,13 @@ public class ServiceConfiguration : IEntityTypeConfiguration<Service>
         builder.Property(x => x.IsAddressRequired).IsRequired().HasDefaultValue(true);
         builder.Property(x => x.IsCustomerNoteAllowed).IsRequired().HasDefaultValue(true);
         builder.Property(x => x.IsDurationBased).IsRequired().HasDefaultValue(false);
+        builder.Property(x => x.MealOptions)
+            .HasConversion(v => MealOptionsColumn.ToColumn(v), v => MealOptionsColumn.FromColumn(v), MealOptionsColumn.Comparer)
+            .HasColumnName("meal_options")
+            .UsePropertyAccessMode(PropertyAccessMode.Property)
+            .IsRequired()
+            .HasMaxLength(2000)
+            .HasDefaultValue(new List<MealOption>());
 
         // SetNull (not Restrict/Cascade), mirroring ServiceAddOn.GroupId:
         // deleting a group ungroups its services rather than orphaning or
@@ -58,4 +69,27 @@ public class ServiceConfiguration : IEntityTypeConfiguration<Service>
             .HasForeignKey(x => x.ServiceGroupId)
             .OnDelete(DeleteBehavior.SetNull);
     }
+}
+
+/// <summary>
+/// At most four short entries, only ever read and written whole with the
+/// service, so stored as JSON text on the service row rather than a child
+/// table - same reasoning (and SQLite test portability) as TaskListColumn.
+/// </summary>
+internal static class MealOptionsColumn
+{
+    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
+    {
+        Converters = { new JsonStringEnumConverter() },
+    };
+
+    public static readonly ValueComparer<IReadOnlyList<MealOption>> Comparer = new(
+        (a, b) => (a ?? Array.Empty<MealOption>()).SequenceEqual(b ?? Array.Empty<MealOption>()),
+        v => v.Aggregate(0, (hash, item) => HashCode.Combine(hash, item.GetHashCode())),
+        v => v.ToList());
+
+    public static string ToColumn(IReadOnlyList<MealOption> options) => JsonSerializer.Serialize(options, Json);
+
+    public static IReadOnlyList<MealOption> FromColumn(string column) =>
+        string.IsNullOrEmpty(column) ? new List<MealOption>() : JsonSerializer.Deserialize<List<MealOption>>(column, Json) ?? [];
 }

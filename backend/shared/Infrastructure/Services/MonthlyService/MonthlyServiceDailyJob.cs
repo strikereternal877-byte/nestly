@@ -33,14 +33,21 @@ public class MonthlyServiceDailyJob : IMonthlyServiceDailyJob
     public async Task<MonthlyServiceDailyRunResult> RunAsync(CancellationToken cancellationToken)
     {
         var closed = await CloseStaleDaysAsync(cancellationToken);
+        // Daily wallet: today's visits are paid for before the schedule moves on.
+        var (charged, notBooked) = await ChargeTodayAsync(cancellationToken);
         var scheduled = await ScheduleAheadAsync(cancellationToken);
         var (issued, held) = await IssueInvoicesAsync(cancellationToken);
+        // Before overdue handling, so an invoice the wallet covers today is
+        // never counted overdue or allowed to pause its contract.
+        var paidFromWallet = await PayFromWalletAsync(cancellationToken);
         var (overdue, paused) = await HandleOverdueAsync(cancellationToken);
+        var lowBalanceWarnings = await WarnLowWalletAsync(cancellationToken);
 
-        var result = new MonthlyServiceDailyRunResult(closed, scheduled, issued, held, overdue, paused);
+        var result = new MonthlyServiceDailyRunResult(
+            closed, scheduled, issued, held, overdue, paused, paidFromWallet, charged, notBooked, lowBalanceWarnings);
         _logger.LogInformation(
-            "Monthly service daily run: {Closed} day(s) closed as absent, {Scheduled} scheduled, {Issued} invoice(s) issued, {Held} held for disputes, {Overdue} marked overdue, {Paused} contract(s) paused.",
-            closed, scheduled, issued, held, overdue, paused);
+            "Monthly service daily run: {Closed} day(s) closed as absent, {Charged} visit(s) paid from wallet, {NotBooked} not booked for low balance, {Scheduled} scheduled, {Issued} invoice(s) issued, {Held} held for disputes, {PaidFromWallet} invoice(s) paid from wallet, {Overdue} marked overdue, {Paused} contract(s) paused, {Warnings} low-balance warning(s).",
+            closed, charged, notBooked, scheduled, issued, held, paidFromWallet, overdue, paused, lowBalanceWarnings);
         return result;
     }
 
@@ -51,11 +58,91 @@ public class MonthlyServiceDailyJob : IMonthlyServiceDailyJob
         foreach (var row in stale)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            row.CloseAsAbsent(_engine.NowUtc);
-            await _attendanceRepository.UpdateAsync(row);
+            // Through the engine: a paid-for day nobody came on is refunded.
+            var closed = await _engine.ChangeAttendanceAsync(row, r => r.CloseAsAbsent(_engine.NowUtc));
+            if (closed.IsFailure)
+            {
+                _logger.LogWarning("Closing monthly visit {AttendanceId} failed: {Code}.", row.Id, closed.Error.Code);
+            }
         }
 
         return stale.Count;
+    }
+
+    private async Task<(int Charged, int NotBooked)> ChargeTodayAsync(CancellationToken cancellationToken)
+    {
+        var charged = 0;
+        var notBooked = 0;
+        foreach (var contract in (await _contractRepository.ListActiveAsync()).Where(c => c.IsDailyWallet))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                var (c, n) = await _engine.ChargeDueTodayAsync(contract);
+                charged += c;
+                notBooked += n;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Charging today's visit for monthly service contract {ContractId} failed.", contract.Id);
+            }
+        }
+
+        return (charged, notBooked);
+    }
+
+    /// <summary>
+    /// One warning a day per customer whose wallet won't cover their daily-
+    /// wallet visits over the next two days - the day before it matters, so
+    /// there is time to add money before a visit is turned off.
+    /// </summary>
+    private async Task<int> WarnLowWalletAsync(CancellationToken cancellationToken)
+    {
+        var tomorrow = _engine.Today.AddDays(1);
+        var dayAfter = tomorrow.AddDays(1);
+        var warned = 0;
+        var byCustomer = (await _contractRepository.ListActiveAsync()).Where(c => c.IsDailyWallet).GroupBy(c => c.CustomerId);
+        foreach (var customer in byCustomer)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var contracts = customer.ToDictionary(c => c.Id);
+            var upcoming = (await _attendanceRepository.ListByContractsAsync(contracts.Keys.ToList(), tomorrow, dayAfter))
+                .Where(r => r.Status == MonthlyServiceAttendanceStatus.Scheduled && !r.IsPrepaid)
+                .OrderBy(r => r.Date).ThenBy(r => r.VisitStartTime)
+                .Select(r => contracts[r.ContractId].RatePerVisitSnapshot)
+                .ToList();
+            if (upcoming.Count == 0)
+            {
+                continue;
+            }
+
+            var balance = await _engine.WalletBalanceAsync(customer.Key);
+            var needed = upcoming.Sum();
+            if (balance >= needed)
+            {
+                continue;
+            }
+
+            var covered = 0;
+            var running = 0m;
+            foreach (var rate in upcoming)
+            {
+                running += rate;
+                if (running > balance)
+                {
+                    break;
+                }
+
+                covered++;
+            }
+
+            var first = customer.First();
+            first.WarnWalletLow(balance, needed, covered);
+            await _contractRepository.UpdateAsync(first);
+            warned++;
+        }
+
+        return warned;
     }
 
     private async Task<int> ScheduleAheadAsync(CancellationToken cancellationToken)
@@ -152,9 +239,13 @@ public class MonthlyServiceDailyJob : IMonthlyServiceDailyJob
                 continue;
             }
 
+            // Daily wallet: every charged day was paid before it happened, so
+            // the month's invoice is a paid statement, not a bill.
+            var prepaid = contract.IsDailyWallet
+                && group.Where(r => r.IsBillable(billUnavailable)).All(r => r.IsPrepaid);
             var invoice = new MonthlyServiceInvoice(
                 Guid.NewGuid(), contract, group.Key, periodStart, periodEnd, counts,
-                billUnavailable, today, _engine.Options.InvoiceDueDays, _engine.NowUtc);
+                billUnavailable, today, _engine.Options.InvoiceDueDays, _engine.NowUtc, prepaidDaily: prepaid);
             foreach (var row in group)
             {
                 row.AttachToInvoice(invoice.Id);
@@ -162,10 +253,68 @@ public class MonthlyServiceDailyJob : IMonthlyServiceDailyJob
 
             // One SaveChanges: the invoice and the attendance rows it locks.
             await _invoiceRepository.AddAsync(invoice);
+            if (prepaid)
+            {
+                // Credits the professional exactly as any other payment does.
+                await _engine.CompletePaymentAsync(invoice, MonthlyServicePaymentMethod.Wallet, "Paid day by day from wallet", adminUserId: null);
+            }
+
             issued++;
         }
 
         return (issued, false);
+    }
+
+    /// <summary>
+    /// Every unpaid invoice of a contract that pays from wallet, tried again
+    /// each day: one the balance could not cover yesterday is paid the day
+    /// after the customer tops up, with no action from them.
+    /// </summary>
+    private async Task<int> PayFromWalletAsync(CancellationToken cancellationToken)
+    {
+        var unpaid = await _invoiceRepository.ListUnpaidAsync();
+        if (unpaid.Count == 0)
+        {
+            return 0;
+        }
+
+        var walletContracts = (await _contractRepository.ListByIdsAsync(unpaid.Select(i => i.ContractId).Distinct().ToList()))
+            .Where(c => c.PayFromWallet)
+            .Select(c => c.Id)
+            .ToHashSet();
+
+        var paid = 0;
+        foreach (var invoice in unpaid.Where(i => walletContracts.Contains(i.ContractId)))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                var result = await _engine.PayFromWalletAsync(invoice);
+                if (result.IsSuccess)
+                {
+                    paid++;
+                }
+                else
+                {
+                    _logger.LogInformation("Monthly service invoice {InvoiceId} not paid from wallet: {Reason}.", invoice.Id, result.Error.Code);
+
+                    // Told once - on the day the bill is issued; later daily
+                    // retries stay quiet until the balance covers it.
+                    if (result.Error.Code == "Wallet.InsufficientBalance"
+                        && DateOnly.FromDateTime(_engine.NowLocal) == invoice.DueDate.AddDays(-_engine.Options.InvoiceDueDays))
+                    {
+                        invoice.ReportAutopayFailed(await _engine.WalletBalanceAsync(invoice.CustomerId));
+                        await _invoiceRepository.UpdateAsync(invoice);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Paying monthly service invoice {InvoiceId} from wallet failed.", invoice.Id);
+            }
+        }
+
+        return paid;
     }
 
     private async Task<(int Overdue, int Paused)> HandleOverdueAsync(CancellationToken cancellationToken)

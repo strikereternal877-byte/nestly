@@ -1,5 +1,6 @@
 using System.Globalization;
 using FluentValidation;
+using Nestly.Domain.Meals;
 using Nestly.Domain.MonthlyService;
 
 namespace Nestly.Application.MonthlyService;
@@ -35,8 +36,13 @@ public class MonthlyServicePlanUpsertRequestValidator : AbstractValidator<Monthl
             .Must(t => t is null || t.Count <= MonthlyServicePlan.MaxIncludedTasks)
             .WithMessage($"At most {MonthlyServicePlan.MaxIncludedTasks} tasks.");
         RuleForEach(x => x.IncludedTasks).MaximumLength(MonthlyServicePlan.MaxTaskLength);
-        RuleFor(x => x.RatePerVisit).GreaterThan(0).LessThanOrEqualTo(100_000);
+        RuleFor(x => x.RatePerVisit).GreaterThan(0).LessThanOrEqualTo(100_000)
+            .When(x => x.Basis != MonthlyServicePlanBasis.MealBased);
+        RuleFor(x => x.Frequency).Equal(MonthlyServiceFrequency.Weekdays)
+            .When(x => x.Basis == MonthlyServicePlanBasis.MealBased)
+            .WithMessage("A meal plan is scheduled on chosen weekdays.");
         RuleFor(x => x.CommissionPercent).InclusiveBetween(0, MonthlyServicePlan.MaxCommissionPercent);
+        RuleFor(x => x.MonthlyDiscountPercent).InclusiveBetween(0, MonthlyServicePlan.MaxMonthlyDiscountPercent);
         RuleFor(x => x.Frequency).IsInEnum();
         RuleFor(x => x.TimesPerPeriod)
             .NotNull().WithMessage("How many times a week?")
@@ -71,6 +77,35 @@ public class MonthlyServiceContractRequestValidator : AbstractValidator<MonthlyS
             .When(x => x.EndDate.HasValue)
             .WithMessage("End date cannot be before the start date.");
         RuleFor(x => x.Note).MaximumLength(MonthlyServiceContract.MaxNoteLength);
+        RuleFor(x => x.BillingMode).IsInEnum();
+    }
+}
+
+public class MonthlyServiceMealContractRequestValidator : AbstractValidator<MonthlyServiceMealContractRequest>
+{
+    public MonthlyServiceMealContractRequestValidator()
+    {
+        RuleFor(x => x.PlanId).NotEmpty();
+        RuleFor(x => x.AddressId).NotEmpty();
+        RuleFor(x => x.Days).NotEmpty().WithMessage("Choose at least one day.");
+        RuleForEach(x => x.Days).IsInEnum();
+        RuleFor(x => x.Meals).NotEmpty().WithMessage("Choose at least one meal.");
+        RuleForEach(x => x.Meals).IsInEnum();
+        RuleFor(x => x.Persons).InclusiveBetween(1, MealPricing.MaxPersons);
+        RuleFor(x => x.MorningVisitTime)
+            .Must(v => MonthlyServiceTimeFormat.TryParse(v, out _))
+            .When(x => x.MorningVisitTime is not null)
+            .WithMessage("Visit time must be in HH:mm format.");
+        RuleFor(x => x.EveningVisitTime)
+            .Must(v => MonthlyServiceTimeFormat.TryParse(v, out _))
+            .When(x => x.EveningVisitTime is not null)
+            .WithMessage("Visit time must be in HH:mm format.");
+        RuleFor(x => x.EndDate)
+            .GreaterThanOrEqualTo(x => x.StartDate)
+            .When(x => x.EndDate.HasValue)
+            .WithMessage("End date cannot be before the start date.");
+        RuleFor(x => x.Note).MaximumLength(MonthlyServiceContract.MaxNoteLength);
+        RuleFor(x => x.BillingMode).IsInEnum();
     }
 }
 
@@ -143,6 +178,8 @@ public class MonthlyServiceRecordPaymentRequestValidator : AbstractValidator<Mon
     {
         RuleFor(x => x.Method).IsInEnum().NotEqual(MonthlyServicePaymentMethod.Online)
             .WithMessage("Online payments are recorded by the payment flow, not by hand.");
+        RuleFor(x => x.Method).NotEqual(MonthlyServicePaymentMethod.Wallet)
+            .WithMessage("Wallet payments are taken from the customer's wallet, not recorded by hand.");
         RuleFor(x => x.Reference).MaximumLength(MonthlyServiceInvoice.MaxReferenceLength);
     }
 }

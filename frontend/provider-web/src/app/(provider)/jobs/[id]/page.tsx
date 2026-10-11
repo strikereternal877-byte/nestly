@@ -454,6 +454,9 @@ export default function JobDetailPage() {
                     <span className="min-w-0 text-fg">
                       {item.nameSnapshot}
                       <span className="nums text-fg-subtle"> × {item.quantity}</span>
+                      {item.variantNameSnapshot ? (
+                        <span className="block text-xs text-fg-muted">{item.variantNameSnapshot}</span>
+                      ) : null}
                     </span>
                     <span className="nums shrink-0 text-fg-muted">
                       {formatInr(item.unitPriceSnapshot * item.quantity)}

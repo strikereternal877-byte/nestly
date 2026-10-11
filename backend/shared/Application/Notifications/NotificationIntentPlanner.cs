@@ -63,7 +63,11 @@ public static class NotificationIntentPlanner
         [nameof(MonthlyServiceVisitSkippedEvent)] = typeof(MonthlyServiceVisitSkippedEvent),
         [nameof(MonthlyServiceInvoiceIssuedEvent)] = typeof(MonthlyServiceInvoiceIssuedEvent),
         [nameof(MonthlyServicePausedForNonPaymentEvent)] = typeof(MonthlyServicePausedForNonPaymentEvent),
-        [nameof(MonthlyServiceCancelledEvent)] = typeof(MonthlyServiceCancelledEvent)
+        [nameof(MonthlyServiceCancelledEvent)] = typeof(MonthlyServiceCancelledEvent),
+        [nameof(MonthlyServiceVisitNotBookedEvent)] = typeof(MonthlyServiceVisitNotBookedEvent),
+        [nameof(MonthlyServiceVisitRebookedEvent)] = typeof(MonthlyServiceVisitRebookedEvent),
+        [nameof(MonthlyServiceWalletLowEvent)] = typeof(MonthlyServiceWalletLowEvent),
+        [nameof(MonthlyServiceAutopayFailedEvent)] = typeof(MonthlyServiceAutopayFailedEvent)
     };
 
     /// <summary>
@@ -115,6 +119,10 @@ public static class NotificationIntentPlanner
         MonthlyServiceInvoiceIssuedEvent => [NotificationEventType.MonthlyInvoiceIssued],
         MonthlyServicePausedForNonPaymentEvent => [NotificationEventType.MonthlyServicePaused],
         MonthlyServiceCancelledEvent cancelled => cancelled.ProviderId is null ? [] : [NotificationEventType.MonthlyClientCancelled],
+        MonthlyServiceVisitNotBookedEvent => [NotificationEventType.MonthlyVisitNotBooked, NotificationEventType.MonthlyClientNotBooked],
+        MonthlyServiceVisitRebookedEvent => [NotificationEventType.MonthlyVisitRebooked],
+        MonthlyServiceWalletLowEvent => [NotificationEventType.MonthlyWalletLow],
+        MonthlyServiceAutopayFailedEvent => [NotificationEventType.MonthlyAutopayFailed],
 
         _ => []
     };

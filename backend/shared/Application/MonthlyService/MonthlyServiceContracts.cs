@@ -1,3 +1,4 @@
+using Nestly.Domain.Meals;
 using Nestly.Domain.MonthlyService;
 
 namespace Nestly.Application.MonthlyService;
@@ -22,7 +23,8 @@ public sealed record MonthlyServicePlanAdminResponse(
     DateTime CreatedAtUtc,
     DateTime UpdatedAtUtc,
     MonthlyServiceFrequency Frequency,
-    int? TimesPerPeriod);
+    int? TimesPerPeriod,
+    decimal MonthlyDiscountPercent = 0m);
 
 /// <summary>Create and update share one shape: every field is editable.</summary>
 public sealed record MonthlyServicePlanUpsertRequest(
@@ -36,7 +38,9 @@ public sealed record MonthlyServicePlanUpsertRequest(
     decimal RatePerVisit,
     decimal CommissionPercent,
     MonthlyServiceFrequency Frequency = MonthlyServiceFrequency.Weekdays,
-    int? TimesPerPeriod = null);
+    int? TimesPerPeriod = null,
+    /// <summary>MealBased plans only: monthly visits cost this much less than the same meals booked one-time (0-50 %).</summary>
+    decimal MonthlyDiscountPercent = 0m);
 
 /// <summary>Customer-facing subset of a plan - no commission.</summary>
 public sealed record MonthlyServicePlanBrowseResponse(
@@ -52,7 +56,10 @@ public sealed record MonthlyServicePlanBrowseResponse(
     IReadOnlyList<string> IncludedTasks,
     decimal RatePerVisit,
     MonthlyServiceFrequency Frequency,
-    int? TimesPerPeriod);
+    int? TimesPerPeriod,
+    /// <summary>The service's slug, so a MealBased plan can send the customer to its meal picker.</summary>
+    string? ServiceSlug = null,
+    decimal MonthlyDiscountPercent = 0m);
 
 // ---- Shared pieces ----
 
@@ -91,7 +98,9 @@ public sealed record MonthlyServiceAttendanceItem(
     bool IsInvoiced,
     /// <summary>Customer only, and only on the day itself while still scheduled.</summary>
     string? DayCode,
-    IReadOnlyList<string> AllowedActions);
+    IReadOnlyList<string> AllowedActions,
+    /// <summary>Daily wallet: what the wallet paid for this day; null when unpaid or refunded.</summary>
+    decimal? PrepaidAmount = null);
 
 public sealed record MonthlyServiceAttendanceMonthResponse(
     Guid ContractId,
@@ -111,7 +120,33 @@ public sealed record MonthlyServiceContractRequest(
     DateOnly? EndDate,
     string? Note,
     /// <summary>Required for a "times per month" plan: exactly that many dates, 1-28. Ignored otherwise.</summary>
-    IReadOnlyList<int>? MonthDates = null);
+    IReadOnlyList<int>? MonthDates = null,
+    /// <summary>Pay each month-end invoice from the wallet automatically.</summary>
+    bool PayFromWallet = false,
+    /// <summary>Month-end bill, or each day paid from the wallet before it happens.</summary>
+    MonthlyServiceBillingMode BillingMode = MonthlyServiceBillingMode.MonthEnd);
+
+/// <summary>
+/// A cook on a MealBased plan (docs/MEAL-SERVICE.md). Morning meals and
+/// evening meals become one contract each, so a request can create two;
+/// <see cref="MorningVisitTime"/>/<see cref="EveningVisitTime"/> default to
+/// the meals' own default times when omitted.
+/// </summary>
+public sealed record MonthlyServiceMealContractRequest(
+    Guid PlanId,
+    Guid AddressId,
+    IReadOnlyList<DayOfWeek> Days,
+    DateOnly StartDate,
+    DateOnly? EndDate,
+    string? Note,
+    IReadOnlyList<MealType> Meals,
+    int Persons,
+    string? MorningVisitTime = null,
+    string? EveningVisitTime = null,
+    /// <summary>Pay each month-end invoice from the wallet automatically.</summary>
+    bool PayFromWallet = false,
+    /// <summary>Month-end bill, or each day paid from the wallet before it happens.</summary>
+    MonthlyServiceBillingMode BillingMode = MonthlyServiceBillingMode.MonthEnd);
 
 public sealed record MonthlyServiceContractResponse(
     Guid Id,
@@ -141,9 +176,17 @@ public sealed record MonthlyServiceContractResponse(
     int? TimesPerPeriod,
     IReadOnlyList<int> MonthDates,
     /// <summary>The next day a visit is still due (today included), skipping days already skipped or on leave; null unless active.</summary>
-    DateOnly? NextVisitDate = null);
+    DateOnly? NextVisitDate = null,
+    /// <summary>Meal plans only: how many people the cook cooks for (the meals are <see cref="IncludedTasks"/>).</summary>
+    int? Persons = null,
+    /// <summary>Whether month-end invoices are paid from the wallet automatically.</summary>
+    bool PayFromWallet = false,
+    MonthlyServiceBillingMode BillingMode = MonthlyServiceBillingMode.MonthEnd);
 
 public sealed record MonthlyServiceCancelRequest(string? Reason);
+
+/// <summary>Turns automatic wallet payment of month-end invoices on or off.</summary>
+public sealed record MonthlyServiceWalletAutopayRequest(bool Enabled);
 
 public sealed record MonthlyServiceDisputeRequest(string Reason);
 
@@ -199,7 +242,8 @@ public sealed record MonthlyServiceProviderContractResponse(
     MonthlyServiceAttendanceSummary CurrentMonth,
     MonthlyServiceFrequency Frequency,
     int? TimesPerPeriod,
-    IReadOnlyList<int> MonthDates);
+    IReadOnlyList<int> MonthDates,
+    int? Persons = null);
 
 /// <summary>One visit on the professional's day list: the attendance row plus where and what.</summary>
 public sealed record MonthlyServiceProviderVisitResponse(
@@ -209,7 +253,8 @@ public sealed record MonthlyServiceProviderVisitResponse(
     decimal? HoursPerVisit,
     IReadOnlyList<string> IncludedTasks,
     string CustomerName,
-    MonthlyServiceAddressSummary? Address);
+    MonthlyServiceAddressSummary? Address,
+    int? Persons = null);
 
 public sealed record MonthlyServiceCheckInRequest(string Code, decimal? Latitude, decimal? Longitude);
 
@@ -253,7 +298,9 @@ public sealed record MonthlyServiceContractAdminDetailResponse(
     MonthlyServiceAttendanceSummary CurrentMonth,
     IReadOnlyList<MonthlyServiceInvoiceResponse> Invoices,
     DateTime? CancelledAtUtc,
-    string? CancellationReason);
+    string? CancellationReason,
+    int? Persons = null,
+    MonthlyServiceBillingMode BillingMode = MonthlyServiceBillingMode.MonthEnd);
 
 public sealed record MonthlyServiceEligibleProvider(
     Guid Id,
@@ -293,4 +340,8 @@ public sealed record MonthlyServiceDailyRunResult(
     int InvoicesIssued,
     int InvoicesHeldForDisputes,
     int InvoicesMarkedOverdue,
-    int ContractsPausedForNonPayment);
+    int ContractsPausedForNonPayment,
+    int InvoicesPaidFromWallet = 0,
+    int VisitsPaidFromWallet = 0,
+    int VisitsNotBookedLowBalance = 0,
+    int LowBalanceWarnings = 0);

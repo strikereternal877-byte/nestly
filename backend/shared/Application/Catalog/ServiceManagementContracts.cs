@@ -1,3 +1,5 @@
+using Nestly.Application.Meals;
+
 namespace Nestly.Application.Catalog;
 
 /// <summary>
@@ -34,7 +36,9 @@ public sealed record ServiceAdminResponse(
     bool IsCustomerNoteAllowed,
     bool IsDurationBased = false,
     string? CoverImageUrl = null,
-    Guid? ServiceGroupId = null);
+    Guid? ServiceGroupId = null,
+    /// <summary>Meal rates of a <c>MealBased</c> service (docs/MEAL-SERVICE.md); empty otherwise.</summary>
+    IReadOnlyList<MealOptionDto>? MealOptions = null);
 
 /// <summary>Admin create request for a service (SRS 12.6.1/12.6.2/12.6.3).</summary>
 public sealed record ServiceCreateRequest(

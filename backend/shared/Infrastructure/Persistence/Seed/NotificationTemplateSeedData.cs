@@ -310,6 +310,42 @@ public static class NotificationTemplateSeedData
             "Hi {{ProviderName}},\n\n{{CustomerName}}'s monthly service ({{PlanName}}) has been stopped. Please do not go from now on. Visits you already did are still paid with the month's bill."),
         Row(NotificationEventType.MonthlyClientCancelled, NotificationChannel.Push, "monthly_client_cancelled_push", "Monthly home stopped",
             "{{CustomerName}}'s monthly service has stopped. Don't go from now on."),
+
+        // Daily wallet billing (docs/MONTHLY-SERVICE.md DAILY WALLET).
+        Row(NotificationEventType.MonthlyVisitNotBooked, NotificationChannel.Sms, "monthly_visit_not_booked_sms", null,
+            "Your {{PlanName}} visit on {{Date}} is not booked: your wallet doesn't have Rs {{Amount}}. Add money and book it in the Glavyx app before {{VisitTime}}. - Glavyx"),
+        Row(NotificationEventType.MonthlyVisitNotBooked, NotificationChannel.Email, "monthly_visit_not_booked_email", "Today's visit is not booked",
+            "Hi {{CustomerName}},\n\nYour {{PlanName}} visit on {{Date}} could not be paid from your wallet (Rs {{Amount}} needed), so {{ProviderName}} will not come unless you book it again. Add money to your wallet and tap \"Book today's visit\" in Monthly services before {{VisitTime}}. Your other days are unchanged."),
+        Row(NotificationEventType.MonthlyVisitNotBooked, NotificationChannel.Push, "monthly_visit_not_booked_push", "Visit not booked",
+            "Wallet short by Rs {{Amount}} for {{Date}}. Add money and book it before {{VisitTime}}."),
+
+        Row(NotificationEventType.MonthlyClientNotBooked, NotificationChannel.Sms, "monthly_client_not_booked_sms", null,
+            "{{CustomerName}}'s visit on {{Date}} is not booked. Please do not go unless we tell you it is on again. - Glavyx"),
+        Row(NotificationEventType.MonthlyClientNotBooked, NotificationChannel.Email, "monthly_client_not_booked_email", "Visit not booked",
+            "Hi {{ProviderName}},\n\n{{CustomerName}}'s visit on {{Date}} ({{PlanName}}) is not booked, so please do not go. If they book it again you will be told straight away."),
+        Row(NotificationEventType.MonthlyClientNotBooked, NotificationChannel.Push, "monthly_client_not_booked_push", "Visit not booked",
+            "{{CustomerName}}'s visit on {{Date}} is off. Don't go unless it's booked again."),
+
+        Row(NotificationEventType.MonthlyVisitRebooked, NotificationChannel.Sms, "monthly_visit_rebooked_sms", null,
+            "{{CustomerName}}'s visit on {{Date}} is booked again. Please go at {{VisitTime}} as usual. - Glavyx"),
+        Row(NotificationEventType.MonthlyVisitRebooked, NotificationChannel.Email, "monthly_visit_rebooked_email", "Visit booked again",
+            "Hi {{ProviderName}},\n\n{{CustomerName}} has booked the visit on {{Date}} ({{PlanName}}) again. Please go at {{VisitTime}} as usual."),
+        Row(NotificationEventType.MonthlyVisitRebooked, NotificationChannel.Push, "monthly_visit_rebooked_push", "Visit is on again",
+            "{{CustomerName}}'s visit on {{Date}} is on. Go at {{VisitTime}}."),
+
+        Row(NotificationEventType.MonthlyWalletLow, NotificationChannel.Sms, "monthly_wallet_low_sms", null,
+            "Your Glavyx wallet (Rs {{Balance}}) covers only {{VisitsCovered}} of your next visits (Rs {{Needed}} needed). Add money so your {{PlanName}} isn't stopped. - Glavyx"),
+        Row(NotificationEventType.MonthlyWalletLow, NotificationChannel.Email, "monthly_wallet_low_email", "Add money to keep your visits on",
+            "Hi {{CustomerName}},\n\nYour wallet has Rs {{Balance}}, which covers {{VisitsCovered}} of your next visits for {{PlanName}} (Rs {{Needed}} needed for the next two days). Each day's visit is paid from the wallet before it happens, so a day the wallet can't pay for is not booked. Add money from the Wallet page to keep them on."),
+        Row(NotificationEventType.MonthlyWalletLow, NotificationChannel.Push, "monthly_wallet_low_push", "Wallet running low",
+            "Rs {{Balance}} covers {{VisitsCovered}} of your next visits. Add money to keep them on."),
+
+        Row(NotificationEventType.MonthlyAutopayFailed, NotificationChannel.Sms, "monthly_autopay_failed_sms", null,
+            "Your {{PlanName}} bill of Rs {{Amount}} couldn't be paid from your wallet (balance Rs {{Balance}}). Add money and we'll retry daily, or pay in the Glavyx app. - Glavyx"),
+        Row(NotificationEventType.MonthlyAutopayFailed, NotificationChannel.Email, "monthly_autopay_failed_email", "Your bill couldn't be paid from your wallet",
+            "Hi {{CustomerName}},\n\nYour {{PlanName}} bill of Rs {{Amount}} is set to be paid from your wallet, but the balance (Rs {{Balance}}) doesn't cover it. Add money and we'll pay it automatically on the next daily run, or pay it any way from Monthly services in the app."),
+        Row(NotificationEventType.MonthlyAutopayFailed, NotificationChannel.Push, "monthly_autopay_failed_push", "Bill not paid from wallet",
+            "Rs {{Amount}} bill: wallet has Rs {{Balance}}. Add money or pay in the app."),
     ];
 
     private static SeedRow Row(NotificationEventType eventType, NotificationChannel channel, string templateKey, string? subject, string body) =>

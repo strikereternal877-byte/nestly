@@ -1,3 +1,5 @@
+using System.Data;
+using System.Globalization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -5,6 +7,8 @@ using Nestly.Application;
 using Nestly.Application.Abstractions.Time;
 using Nestly.Application.MonthlyService;
 using Nestly.Application.ProviderManagement;
+using Nestly.Application.Wallet;
+using Nestly.BuildingBlocks.Results;
 using Nestly.Domain;
 using Nestly.Domain.MonthlyService;
 using Nestly.Infrastructure.Options;
@@ -43,6 +47,7 @@ public class MonthlyServiceEngine
         public const string CustomerUnavailable = "customer-unavailable";
         public const string Correct = "correct";
         public const string ResolveDispute = "resolve-dispute";
+        public const string Rebook = "rebook";
     }
 
     private readonly IMonthlyServiceContractRepository _contractRepository;
@@ -50,6 +55,7 @@ public class MonthlyServiceEngine
     private readonly IMonthlyServiceInvoiceRepository _invoiceRepository;
     private readonly IProviderEarningLedgerService _earningLedgerService;
     private readonly IProviderEarningLedgerRepository _earningLedgerRepository;
+    private readonly IWalletService _walletService;
     private readonly NestlyDbContext _context;
     private readonly IBusinessClock _clock;
     private readonly TimeProvider _timeProvider;
@@ -61,6 +67,7 @@ public class MonthlyServiceEngine
         IMonthlyServiceInvoiceRepository invoiceRepository,
         IProviderEarningLedgerService earningLedgerService,
         IProviderEarningLedgerRepository earningLedgerRepository,
+        IWalletService walletService,
         NestlyDbContext context,
         IBusinessClock clock,
         TimeProvider timeProvider,
@@ -72,6 +79,7 @@ public class MonthlyServiceEngine
         _invoiceRepository = invoiceRepository;
         _earningLedgerService = earningLedgerService;
         _earningLedgerRepository = earningLedgerRepository;
+        _walletService = walletService;
         _context = context;
         _clock = clock;
         _timeProvider = timeProvider;
@@ -137,12 +145,200 @@ public class MonthlyServiceEngine
         }
 
         await _attendanceRepository.AddRangeAsync(rows);
+
+        // Assignment or resume during the day: today's visit is paid for (or
+        // turned off) now, not only at the next nightly run.
+        await ChargeDueTodayAsync(contract);
         return rows.Count;
     }
 
+    // ---- Daily wallet (docs/MONTHLY-SERVICE.md DAILY WALLET) ----
+
+    /// <summary>
+    /// Applies a change to one attendance day and, for a daily-wallet
+    /// contract, keeps that day's money right in the same transaction: a day
+    /// that is on today (or is now charged) must be paid for - the change is
+    /// refused when the wallet can't - and a paid day that ended without a
+    /// charged visit goes back to the wallet.
+    /// </summary>
+    public async Task<Result> ChangeAttendanceAsync(MonthlyServiceAttendance row, Action<MonthlyServiceAttendance> change, Func<Task>? beforeSave = null)
+    {
+        var contract = await _contractRepository.GetByIdAsync(row.ContractId);
+        var dailyWallet = contract?.IsDailyWallet == true;
+        var ownTransaction = dailyWallet && _context.Database.CurrentTransaction is null
+            ? await _context.Database.BeginTransactionAsync(IsolationLevel.Serializable)
+            : null;
+        try
+        {
+            try
+            {
+                change(row);
+            }
+            catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+            {
+                await AbandonAsync(row, ownTransaction);
+                return Result.Failure(Error.Business("MonthlyService.AttendanceActionNotAllowed", UserMessage(ex)));
+            }
+
+            if (dailyWallet)
+            {
+                var settled = await SettleDayAsync(row, contract!);
+                if (settled.IsFailure)
+                {
+                    await AbandonAsync(row, ownTransaction);
+                    return settled;
+                }
+            }
+
+            if (beforeSave is not null)
+            {
+                await beforeSave();
+            }
+
+            await _attendanceRepository.UpdateAsync(row);
+            if (ownTransaction is not null)
+            {
+                await ownTransaction.CommitAsync();
+            }
+
+            return Result.Success();
+        }
+        catch
+        {
+            if (ownTransaction is not null)
+            {
+                await ownTransaction.RollbackAsync();
+            }
+
+            throw;
+        }
+        finally
+        {
+            ownTransaction?.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// A refused change leaves nothing behind: the transaction rolls back and
+    /// the tracked row is re-read, so a later save in the same unit of work
+    /// (or a retry) never persists the half-applied status.
+    /// </summary>
+    private async Task AbandonAsync(MonthlyServiceAttendance row, Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction? ownTransaction)
+    {
+        if (ownTransaction is not null)
+        {
+            await ownTransaction.RollbackAsync();
+        }
+
+        await _context.Entry(row).ReloadAsync();
+    }
+
+    /// <summary>
+    /// Pays for today's still-unpaid visits of a daily-wallet contract. A day
+    /// the wallet can't cover is turned off (WalletShortfall) and both sides
+    /// are told; the customer can add money and book it again before the
+    /// cutoff. Idempotent: a paid or already-off day is left alone.
+    /// </summary>
+    public async Task<(int Charged, int NotBooked)> ChargeDueTodayAsync(MonthlyServiceContract contract)
+    {
+        if (!contract.IsDailyWallet || contract.Status != MonthlyServiceContractStatus.Active)
+        {
+            return (0, 0);
+        }
+
+        var charged = 0;
+        var notBooked = 0;
+        var due = (await _attendanceRepository.ListByContractAsync(contract.Id, Today, Today))
+            .Where(r => r.Status == MonthlyServiceAttendanceStatus.Scheduled && !r.IsPrepaid && !r.IsInvoiced)
+            .ToList();
+        foreach (var row in due)
+        {
+            var paid = await ChangeAttendanceAsync(row, _ => { });
+            if (paid.IsSuccess)
+            {
+                charged++;
+            }
+            else if (paid.Error.Code == WalletBalanceLowCode)
+            {
+                row.MarkWalletShortfall(contract.RatePerVisitSnapshot, NowUtc);
+                await _attendanceRepository.UpdateAsync(row);
+                notBooked++;
+            }
+            else
+            {
+                _logger.LogWarning("Charging monthly visit {AttendanceId} failed: {Code}.", row.Id, paid.Error.Code);
+            }
+        }
+
+        return (charged, notBooked);
+    }
+
+    public const string WalletBalanceLowCode = "MonthlyService.WalletBalanceLow";
+
+    private async Task<Result> SettleDayAsync(MonthlyServiceAttendance row, MonthlyServiceContract contract)
+    {
+        var mustBePaid = !row.IsPrepaid
+            && !row.IsInvoiced
+            && ((row.Status == MonthlyServiceAttendanceStatus.Scheduled && row.Date <= Today)
+                || MonthlyServiceAttendance.IsBillableStatus(row.Status, Policy.BillCustomerUnavailable));
+        if (mustBePaid)
+        {
+            var amount = contract.RatePerVisitSnapshot;
+            var debit = await _walletService.DebitAsync(
+                row.CustomerId, amount, WalletSourceType.MonthlyServiceVisitCharge, row.Id, $"{contract.PlanNameSnapshot} - {DayLabel(row.Date)}");
+            if (debit.IsFailure)
+            {
+                return Result.Failure(debit.Error.Code == "Wallet.InsufficientBalance"
+                    ? Error.Business(WalletBalanceLowCode,
+                        $"The wallet balance doesn't cover this visit (Rs {amount.ToString("0.##", CultureInfo.InvariantCulture)}). Add money to the wallet first.")
+                    : debit.Error);
+            }
+
+            row.MarkPrepaid(amount, debit.Value.Id);
+        }
+        else if (row.NeedsRefund(Policy.BillCustomerUnavailable))
+        {
+            await RefundDayAsync(row, contract);
+        }
+
+        return Result.Success();
+    }
+
+    private async Task RefundDayAsync(MonthlyServiceAttendance row, MonthlyServiceContract contract)
+    {
+        await _walletService.CreditAsync(
+            row.CustomerId, row.PrepaidAmount!.Value, WalletSourceType.MonthlyServiceVisitRefund, row.Id,
+            $"Refund: {contract.PlanNameSnapshot} - {DayLabel(row.Date)}");
+        row.MarkRefunded(NowUtc);
+    }
+
+    private static string DayLabel(DateOnly date) => date.ToString("ddd d MMM", CultureInfo.InvariantCulture);
+
+    /// <summary>The customer's wallet balance, for the low-balance check and messages.</summary>
+    public async Task<decimal> WalletBalanceAsync(Guid customerId)
+    {
+        var balance = await _walletService.GetBalanceAsync(customerId);
+        return balance.IsSuccess ? balance.Value.Balance : 0m;
+    }
+
     /// <summary>Removes every not-yet-happened scheduled day from today on - used on pause, cancel and professional replacement.</summary>
-    public Task<int> RemoveUpcomingAsync(MonthlyServiceContract contract) =>
-        _attendanceRepository.DeleteScheduledFromAsync(contract.Id, Today);
+    public async Task<int> RemoveUpcomingAsync(MonthlyServiceContract contract)
+    {
+        // A daily-wallet day already paid for goes back to the wallet before
+        // its row goes (a replacement re-creates and re-charges it).
+        if (contract.IsDailyWallet)
+        {
+            var paidAhead = (await _attendanceRepository.ListByContractAsync(contract.Id, Today, Today.AddDays(Options.ScheduleHorizonDays)))
+                .Where(r => r.Status == MonthlyServiceAttendanceStatus.Scheduled && r.IsPrepaid && !r.IsInvoiced);
+            foreach (var row in paidAhead)
+            {
+                await RefundDayAsync(row, contract);
+                await _attendanceRepository.UpdateAsync(row);
+            }
+        }
+
+        return await _attendanceRepository.DeleteScheduledFromAsync(contract.Id, Today);
+    }
 
     /// <summary>
     /// The next day a visit is still due for an active contract: the first
@@ -289,6 +485,65 @@ public class MonthlyServiceEngine
         }
     }
 
+    /// <summary>
+    /// Pays <paramref name="invoice"/> in full from the customer's wallet. The
+    /// debit, the invoice turning Paid and the professional's credit commit
+    /// together or not at all. A short balance fails with
+    /// <c>Wallet.InsufficientBalance</c> and changes nothing: an invoice is
+    /// never part-paid from the wallet.
+    /// </summary>
+    public async Task<Result> PayFromWalletAsync(MonthlyServiceInvoice invoice)
+    {
+        if (invoice.IsPaid)
+        {
+            return Result.Failure(Error.Business("MonthlyService.AlreadyPaid", "This invoice is already paid."));
+        }
+
+        // Serializable, like WalletService's own debit: two concurrent payers
+        // (the daily job and the customer's tap) cannot both pass the balance
+        // check. Reuses a caller's ambient transaction rather than nesting.
+        var ownTransaction = _context.Database.CurrentTransaction is null
+            ? await _context.Database.BeginTransactionAsync(IsolationLevel.Serializable)
+            : null;
+        try
+        {
+            var debit = await _walletService.DebitAsync(
+                invoice.CustomerId, invoice.Amount, WalletSourceType.MonthlyServiceInvoice, invoice.Id,
+                $"Monthly service {invoice.PeriodStart:MMM yyyy} - {invoice.BillableVisits} visit(s)");
+            if (debit.IsFailure)
+            {
+                if (ownTransaction is not null)
+                {
+                    await ownTransaction.RollbackAsync();
+                }
+
+                return Result.Failure(debit.Error);
+            }
+
+            await CompletePaymentAsync(invoice, MonthlyServicePaymentMethod.Wallet, debit.Value.Id.ToString("N"), adminUserId: null);
+            if (ownTransaction is not null)
+            {
+                await ownTransaction.CommitAsync();
+            }
+
+            _logger.LogInformation("Monthly service invoice {InvoiceId} paid from wallet.", invoice.Id);
+            return Result.Success();
+        }
+        catch
+        {
+            if (ownTransaction is not null)
+            {
+                await ownTransaction.RollbackAsync();
+            }
+
+            throw;
+        }
+        finally
+        {
+            ownTransaction?.Dispose();
+        }
+    }
+
     // ---- Lookups ----
 
     public async Task<Dictionary<Guid, Customer>> CustomersAsync(IEnumerable<Guid> ids)
@@ -313,6 +568,14 @@ public class MonthlyServiceEngine
         return list.Count == 0
             ? new Dictionary<Guid, string>()
             : await _context.Set<Service>().AsNoTracking().Where(s => list.Contains(s.Id)).ToDictionaryAsync(s => s.Id, s => s.Name);
+    }
+
+    public async Task<Dictionary<Guid, string>> ServiceSlugsAsync(IEnumerable<Guid> ids)
+    {
+        var list = ids.Distinct().ToList();
+        return list.Count == 0
+            ? new Dictionary<Guid, string>()
+            : await _context.Set<Service>().AsNoTracking().Where(s => list.Contains(s.Id)).ToDictionaryAsync(s => s.Id, s => s.Slug);
     }
 
     public async Task<Dictionary<Guid, string>> CityNamesAsync(IEnumerable<Guid> ids)
@@ -411,6 +674,7 @@ public class MonthlyServiceEngine
                 if (open && row.Status == MonthlyServiceAttendanceStatus.CustomerSkipped && nowLocal <= start - Policy.SkipCutoffBeforeVisit) actions.Add(Actions.Unskip);
                 if (open && scheduled && row.Date == today && nowLocal >= start - Policy.CheckInOpensBeforeVisit) actions.Add(Actions.Confirm);
                 if (open && billable && row.DisputeStatus == MonthlyServiceDisputeStatus.None) actions.Add(Actions.Dispute);
+                if (open && row.Status == MonthlyServiceAttendanceStatus.WalletShortfall && nowLocal <= start - Policy.SkipCutoffBeforeVisit) actions.Add(Actions.Rebook);
                 break;
             case MonthlyServiceViewer.Provider:
                 if (open && scheduled && nowLocal >= start - Policy.CheckInOpensBeforeVisit && nowLocal <= start + Policy.CheckInClosesAfterVisit) actions.Add(Actions.CheckIn);
@@ -444,7 +708,8 @@ public class MonthlyServiceEngine
             billable,
             row.IsInvoiced,
             showCode ? row.DayCode : null,
-            actions);
+            actions,
+            row.IsPrepaid ? row.PrepaidAmount : null);
     }
 
     public async Task<MonthlyServiceAttendanceMonthResponse> MonthAsync(MonthlyServiceContract contract, int year, int month, MonthlyServiceViewer viewer)

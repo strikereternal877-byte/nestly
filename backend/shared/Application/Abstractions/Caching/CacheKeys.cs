@@ -106,7 +106,8 @@ public static class CacheKeys
         Guid cityId,
         Guid? serviceVariantId,
         int quantity,
-        IEnumerable<(Guid AddOnId, int Quantity)> addOns)
+        IEnumerable<(Guid AddOnId, int Quantity)> addOns,
+        string? mealsKey = null)
     {
         string addOnsSegment = string.Join(
             '_',
@@ -120,7 +121,8 @@ public static class CacheKeys
             "city", cityId.ToString("D"),
             "variant", serviceVariantId?.ToString("D") ?? "none",
             "qty", quantity.ToString(CultureInfo.InvariantCulture),
-            "addons", addOnsSegment.Length == 0 ? "none" : addOnsSegment);
+            "addons", addOnsSegment.Length == 0 ? "none" : addOnsSegment,
+            "meals", mealsKey ?? "none");
     }
 
     /// <summary>A customer's active session projection.</summary>

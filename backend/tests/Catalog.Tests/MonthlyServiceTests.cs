@@ -6,6 +6,7 @@ using Nestly.Application;
 using Nestly.Application.Abstractions.Auditing;
 using Nestly.Application.MonthlyService;
 using Nestly.Domain;
+using Nestly.Domain.Meals;
 using Nestly.Domain.MonthlyService;
 using Nestly.Infrastructure.Auditing;
 using Nestly.Infrastructure.Options;
@@ -456,7 +457,225 @@ public sealed class MonthlyServiceTests : IClassFixture<TestDatabase>
         resumed.Status.Should().Be(MonthlyServiceContractStatus.Active);
     }
 
+    [Fact]
+    public async Task Cook_for_breakfast_and_dinner_is_a_morning_and_an_evening_contract_one_professional_can_take()
+    {
+        // 07:30 IST on Thu 1 Oct 2026.
+        var clock = new MutableTimeProvider(new DateTime(2026, 10, 1, 2, 0, 0, DateTimeKind.Utc));
+        await using var context = _db.CreateContext();
+        var seed = await SeedAsync(context, cook: true);
+        var app = Build(context, clock);
+
+        var plan = await app.Admin.CreatePlanAsync(
+            new MonthlyServicePlanUpsertRequest(seed.ServiceId, seed.CityId, "Home cook " + Guid.NewGuid().ToString("N")[..6], null,
+                MonthlyServicePlanBasis.MealBased, null, null, 0m, 10m),
+            Guid.NewGuid());
+        plan.IsSuccess.Should().BeTrue(plan.IsFailure ? plan.Error.Message : null);
+        plan.Value.RatePerVisit.Should().Be(0m, "a meal plan is priced per contract");
+
+        var withoutMeals = await app.Customer.RequestContractAsync(seed.CustomerId, new MonthlyServiceContractRequest(
+            plan.Value.Id, seed.AddressId, [DayOfWeek.Monday], "08:00", new DateOnly(2026, 10, 1), null, null));
+        withoutMeals.IsFailure.Should().BeTrue("a cook needs meals and persons");
+
+        var dinnerInTheMorning = await app.Customer.RequestMealContractsAsync(seed.CustomerId, new MonthlyServiceMealContractRequest(
+            plan.Value.Id, seed.AddressId, [DayOfWeek.Monday], new DateOnly(2026, 10, 1), null, null, [MealType.Dinner], 2, EveningVisitTime: "09:00"));
+        dinnerInTheMorning.IsFailure.Should().BeTrue("an evening visit cannot start at 9 am");
+
+        var requested = await app.Customer.RequestMealContractsAsync(seed.CustomerId, new MonthlyServiceMealContractRequest(
+            plan.Value.Id, seed.AddressId,
+            [DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday, DayOfWeek.Saturday],
+            new DateOnly(2026, 10, 1), null, "Less oil please", [MealType.Dinner, MealType.Breakfast], 4, EveningVisitTime: "19:30"));
+        requested.IsSuccess.Should().BeTrue(requested.IsFailure ? requested.Error.Message : null);
+        requested.Value.Should().HaveCount(2);
+
+        var morning = requested.Value[0];
+        morning.IncludedTasks.Should().Equal("Breakfast");
+        morning.Persons.Should().Be(4);
+        morning.VisitStartTime.Should().Be("07:30", "no time given, so the meal's own default");
+        morning.RatePerVisit.Should().Be(100m + 2 * 30m);
+        morning.HoursPerVisit.Should().Be(1.08m, "45 minutes + 10 for each of 2 extra people");
+
+        var evening = requested.Value[1];
+        evening.IncludedTasks.Should().Equal("Dinner");
+        evening.VisitStartTime.Should().Be("19:30");
+        evening.RatePerVisit.Should().Be(150m + 2 * 40m);
+
+        var secondMorningCook = await app.Customer.RequestMealContractsAsync(seed.CustomerId, new MonthlyServiceMealContractRequest(
+            plan.Value.Id, seed.AddressId, [DayOfWeek.Monday], new DateOnly(2026, 10, 1), null, null, [MealType.Lunch], 2));
+        secondMorningCook.Error.Code.Should().Be("MonthlyService.DuplicateContract");
+
+        (await app.Admin.AssignProviderAsync(morning.Id, seed.ProviderId, Guid.NewGuid())).IsSuccess.Should().BeTrue();
+        var sameCookInTheEvening = await app.Admin.AssignProviderAsync(evening.Id, seed.ProviderId, Guid.NewGuid());
+        sameCookInTheEvening.IsSuccess.Should().BeTrue("the morning and evening visits never overlap");
+    }
+
+    [Fact]
+    public async Task Wallet_autopay_never_part_pays_and_settles_the_bill_once_the_balance_covers_it()
+    {
+        var clock = new MutableTimeProvider(new DateTime(2026, 10, 5, 2, 0, 0, DateTimeKind.Utc));
+        await using var context = _db.CreateContext();
+        var seed = await SeedAsync(context);
+        var app = Build(context, clock);
+        var wallet = new WalletService(new WalletLedgerRepository(context), context);
+
+        var contractId = await ContractWithOneVisitAsync(app, seed, clock, payFromWallet: true);
+        (await app.Customer.GetContractAsync(seed.CustomerId, contractId)).Value.PayFromWallet.Should().BeTrue();
+        await wallet.CreditAsync(seed.CustomerId, 100m, WalletSourceType.ManualAdjustment, null, "test credit");
+
+        clock.Set(new DateTime(2026, 11, 2, 19, 0, 0, DateTimeKind.Utc));
+        var issuedRun = await app.Job.RunAsync(CancellationToken.None);
+        issuedRun.InvoicesIssued.Should().Be(1);
+        issuedRun.InvoicesPaidFromWallet.Should().Be(0, "Rs 100 does not cover the Rs 150 bill, and a bill is never part-paid");
+        (await app.Customer.ListInvoicesAsync(seed.CustomerId)).Single(i => i.ContractId == contractId)
+            .Status.Should().Be(MonthlyServiceInvoiceStatus.Issued);
+        (await wallet.GetBalanceAsync(seed.CustomerId)).Value.Balance.Should().Be(100m, "nothing was taken");
+
+        await wallet.CreditAsync(seed.CustomerId, 100m, WalletSourceType.ManualAdjustment, null, "top-up");
+        clock.Set(new DateTime(2026, 11, 3, 19, 0, 0, DateTimeKind.Utc));
+        (await app.Job.RunAsync(CancellationToken.None)).InvoicesPaidFromWallet.Should().Be(1, "the next run retries once the balance covers it");
+
+        var paid = (await app.Customer.ListInvoicesAsync(seed.CustomerId)).Single(i => i.ContractId == contractId);
+        paid.Status.Should().Be(MonthlyServiceInvoiceStatus.Paid);
+        paid.PaymentMethod.Should().Be(MonthlyServicePaymentMethod.Wallet);
+        (await wallet.GetBalanceAsync(seed.CustomerId)).Value.Balance.Should().Be(50m);
+        (await new ProviderEarningLedgerRepository(context).FindBySourceAsync(ProviderEarningSourceType.MonthlyServiceInvoice, paid.Id))
+            .Should().NotBeNull("the professional is credited exactly as for any other payment");
+    }
+
+    [Fact]
+    public async Task Customer_pays_a_bill_from_wallet_only_when_the_balance_covers_it()
+    {
+        var clock = new MutableTimeProvider(new DateTime(2026, 10, 5, 2, 0, 0, DateTimeKind.Utc));
+        await using var context = _db.CreateContext();
+        var seed = await SeedAsync(context);
+        var app = Build(context, clock);
+        var wallet = new WalletService(new WalletLedgerRepository(context), context);
+
+        var contractId = await ContractWithOneVisitAsync(app, seed, clock, payFromWallet: false);
+        clock.Set(new DateTime(2026, 11, 2, 19, 0, 0, DateTimeKind.Utc));
+        var run = await app.Job.RunAsync(CancellationToken.None);
+        run.InvoicesPaidFromWallet.Should().Be(0, "this contract never opted in");
+        var invoice = (await app.Customer.ListInvoicesAsync(seed.CustomerId)).Single(i => i.ContractId == contractId);
+
+        var empty = await app.Customer.PayInvoiceFromWalletAsync(seed.CustomerId, invoice.Id);
+        empty.Error.Code.Should().Be("MonthlyService.WalletBalanceLow");
+
+        await wallet.CreditAsync(seed.CustomerId, 500m, WalletSourceType.ManualAdjustment, null, "test credit");
+        var paid = await app.Customer.PayInvoiceFromWalletAsync(seed.CustomerId, invoice.Id);
+        paid.IsSuccess.Should().BeTrue(paid.IsFailure ? paid.Error.Message : null);
+        paid.Value.PaymentMethod.Should().Be(MonthlyServicePaymentMethod.Wallet);
+        (await wallet.GetBalanceAsync(seed.CustomerId)).Value.Balance.Should().Be(350m);
+
+        (await app.Customer.PayInvoiceFromWalletAsync(seed.CustomerId, invoice.Id)).Error.Code.Should().Be("MonthlyService.AlreadyPaid");
+        (await wallet.GetBalanceAsync(seed.CustomerId)).Value.Balance.Should().Be(350m, "a second tap never charges twice");
+    }
+
+    [Fact]
+    public async Task Daily_wallet_pays_each_day_ahead_turns_off_unpaid_days_and_refunds_days_that_did_not_happen()
+    {
+        // Mon 5 Oct 2026, 07:30 IST. Mon/Tue/Wed at 08:00, Rs 150 a visit, Rs 200 in the wallet.
+        var clock = new MutableTimeProvider(new DateTime(2026, 10, 5, 2, 0, 0, DateTimeKind.Utc));
+        await using var context = _db.CreateContext();
+        var seed = await SeedAsync(context);
+        var app = Build(context, clock);
+        var wallet = new WalletService(new WalletLedgerRepository(context), context);
+        async Task<decimal> Balance() => (await wallet.GetBalanceAsync(seed.CustomerId)).Value.Balance;
+        await wallet.CreditAsync(seed.CustomerId, 200m, WalletSourceType.ManualAdjustment, null, "test credit");
+
+        var plan = (await app.Admin.CreatePlanAsync(PlanRequest(seed), Guid.NewGuid())).Value;
+        var request = await app.Customer.RequestContractAsync(seed.CustomerId, new MonthlyServiceContractRequest(
+            plan.Id, seed.AddressId, [DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday], "08:00", new DateOnly(2026, 10, 5), null, null,
+            BillingMode: MonthlyServiceBillingMode.DailyWallet));
+        request.IsSuccess.Should().BeTrue(request.IsFailure ? request.Error.Message : null);
+        request.Value.BillingMode.Should().Be(MonthlyServiceBillingMode.DailyWallet);
+        var contractId = request.Value.Id;
+
+        (await app.Admin.AssignProviderAsync(contractId, seed.ProviderId, Guid.NewGuid())).IsSuccess.Should().BeTrue();
+        var monday = (await app.Customer.GetContractAsync(seed.CustomerId, contractId)).Value.Today!;
+        monday.PrepaidAmount.Should().Be(150m, "assignment pays for the visit due today straight away");
+        (await Balance()).Should().Be(50m);
+        (await app.Customer.ConfirmVisitAsync(seed.CustomerId, monday.Id)).IsSuccess.Should().BeTrue();
+
+        // Tue 00:30 IST: Rs 50 can't pay Tuesday - the day is off, and Wednesday is already at risk.
+        clock.Set(new DateTime(2026, 10, 5, 19, 0, 0, DateTimeKind.Utc));
+        var tuesdayRun = await app.Job.RunAsync(CancellationToken.None);
+        tuesdayRun.VisitsNotBookedLowBalance.Should().Be(1);
+        tuesdayRun.LowBalanceWarnings.Should().Be(1, "Rs 50 won't cover Wednesday either");
+        var tuesday = (await app.Customer.GetContractAsync(seed.CustomerId, contractId)).Value.Today!;
+        tuesday.Status.Should().Be(MonthlyServiceAttendanceStatus.WalletShortfall);
+        tuesday.IsBillable.Should().BeFalse();
+        tuesday.AllowedActions.Should().Contain(MonthlyServiceEngine.Actions.Rebook);
+
+        // 05:00 IST: booking it again needs the money first.
+        clock.Set(new DateTime(2026, 10, 5, 23, 30, 0, DateTimeKind.Utc));
+        (await app.Customer.RebookAsync(seed.CustomerId, tuesday.Id)).Error.Code.Should().Be(MonthlyServiceEngine.WalletBalanceLowCode);
+        await wallet.CreditAsync(seed.CustomerId, 200m, WalletSourceType.ManualAdjustment, null, "top-up");
+        var rebooked = await app.Customer.RebookAsync(seed.CustomerId, tuesday.Id);
+        rebooked.IsSuccess.Should().BeTrue(rebooked.IsFailure ? rebooked.Error.Message : null);
+        rebooked.Value.Status.Should().Be(MonthlyServiceAttendanceStatus.Scheduled);
+        rebooked.Value.PrepaidAmount.Should().Be(150m);
+        (await Balance()).Should().Be(100m);
+
+        // Wed 00:30 IST: nobody recorded Tuesday - it closes as missed and its Rs 150 comes back; Wednesday is paid.
+        clock.Set(new DateTime(2026, 10, 6, 19, 0, 0, DateTimeKind.Utc));
+        var wednesdayRun = await app.Job.RunAsync(CancellationToken.None);
+        wednesdayRun.VisitsPaidFromWallet.Should().Be(1);
+        (await Balance()).Should().Be(100m, "Rs 100 + Rs 150 refunded for Tuesday - Rs 150 for Wednesday");
+
+        // 05:00 IST: skipping a paid day refunds it.
+        clock.Set(new DateTime(2026, 10, 6, 23, 30, 0, DateTimeKind.Utc));
+        var wednesday = (await app.Customer.GetContractAsync(seed.CustomerId, contractId)).Value.Today!;
+        (await app.Customer.SkipAsync(seed.CustomerId, wednesday.Id)).IsSuccess.Should().BeTrue();
+        (await Balance()).Should().Be(250m);
+
+        // Month end: October is a paid statement for the one visit that happened, and the professional is credited.
+        clock.Set(new DateTime(2026, 11, 2, 19, 0, 0, DateTimeKind.Utc));
+        await app.Job.RunAsync(CancellationToken.None);
+        var october = (await app.Customer.ListInvoicesAsync(seed.CustomerId)).Single(i => i.ContractId == contractId);
+        october.Amount.Should().Be(150m);
+        october.Status.Should().Be(MonthlyServiceInvoiceStatus.Paid);
+        october.PaymentMethod.Should().Be(MonthlyServicePaymentMethod.Wallet);
+        (await Balance()).Should().Be(100m,
+            "the statement takes nothing more - only Tue 3 Nov, a visit day, is paid ahead as usual (Rs 250 - Rs 150)");
+        (await new ProviderEarningLedgerRepository(context).FindBySourceAsync(ProviderEarningSourceType.MonthlyServiceInvoice, october.Id))
+            .Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task Monthly_meal_plan_discount_applies_to_each_visit()
+    {
+        var clock = new MutableTimeProvider(new DateTime(2026, 10, 1, 2, 0, 0, DateTimeKind.Utc));
+        await using var context = _db.CreateContext();
+        var seed = await SeedAsync(context, cook: true);
+        var app = Build(context, clock);
+
+        var plan = await app.Admin.CreatePlanAsync(
+            new MonthlyServicePlanUpsertRequest(seed.ServiceId, seed.CityId, "Home cook " + Guid.NewGuid().ToString("N")[..6], null,
+                MonthlyServicePlanBasis.MealBased, null, null, 0m, 10m, MonthlyDiscountPercent: 10m),
+            Guid.NewGuid());
+        plan.Value.MonthlyDiscountPercent.Should().Be(10m);
+
+        var requested = await app.Customer.RequestMealContractsAsync(seed.CustomerId, new MonthlyServiceMealContractRequest(
+            plan.Value.Id, seed.AddressId, [DayOfWeek.Monday], new DateOnly(2026, 10, 1), null, null, [MealType.Lunch], 2));
+        requested.Value.Single().RatePerVisit.Should().Be(135m, "Rs 150 one-time, 10% off monthly");
+    }
+
     // ---- Helpers ----
+
+    /// <summary>A Rs 150/visit Monday contract, assigned, with Monday 5 Oct 2026 confirmed - one billable visit in October.</summary>
+    private static async Task<Guid> ContractWithOneVisitAsync(App app, Seed seed, MutableTimeProvider clock, bool payFromWallet)
+    {
+        var plan = (await app.Admin.CreatePlanAsync(PlanRequest(seed), Guid.NewGuid())).Value;
+        var contractId = (await app.Customer.RequestContractAsync(seed.CustomerId, new MonthlyServiceContractRequest(
+            plan.Id, seed.AddressId, [DayOfWeek.Monday], "08:00", new DateOnly(2026, 10, 5), null, null,
+            PayFromWallet: payFromWallet))).Value.Id;
+        (await app.Admin.AssignProviderAsync(contractId, seed.ProviderId, Guid.NewGuid())).IsSuccess.Should().BeTrue();
+
+        var monday = (await app.Customer.GetContractAsync(seed.CustomerId, contractId)).Value.Today!;
+        clock.Set(new DateTime(2026, 10, 5, 3, 0, 0, DateTimeKind.Utc));
+        (await app.Customer.ConfirmVisitAsync(seed.CustomerId, monday.Id)).IsSuccess.Should().BeTrue();
+        return contractId;
+    }
 
     private static MonthlyServicePlan NewPlan(
         MonthlyServicePlanBasis basis, decimal? hours, IEnumerable<string>? tasks,
@@ -475,13 +694,18 @@ public sealed class MonthlyServiceTests : IClassFixture<TestDatabase>
 
     private sealed record Seed(Guid CustomerId, Guid AddressId, Guid ProviderId, Guid ServiceId, Guid CityId);
 
-    private static async Task<Seed> SeedAsync(NestlyDbContext context)
+    private static async Task<Seed> SeedAsync(NestlyDbContext context, bool cook = false)
     {
         var suffix = Guid.NewGuid().ToString("N")[..8];
         var state = new State(Guid.NewGuid(), "Rajasthan", "RJ" + suffix[..6]);
         var city = new City(Guid.NewGuid(), state.Id, "Jaipur " + suffix);
         var category = new Category(Guid.NewGuid(), "House Help", "house-help-" + suffix, "desc");
-        var service = new Service(Guid.NewGuid(), category.Id, "Maid", "maid-" + suffix, "desc", 150m);
+        var service = new Service(Guid.NewGuid(), category.Id, cook ? "Home Cook" : "Maid", (cook ? "cook-" : "maid-") + suffix, "desc", 150m);
+        if (cook)
+        {
+            service.SetPricingType(ServicePricingType.MealBased);
+            service.SetMealOptions(MealPricingTests.CookMeals);
+        }
         var customer = new Customer(Guid.NewGuid(), "9" + suffix + "1", "Asha Rao", CustomerStatus.Active);
         var address = new CustomerAddress(Guid.NewGuid(), customer.Id, "Home", "12 MI Road", null, null,
             "302001", city.Name, "Rajasthan", 26.9m, 75.8m, "Asha Rao", "9876543210", true);
@@ -514,7 +738,8 @@ public sealed class MonthlyServiceTests : IClassFixture<TestDatabase>
             new PaymentTransactionRepository(context), new ProviderPayoutRepository(context));
         var businessClock = new BusinessClock(clock, Options.Create(new BusinessTimeOptions()));
         var engine = new MonthlyServiceEngine(contractRepo, attendanceRepo, invoiceRepo, ledgerService, ledgerRepo,
-            context, businessClock, clock, options, NullLogger<MonthlyServiceEngine>.Instance);
+            new WalletService(new WalletLedgerRepository(context), context), context, businessClock, clock, options,
+            NullLogger<MonthlyServiceEngine>.Instance);
         var job = new MonthlyServiceDailyJob(contractRepo, attendanceRepo, invoiceRepo, engine, NullLogger<MonthlyServiceDailyJob>.Instance);
         var gateway = new SandboxPaymentGateway(Options.Create(new SandboxGatewayOptions { WebhookSigningSecret = "unit-test-signing-secret-value" }));
 
@@ -522,7 +747,7 @@ public sealed class MonthlyServiceTests : IClassFixture<TestDatabase>
             new MonthlyServiceAdminService(planRepo, contractRepo, attendanceRepo, invoiceRepo, job,
                 new AuditLogWriter(context, new StubAuditContextProvider()), engine, context, NullLogger<MonthlyServiceAdminService>.Instance),
             new MonthlyServiceCustomerService(planRepo, contractRepo, attendanceRepo, invoiceRepo,
-                new CustomerAddressRepository(context), gateway, gateway, engine, NullLogger<MonthlyServiceCustomerService>.Instance),
+                new CustomerAddressRepository(context), new ServiceRepository(context), gateway, gateway, engine, NullLogger<MonthlyServiceCustomerService>.Instance),
             new MonthlyServiceProviderService(contractRepo, attendanceRepo, invoiceRepo, engine, NullLogger<MonthlyServiceProviderService>.Instance),
             job);
     }

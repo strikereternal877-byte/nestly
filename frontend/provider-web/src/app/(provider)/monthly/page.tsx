@@ -38,6 +38,7 @@ const STATUS_TONE: Record<MonthlyServiceAttendanceStatus, BadgeTone> = {
   [MonthlyServiceAttendanceStatus.ProviderLeave]: "warning",
   [MonthlyServiceAttendanceStatus.CustomerUnavailable]: "accent",
   [MonthlyServiceAttendanceStatus.Absent]: "danger",
+  [MonthlyServiceAttendanceStatus.WalletShortfall]: "warning",
 };
 
 function isoDate(date: Date): string {
@@ -203,6 +204,11 @@ function VisitCard({ visit }: { visit: MonthlyVisit }) {
 
         {visit.includedTasks.length > 0 ? (
           <ul className="flex flex-wrap gap-1.5">
+            {visit.persons ? (
+              <li className="rounded-full bg-brand-50 px-2.5 py-1 text-xs font-medium text-brand-700 dark:bg-brand-500/15 dark:text-brand-200">
+                Cooking for {visit.persons} {visit.persons === 1 ? "person" : "people"}
+              </li>
+            ) : null}
             {visit.includedTasks.map((task) => (
               <li key={task} className="rounded-full bg-surface-2 px-2.5 py-1 text-xs text-fg-muted">
                 {task}

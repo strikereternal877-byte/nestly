@@ -17,6 +17,7 @@ public class MonthlyServicePlan : Entity<Guid>
     public const int MaxIncludedTasks = 20;
     public const int MaxTaskLength = 100;
     public const decimal MaxCommissionPercent = 50m;
+    public const decimal MaxMonthlyDiscountPercent = 50m;
 
     private List<string> _includedTasks = [];
 
@@ -40,7 +41,15 @@ public class MonthlyServicePlan : Entity<Guid>
         private set => _includedTasks = value.ToList();
     }
 
+    /// <summary>Zero for a <see cref="MonthlyServicePlanBasis.MealBased"/> plan, whose rate is set per contract.</summary>
     public decimal RatePerVisit { get; private set; }
+
+    /// <summary>
+    /// MealBased plans only: how much cheaper each visit is than booking the
+    /// same meals one-time (0-50 %), applied to the meal quote when a contract
+    /// is requested. Zero for every other basis, whose rate is set directly.
+    /// </summary>
+    public decimal MonthlyDiscountPercent { get; private set; }
 
     /// <summary>Platform commission taken from each paid invoice, 0-50.</summary>
     public decimal CommissionPercent { get; private set; }
@@ -73,10 +82,11 @@ public class MonthlyServicePlan : Entity<Guid>
         decimal ratePerVisit,
         decimal commissionPercent,
         MonthlyServiceFrequency frequency = MonthlyServiceFrequency.Weekdays,
-        int? timesPerPeriod = null)
+        int? timesPerPeriod = null,
+        decimal monthlyDiscountPercent = 0m)
         : base(id)
     {
-        Apply(serviceId, cityId, name, description, basis, hoursPerVisit, includedTasks, ratePerVisit, commissionPercent, frequency, timesPerPeriod);
+        Apply(serviceId, cityId, name, description, basis, hoursPerVisit, includedTasks, ratePerVisit, commissionPercent, frequency, timesPerPeriod, monthlyDiscountPercent);
         IsActive = true;
         CreatedAtUtc = DateTime.UtcNow;
         UpdatedAtUtc = CreatedAtUtc;
@@ -94,9 +104,10 @@ public class MonthlyServicePlan : Entity<Guid>
         decimal commissionPercent,
         Guid? updatedByAdminUserId,
         MonthlyServiceFrequency frequency = MonthlyServiceFrequency.Weekdays,
-        int? timesPerPeriod = null)
+        int? timesPerPeriod = null,
+        decimal monthlyDiscountPercent = 0m)
     {
-        Apply(serviceId, cityId, name, description, basis, hoursPerVisit, includedTasks, ratePerVisit, commissionPercent, frequency, timesPerPeriod);
+        Apply(serviceId, cityId, name, description, basis, hoursPerVisit, includedTasks, ratePerVisit, commissionPercent, frequency, timesPerPeriod, monthlyDiscountPercent);
         UpdatedAtUtc = DateTime.UtcNow;
         UpdatedByAdminUserId = updatedByAdminUserId;
     }
@@ -127,7 +138,8 @@ public class MonthlyServicePlan : Entity<Guid>
         decimal ratePerVisit,
         decimal commissionPercent,
         MonthlyServiceFrequency frequency,
-        int? timesPerPeriod)
+        int? timesPerPeriod,
+        decimal monthlyDiscountPercent)
     {
         if (serviceId == Guid.Empty)
         {
@@ -177,13 +189,27 @@ public class MonthlyServicePlan : Entity<Guid>
 
                 hoursPerVisit = null;
                 break;
+            case MonthlyServicePlanBasis.MealBased:
+                if (frequency != MonthlyServiceFrequency.Weekdays)
+                {
+                    throw new ArgumentException("A meal plan is scheduled on chosen weekdays.", nameof(frequency));
+                }
+
+                hoursPerVisit = null;
+                ratePerVisit = 0;
+                break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(basis));
         }
 
-        if (ratePerVisit <= 0)
+        if (basis != MonthlyServicePlanBasis.MealBased && ratePerVisit <= 0)
         {
             throw new ArgumentOutOfRangeException(nameof(ratePerVisit), "Rate per visit must be positive.");
+        }
+
+        if (monthlyDiscountPercent < 0 || monthlyDiscountPercent > MaxMonthlyDiscountPercent)
+        {
+            throw new ArgumentOutOfRangeException(nameof(monthlyDiscountPercent), $"Monthly discount must be between 0 and {MaxMonthlyDiscountPercent}%.");
         }
 
         if (commissionPercent < 0 || commissionPercent > MaxCommissionPercent)
@@ -225,5 +251,6 @@ public class MonthlyServicePlan : Entity<Guid>
         _includedTasks = tasks;
         RatePerVisit = ratePerVisit;
         CommissionPercent = commissionPercent;
+        MonthlyDiscountPercent = basis == MonthlyServicePlanBasis.MealBased ? monthlyDiscountPercent : 0m;
     }
 }

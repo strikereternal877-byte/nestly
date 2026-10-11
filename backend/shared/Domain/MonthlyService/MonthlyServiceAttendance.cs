@@ -76,6 +76,15 @@ public class MonthlyServiceAttendance : AggregateRoot<Guid>
 
     public Guid? InvoiceId { get; private set; }
 
+    /// <summary>Daily wallet billing: what the wallet paid for this day in advance. Null while unpaid, or for a month-end contract.</summary>
+    public decimal? PrepaidAmount { get; private set; }
+
+    /// <summary>The wallet debit that paid for this day.</summary>
+    public Guid? PrepaidWalletEntryId { get; private set; }
+
+    /// <summary>When the day's payment went back to the wallet because the visit did not happen.</summary>
+    public DateTime? PrepaidRefundedAtUtc { get; private set; }
+
     public DateTime CreatedAtUtc { get; private set; }
 
     protected MonthlyServiceAttendance() { }
@@ -104,6 +113,13 @@ public class MonthlyServiceAttendance : AggregateRoot<Guid>
     public DateTime VisitStartLocal => Date.ToDateTime(VisitStartTime);
 
     public bool IsInvoiced => InvoiceId is not null;
+
+    /// <summary>Paid for from the wallet and not refunded.</summary>
+    public bool IsPrepaid => PrepaidAmount is not null && PrepaidRefundedAtUtc is null;
+
+    /// <summary>A paid-for day that ended without a charged visit (skipped, leave, missed, dispute upheld): its payment goes back.</summary>
+    public bool NeedsRefund(bool billCustomerUnavailable) =>
+        IsPrepaid && Status != MonthlyServiceAttendanceStatus.Scheduled && !IsBillableStatus(Status, billCustomerUnavailable);
 
     public bool IsBillable(bool billCustomerUnavailable) =>
         Status == MonthlyServiceAttendanceStatus.Present
@@ -265,6 +281,78 @@ public class MonthlyServiceAttendance : AggregateRoot<Guid>
         MarkedBy = null;
         MarkedAtUtc = null;
         Note = null;
+    }
+
+    // ---- Daily wallet ----
+
+    public void MarkPrepaid(decimal amount, Guid walletEntryId)
+    {
+        EnsureNotInvoiced();
+        // Normally paid while still scheduled; a day checked in (or confirmed)
+        // before the nightly charge ran is paid at that moment instead.
+        if (Status is not (MonthlyServiceAttendanceStatus.Scheduled or MonthlyServiceAttendanceStatus.Present or MonthlyServiceAttendanceStatus.CustomerUnavailable))
+        {
+            throw new InvalidOperationException("Only a visit that is on can be paid for.");
+        }
+
+        if (IsPrepaid)
+        {
+            throw new InvalidOperationException("This visit is already paid for.");
+        }
+
+        if (amount <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(amount), "A visit's payment must be positive.");
+        }
+
+        PrepaidAmount = amount;
+        PrepaidWalletEntryId = walletEntryId;
+        PrepaidRefundedAtUtc = null;
+    }
+
+    public void MarkRefunded(DateTime nowUtc)
+    {
+        if (!IsPrepaid)
+        {
+            throw new InvalidOperationException("This visit has no payment to refund.");
+        }
+
+        PrepaidRefundedAtUtc = nowUtc;
+    }
+
+    /// <summary>The wallet could not pay for this day, so the visit is off - the customer and the professional are told.</summary>
+    public void MarkWalletShortfall(decimal amount, DateTime nowUtc)
+    {
+        EnsureNotInvoiced();
+        EnsureStatus(MonthlyServiceAttendanceStatus.Scheduled, "Only a scheduled visit can be left unpaid.");
+        if (IsPrepaid)
+        {
+            throw new InvalidOperationException("This visit is already paid for.");
+        }
+
+        SetStatus(MonthlyServiceAttendanceStatus.WalletShortfall, MonthlyServiceAttendanceActor.System, nowUtc, null);
+        RaiseDomainEvent(new MonthlyServiceVisitNotBookedEvent(Id, ContractId, CustomerId, ProviderId, Date, amount));
+    }
+
+    /// <summary>
+    /// The customer added money after a shortfall: the day goes back on, while
+    /// there is still the same notice for the professional a skip needs. The
+    /// caller pays for it in the same unit of work.
+    /// </summary>
+    public void Rebook(DateTime nowLocal, MonthlyServiceAttendancePolicy policy)
+    {
+        EnsureNotInvoiced();
+        EnsureStatus(MonthlyServiceAttendanceStatus.WalletShortfall, "This visit is not waiting for payment.");
+        if (nowLocal > VisitStartLocal - policy.SkipCutoffBeforeVisit)
+        {
+            throw new InvalidOperationException(
+                $"Visits can be booked up to {FormatSpan(policy.SkipCutoffBeforeVisit)} before they start.");
+        }
+
+        Status = MonthlyServiceAttendanceStatus.Scheduled;
+        MarkedBy = null;
+        MarkedAtUtc = null;
+        RaiseDomainEvent(new MonthlyServiceVisitRebookedEvent(Id, ContractId, CustomerId, ProviderId, Date));
     }
 
     // ---- System / admin ----

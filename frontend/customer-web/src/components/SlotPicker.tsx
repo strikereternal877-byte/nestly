@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Button, Skeleton, cx } from "@/components/ui";
 import { API_V1, apiFetch, describeError } from "@/lib/api";
 import { SlotUnavailabilityReason } from "@/lib/types";
@@ -127,6 +127,7 @@ export function SlotPicker({
   onDateChange,
   selectedSlotWindowId,
   onSlotChange,
+  slotFilter,
 }: {
   serviceId: string;
   localityId: string;
@@ -134,6 +135,8 @@ export function SlotPicker({
   onDateChange: (date: string) => void;
   selectedSlotWindowId: string | null;
   onSlotChange: (slotWindowId: string | null, slotLabel: string | null) => void;
+  /** Keeps only slots whose "HH:mm:ss" start passes - e.g. a cook's morning meals need a morning slot. Must be stable (memoised). */
+  slotFilter?: (startTime: string) => boolean;
 }) {
   // Computed on mount rather than via useMemo: `new Date()` and the
   // locale-dependent weekday/day labels below would otherwise run during the
@@ -164,7 +167,14 @@ export function SlotPicker({
     enabled: dates.length > 0,
   });
 
-  const dayByDate = new Map((rangeQuery.data?.days ?? []).map((day) => [day.date, day]));
+  const rangeDays = useMemo(
+    () =>
+      (rangeQuery.data?.days ?? []).map((day) =>
+        slotFilter ? { ...day, slots: day.slots.filter((slot) => slotFilter(slot.startTime)) } : day,
+      ),
+    [rangeQuery.data, slotFilter],
+  );
+  const dayByDate = new Map(rangeDays.map((day) => [day.date, day]));
   const selectedDay = dayByDate.get(selectedDate);
 
   // The strip opens on today, which is routinely past its booking cutoff by
@@ -181,7 +191,7 @@ export function SlotPicker({
   useEffect(() => {
     if (hasCorrectedDate.current || dates.length === 0 || !rangeQuery.isSuccess) return;
 
-    const days = rangeQuery.data.days;
+    const days = rangeDays;
     const isBookable = (day: SlotDayAvailability | undefined) =>
       day !== undefined && day.isServiceable && day.slots.length > 0;
 
@@ -194,7 +204,7 @@ export function SlotPicker({
       onDateChange(firstBookable.date);
       onSlotChange(null, null);
     }
-  }, [dates, rangeQuery.isSuccess, rangeQuery.data, selectedDate, onDateChange, onSlotChange]);
+  }, [dates, rangeQuery.isSuccess, rangeDays, selectedDate, onDateChange, onSlotChange]);
 
   return (
     <div className="flex flex-col gap-6">

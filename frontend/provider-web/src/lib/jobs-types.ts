@@ -119,6 +119,8 @@ export interface JobLineItem {
   nameSnapshot: string;
   quantity: number;
   unitPriceSnapshot: number;
+  /** The option booked, e.g. a cook's "Lunch · 4 persons"; null when none. */
+  variantNameSnapshot: string | null;
 }
 
 /** Detail view of a single assignment (GET /jobs/{bookingId}). */

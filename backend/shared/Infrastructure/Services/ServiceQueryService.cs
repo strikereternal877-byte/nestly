@@ -1,6 +1,7 @@
 using Nestly.Application;
 using Nestly.Application.Abstractions.Caching;
 using Nestly.Application.Catalog;
+using Nestly.Application.Meals;
 using Nestly.Application.Reviews;
 using Nestly.BuildingBlocks.Results;
 using Nestly.Domain;
@@ -124,7 +125,9 @@ public class ServiceQueryService : IServiceQueryService
                     addOnGroupResponses,
                     service.CoverImageUrl,
                     service.DurationMinutes,
-                    service.IsQuantityAllowed);
+                    service.IsQuantityAllowed,
+                    service.PricingType.ToString(),
+                    service.MealOptions.ToDtos());
             },
             DetailTtl);
 

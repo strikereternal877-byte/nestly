@@ -3,6 +3,7 @@ using Microsoft.Extensions.Options;
 using Nestly.Application;
 using Nestly.Application.Bookings;
 using Nestly.Application.Cancellations;
+using Nestly.Application.Meals;
 using Nestly.Application.Payments;
 using Nestly.Application.Pricing;
 using Nestly.Application.ProviderManagement;
@@ -12,6 +13,7 @@ using Nestly.Application.Settings;
 using Nestly.Application.Slots;
 using Nestly.Domain;
 using Nestly.Domain.Events;
+using Nestly.Domain.Meals;
 using Nestly.Infrastructure.Options;
 using Nestly.Infrastructure.Persistence;
 using Nestly.Infrastructure.Persistence.Interceptors;
@@ -169,7 +171,8 @@ public sealed class RescheduleServiceTests : IClassFixture<TestDatabase>
     /// task 331 confirms such a booking without a payment.
     /// </summary>
     private async Task<Fixture> SeedPaidBookingAsync(
-        SandboxPaymentGateway gateway, decimal servicePrice = 1000m, decimal walletCreditToApply = 0m)
+        SandboxPaymentGateway gateway, decimal servicePrice = 1000m, decimal walletCreditToApply = 0m,
+        bool cookLunch = false, TimeSpan? newWindowStart = null)
     {
         var futureDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(10));
         var newDate = futureDate.AddDays(2);
@@ -193,9 +196,17 @@ public sealed class RescheduleServiceTests : IClassFixture<TestDatabase>
             address.LinkToGeography(pincode.Id, locality.Id);
             var category = new Category(Guid.NewGuid(), "Cleaning", "cleaning-" + Guid.NewGuid(), "desc");
             var service = new Service(Guid.NewGuid(), category.Id, "Deep Clean", "deep-clean-" + Guid.NewGuid(), "desc", servicePrice);
+            if (cookLunch)
+            {
+                // docs/MEAL-SERVICE.md: lunch for two, booked in the morning window below.
+                service.SetPricingType(ServicePricingType.MealBased);
+                service.SetMealOptions(MealPricingTests.CookMeals);
+            }
+
             var window = new SlotWindow(Guid.NewGuid(), city.Id, "Morning", slotStart, TimeSpan.FromHours(13));
             var rule = new SlotWindowRule(Guid.NewGuid(), window.Id, futureDate.DayOfWeek);
-            var newWindow = new SlotWindow(Guid.NewGuid(), city.Id, "Afternoon", TimeSpan.FromHours(14), TimeSpan.FromHours(18));
+            var newStart = newWindowStart ?? TimeSpan.FromHours(14);
+            var newWindow = new SlotWindow(Guid.NewGuid(), city.Id, "Later", newStart, newStart + TimeSpan.FromHours(3));
             var newRule = new SlotWindowRule(Guid.NewGuid(), newWindow.Id, newDate.DayOfWeek);
 
             context.Add(customer);
@@ -222,7 +233,8 @@ public sealed class RescheduleServiceTests : IClassFixture<TestDatabase>
 
             var request = new BookingSummaryRequest(
                 service.Id, city.Id, address.Id, locality.Id, window.Id, futureDate, Quantity: 1, [],
-                ApplyWalletCredit: walletCreditToApply > 0);
+                ApplyWalletCredit: walletCreditToApply > 0,
+                Meals: cookLunch ? new MealSelection([MealType.Lunch], 2) : null);
             var created = await BuildBookingService(context).CreateAsync(customer.Id, request);
             created.IsSuccess.Should().BeTrue();
             bookingId = created.Value.Id;
@@ -328,6 +340,30 @@ public sealed class RescheduleServiceTests : IClassFixture<TestDatabase>
 
         result.Value.IsEligible.Should().BeFalse();
         result.Value.IneligibilityReason.Should().Contain("Service in Progress").And.NotContain("InProgress");
+    }
+
+    [Fact]
+    public async Task A_cooks_morning_meals_can_move_to_another_morning_slot_but_not_to_the_evening()
+    {
+        var gateway = BuildGateway();
+        var toEvening = await SeedPaidBookingAsync(gateway, cookLunch: true, newWindowStart: TimeSpan.FromHours(16));
+        var timeProvider = new FakeTimeProvider(toEvening.SlotStartUtc.AddDays(-5));
+        using (var context = _db.CreateContext())
+        {
+            var refused = await BuildRescheduleService(context, timeProvider).ConfirmRescheduleAsync(
+                toEvening.Customer.Id, toEvening.BookingId,
+                new RescheduleBookingRequest(toEvening.LocalityId, toEvening.NewSlotWindowId, toEvening.NewSlotDate, "Later please"));
+            refused.Error.Code.Should().Be("Reschedule.MealSessionMismatch", "lunch is cooked on the morning visit");
+        }
+
+        var toAfternoon = await SeedPaidBookingAsync(gateway, cookLunch: true, newWindowStart: TimeSpan.FromHours(12));
+        using (var context = _db.CreateContext())
+        {
+            var moved = await BuildRescheduleService(context, new FakeTimeProvider(toAfternoon.SlotStartUtc.AddDays(-5))).ConfirmRescheduleAsync(
+                toAfternoon.Customer.Id, toAfternoon.BookingId,
+                new RescheduleBookingRequest(toAfternoon.LocalityId, toAfternoon.NewSlotWindowId, toAfternoon.NewSlotDate, "Noon please"));
+            moved.IsSuccess.Should().BeTrue(moved.IsFailure ? moved.Error.Message : null);
+        }
     }
 
     [Fact]

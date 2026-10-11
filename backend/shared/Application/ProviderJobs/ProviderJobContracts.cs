@@ -50,7 +50,8 @@ public enum ProviderJobStatus
     Arrived
 }
 
-public sealed record ProviderJobItemResponse(string NameSnapshot, int Quantity, decimal UnitPriceSnapshot);
+/// <param name="VariantNameSnapshot">The chosen option, e.g. a cook's "Lunch · 4 persons" (docs/MEAL-SERVICE.md); null when none.</param>
+public sealed record ProviderJobItemResponse(string NameSnapshot, int Quantity, decimal UnitPriceSnapshot, string? VariantNameSnapshot = null);
 
 /// <summary>
 /// One row in the provider's job list (task 149a "list jobs").

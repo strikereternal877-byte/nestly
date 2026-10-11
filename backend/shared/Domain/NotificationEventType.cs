@@ -197,5 +197,20 @@ public enum NotificationEventType
     MonthlyServicePaused,
 
     /// <summary>To the professional: a monthly home they serve was cancelled.</summary>
-    MonthlyClientCancelled
+    MonthlyClientCancelled,
+
+    /// <summary>To the customer: today's visit is off - the wallet could not pay for it. Variables: Date, Amount, Balance, RebookBy.</summary>
+    MonthlyVisitNotBooked,
+
+    /// <summary>To the professional: a home's visit today is off (not paid for). Variables: Date.</summary>
+    MonthlyClientNotBooked,
+
+    /// <summary>To the professional: a visit that was off for low balance is on again. Variables: Date.</summary>
+    MonthlyVisitRebooked,
+
+    /// <summary>To the customer: the wallet won't cover the next days' visits. Variables: Balance, Needed, VisitsCovered.</summary>
+    MonthlyWalletLow,
+
+    /// <summary>To the customer: a month-end bill set to auto-pay from wallet could not be paid. Variables: Amount, Balance, Month.</summary>
+    MonthlyAutopayFailed
 }

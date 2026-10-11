@@ -66,6 +66,7 @@ export const ATTENDANCE_TONE: Record<MonthlyServiceAttendanceStatus, BadgeTone> 
   [MonthlyServiceAttendanceStatus.ProviderLeave]: "warning",
   [MonthlyServiceAttendanceStatus.CustomerUnavailable]: "accent",
   [MonthlyServiceAttendanceStatus.Absent]: "danger",
+  [MonthlyServiceAttendanceStatus.WalletShortfall]: "warning",
 };
 
 const INVOICE_TONE: Record<MonthlyServiceInvoiceStatus, BadgeTone> = {

@@ -25,10 +25,14 @@ import { useSelectedCity } from "@/hooks/useSelectedCity";
 import { API_V1, apiFetch, describeError } from "@/lib/api";
 import { isoDateOffsetFromToday, todayIsoDate } from "@/lib/date";
 import { useWalletTopUpConfig } from "@/lib/wallet-topup";
+import { sessionContains } from "@/lib/meals";
+import type { MealSession } from "@/lib/meals";
 import { ProfessionalAfterReschedule } from "@/lib/types";
 import type {
+  BookingDetail,
   RescheduleEligibilityResponse,
   RescheduleOutcomeResponse,
+  ServiceDetail,
   SlotAvailability,
 } from "@/lib/types";
 
@@ -58,6 +62,26 @@ function RescheduleBookingScreen() {
 
   /** Synchronous double-submit guard - see booking/summary/page.tsx. */
   const inFlight = useRef(false);
+
+  // A cook's meals belong to one visit of the day (docs/MEAL-SERVICE.md):
+  // offer only slots in the same session as the booking's own slot - the
+  // server refuses any other with Reschedule.MealSessionMismatch.
+  const bookingQuery = useQuery({
+    queryKey: ["booking", id],
+    queryFn: () => apiFetch<BookingDetail>(`${API_V1}/bookings/${id}`, { authenticated: true }),
+  });
+  const serviceSlug = bookingQuery.data?.service.slug;
+  const serviceQuery = useQuery({
+    queryKey: ["service", serviceSlug],
+    queryFn: () => apiFetch<ServiceDetail>(`${API_V1}/services/${serviceSlug}`),
+    enabled: !!serviceSlug,
+  });
+  const mealSession: MealSession | null =
+    serviceQuery.data?.pricingType === "MealBased" && bookingQuery.data
+      ? sessionContains("morning", bookingQuery.data.slot.startTime.slice(0, 5))
+        ? "morning"
+        : "evening"
+      : null;
 
   const eligibilityQuery = useQuery({
     queryKey: ["reschedule-eligibility", id],
@@ -231,6 +255,7 @@ function RescheduleBookingScreen() {
               onDateChange={setSelectedDate}
               selectedSlotWindowId={selectedSlotWindowId}
               onSlotChange={setSelectedSlotWindowId}
+              mealSession={mealSession}
             />
           )}
         </Card>
@@ -454,6 +479,7 @@ function RescheduleSlotPicker({
   onDateChange,
   selectedSlotWindowId,
   onSlotChange,
+  mealSession = null,
 }: {
   bookingId: string;
   localityId: string;
@@ -461,6 +487,8 @@ function RescheduleSlotPicker({
   onDateChange: (date: string) => void;
   selectedSlotWindowId: string | null;
   onSlotChange: (slotWindowId: string | null) => void;
+  /** A cook's booking: only slots in this session are offered. */
+  mealSession?: MealSession | null;
 }) {
   // Computed on mount, not via useMemo: see SlotPicker.tsx's identical
   // comment - running `new Date()` and the locale-dependent weekday/day
@@ -489,6 +517,9 @@ function RescheduleSlotPicker({
 
   const selectedIndex = dates.indexOf(selectedDate);
   const selectedQuery = selectedIndex >= 0 ? queries[selectedIndex] : undefined;
+  const shownSlots = (selectedQuery?.data?.slots ?? []).filter(
+    (slot) => mealSession === null || sessionContains(mealSession, slot.startTime.slice(0, 5)),
+  );
 
   return (
     <div className="flex flex-col gap-6">
@@ -569,13 +600,15 @@ function RescheduleSlotPicker({
           <Alert tone="error" title="Not available here">
             This service isn&apos;t available at this locality.
           </Alert>
-        ) : selectedQuery.data.slots.length === 0 ? (
+        ) : shownSlots.length === 0 ? (
           <Alert tone="info" title="Fully booked">
-            No slots left on this date — pick another day from the strip above.
+            {mealSession === null
+              ? "No slots left on this date — pick another day from the strip above."
+              : `No ${mealSession} slots left on this date — pick another day from the strip above.`}
           </Alert>
         ) : (
           <div className="flex flex-wrap gap-2">
-            {selectedQuery.data.slots.map((slot) => {
+            {shownSlots.map((slot) => {
               const isSelected = slot.slotWindowId === selectedSlotWindowId;
               const range = `${slot.startTime.slice(0, 5)}–${slot.endTime.slice(0, 5)}`;
               return (

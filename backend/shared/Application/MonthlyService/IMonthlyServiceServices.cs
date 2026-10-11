@@ -10,6 +10,9 @@ public interface IMonthlyServiceCustomerService
 
     Task<Result<MonthlyServiceContractResponse>> RequestContractAsync(Guid customerId, MonthlyServiceContractRequest request);
 
+    /// <summary>A cook on a MealBased plan: one contract per meal session chosen (docs/MEAL-SERVICE.md).</summary>
+    Task<Result<IReadOnlyList<MonthlyServiceContractResponse>>> RequestMealContractsAsync(Guid customerId, MonthlyServiceMealContractRequest request);
+
     Task<IReadOnlyList<MonthlyServiceContractResponse>> ListContractsAsync(Guid customerId);
 
     Task<Result<MonthlyServiceContractResponse>> GetContractAsync(Guid customerId, Guid contractId);
@@ -22,6 +25,9 @@ public interface IMonthlyServiceCustomerService
 
     Task<Result<MonthlyServiceAttendanceItem>> UnskipAsync(Guid customerId, Guid attendanceId);
 
+    /// <summary>Daily wallet: books a day that was off for low balance, paying for it now.</summary>
+    Task<Result<MonthlyServiceAttendanceItem>> RebookAsync(Guid customerId, Guid attendanceId);
+
     Task<Result<MonthlyServiceAttendanceItem>> ConfirmVisitAsync(Guid customerId, Guid attendanceId);
 
     Task<Result<MonthlyServiceAttendanceItem>> DisputeAsync(Guid customerId, Guid attendanceId, string reason);
@@ -29,6 +35,12 @@ public interface IMonthlyServiceCustomerService
     Task<IReadOnlyList<MonthlyServiceInvoiceResponse>> ListInvoicesAsync(Guid customerId);
 
     Task<Result<MonthlyServiceInvoiceResponse>> PayInvoiceAsync(Guid customerId, Guid invoiceId);
+
+    /// <summary>Pays an invoice in full from the customer's wallet; fails without charging when the balance is short.</summary>
+    Task<Result<MonthlyServiceInvoiceResponse>> PayInvoiceFromWalletAsync(Guid customerId, Guid invoiceId);
+
+    /// <summary>Turns automatic wallet payment of this contract's month-end invoices on or off. Turning it on also tries any unpaid invoice right away.</summary>
+    Task<Result<MonthlyServiceContractResponse>> SetWalletAutopayAsync(Guid customerId, Guid contractId, bool enabled);
 }
 
 /// <summary>Professional side: their engagements, their day, and attendance marking.</summary>

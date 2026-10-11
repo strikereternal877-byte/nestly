@@ -1,5 +1,6 @@
 using Nestly.Application.Catalog;
 using Nestly.Application.Coupons;
+using Nestly.Application.Meals;
 using Nestly.Application.Pricing;
 using Nestly.Application.Reviews;
 using Nestly.Application.Subscriptions;
@@ -62,7 +63,8 @@ public record BookingSummaryRequest(
     string? CouponCode = null,
     string? IdempotencyKey = null,
     bool ApplyWalletCredit = false,
-    Guid? ServiceVariantId = null);
+    Guid? ServiceVariantId = null,
+    MealSelection? Meals = null);
 
 /// <summary>
 /// The <c>Variant*</c> fields are null when no variant was selected (Phase 3

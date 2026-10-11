@@ -6,6 +6,8 @@
  * property names here are the camelCase form of the C# ones.
  */
 
+import type { MealOption } from "./meals";
+
 export interface LoginResponse {
   accessToken: string;
   accessTokenExpiresAtUtc: string;
@@ -238,6 +240,10 @@ export interface ServiceDetail {
   durationMinutes: number;
   /** Whether this service is measured in units (AC units, rooms, seats). Only then does the price calculator show a quantity stepper; flat-rate services book at quantity 1. */
   isQuantityAllowed: boolean;
+  /** "MealBased" for a cook (docs/MEAL-SERVICE.md): booked by meals and people, not quantity or variants. */
+  pricingType: "Fixed" | "Variable" | "MealBased";
+  /** Per-meal rates of a MealBased service; empty otherwise. */
+  mealOptions: MealOption[] | null;
 }
 
 /** One recent review in a service's rating summary (SRS 11.6.1). */
@@ -382,6 +388,8 @@ export interface PriceBreakdown {
  */
 
 export interface BookingSummaryRequestBody {
+  /** A cook's meals and people (docs/MEAL-SERVICE.md) - required for, and only accepted by, a MealBased service. */
+  meals?: { meals: number[]; persons: number } | null;
   serviceId: string;
   cityId: string;
   addressId: string;

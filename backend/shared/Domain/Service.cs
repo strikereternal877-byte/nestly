@@ -1,5 +1,6 @@
 using Nestly.BuildingBlocks.Primitives;
 using Nestly.Domain.Events;
+using Nestly.Domain.Meals;
 
 namespace Nestly.Domain;
 
@@ -96,6 +97,15 @@ public class Service : AggregateRoot<Guid>
     /// </summary>
     public bool IsDurationBased { get; private set; }
 
+    private List<MealOption> _mealOptions = [];
+
+    /// <summary>Per-meal rates and cooking times; set only for <see cref="ServicePricingType.MealBased"/> services (docs/MEAL-SERVICE.md).</summary>
+    public IReadOnlyList<MealOption> MealOptions
+    {
+        get => _mealOptions;
+        private set => _mealOptions = value.ToList();
+    }
+
     protected Service() { }
 
     public Service(Guid id, Guid categoryId, string name, string slug, string description, decimal price) : base(id)
@@ -155,6 +165,24 @@ public class Service : AggregateRoot<Guid>
     }
 
     public void SetPricingType(ServicePricingType pricingType) => PricingType = pricingType;
+
+    /// <summary>
+    /// Replaces the meal rates of a meal-priced service. The listing-card
+    /// price follows the cheapest meal, so it can never advertise a price no
+    /// meal is actually sold at.
+    /// </summary>
+    public void SetMealOptions(IEnumerable<MealOption> options)
+    {
+        if (PricingType != ServicePricingType.MealBased)
+        {
+            throw new InvalidOperationException("Only a meal-priced service has meal rates.");
+        }
+
+        var list = options.OrderBy(o => o.Meal).ToList();
+        MealPricing.ValidateOptions(list);
+        _mealOptions = list;
+        SetPrice(list.Min(o => o.BaseRate));
+    }
 
     /// <summary>
     /// Sets the SRS 12.6.2/12.6.3 service-level option flags together - they

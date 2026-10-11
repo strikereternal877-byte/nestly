@@ -1,3 +1,4 @@
+using Nestly.Application.Meals;
 using Nestly.Domain;
 
 namespace Nestly.Application.Catalog;
@@ -148,7 +149,11 @@ public record ServiceDetailResponse(
     string? CoverImageUrl,
     int DurationMinutes,
     /// <summary>Whether this service is measured in units, so the storefront should offer a quantity stepper (SRS 12.6.3). False for flat-rate services, which book at a single fixed quantity - the customer UI hides the stepper and the pricing engine forces quantity to 1.</summary>
-    bool IsQuantityAllowed);
+    bool IsQuantityAllowed,
+    /// <summary>"Fixed", "Variable" or "MealBased". A MealBased service is booked by meals and persons, not quantity (docs/MEAL-SERVICE.md).</summary>
+    string PricingType = "Fixed",
+    /// <summary>Per-meal rates and default times of a MealBased service, so the storefront can show live prices as the customer picks; the server recomputes on booking.</summary>
+    IReadOnlyList<MealOptionDto>? MealOptions = null);
 
 /// <summary>One recent review shown in a service's rating summary (task 52f, SRS 11.6.1).</summary>
 public record ServiceReviewItemResponse(Guid Id, int Rating, string? ReviewText, DateTime CreatedAtUtc);

@@ -1,3 +1,5 @@
+using Nestly.Application.Meals;
+
 namespace Nestly.Application.Pricing;
 
 public record AddOnSelection(Guid AddOnId, int Quantity);
@@ -9,8 +11,10 @@ public record AddOnSelection(Guid AddOnId, int Quantity);
 /// <see cref="Nestly.Domain.Service.Price"/> applies exactly as before this
 /// field existed.
 /// </summary>
+/// <remarks><see cref="Meals"/> is required for, and only accepted by, a MealBased service (docs/MEAL-SERVICE.md).</remarks>
 public record PriceCalculationRequest(
-    Guid ServiceId, Guid CityId, int Quantity, IReadOnlyList<AddOnSelection> AddOns, Guid? ServiceVariantId = null);
+    Guid ServiceId, Guid CityId, int Quantity, IReadOnlyList<AddOnSelection> AddOns, Guid? ServiceVariantId = null,
+    MealSelection? Meals = null);
 
 /// <summary><see cref="GroupId"/>/<see cref="GroupName"/> are null for an ungrouped add-on (today's default).</summary>
 public record AddOnLineItem(

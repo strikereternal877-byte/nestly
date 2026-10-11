@@ -52,6 +52,7 @@ public class MonthlyServicePlanConfiguration : IEntityTypeConfiguration<MonthlyS
             .HasMaxLength(2100);
         builder.Property(x => x.RatePerVisit).IsRequired().HasPrecision(12, 2);
         builder.Property(x => x.CommissionPercent).IsRequired().HasPrecision(5, 2);
+        builder.Property(x => x.MonthlyDiscountPercent).IsRequired().HasPrecision(5, 2).HasDefaultValue(0m);
         builder.Property(x => x.Frequency).IsRequired().HasConversion<string>().HasMaxLength(20);
         builder.Property(x => x.TimesPerPeriod);
         builder.Property(x => x.IsActive).IsRequired();
@@ -70,6 +71,7 @@ public class MonthlyServiceContractConfiguration : IEntityTypeConfiguration<Mont
         builder.ToTable("monthly_service_contract");
         builder.HasKey(x => x.Id);
         builder.Ignore(x => x.VisitDuration);
+        builder.Ignore(x => x.MealSession);
 
         builder.Property(x => x.CustomerId).IsRequired();
         builder.HasOne<Customer>().WithMany().HasForeignKey(x => x.CustomerId).OnDelete(DeleteBehavior.Restrict);
@@ -101,6 +103,12 @@ public class MonthlyServiceContractConfiguration : IEntityTypeConfiguration<Mont
         builder.Property(x => x.TimesPerPeriodSnapshot);
         builder.Property(x => x.Weekdays).IsRequired().HasConversion<int>();
         builder.Property(x => x.MonthDaysMask).IsRequired();
+        builder.Property(x => x.PersonsSnapshot);
+        builder.Property(x => x.MealsMask).IsRequired().HasDefaultValue(0);
+        builder.Property(x => x.PayFromWallet).IsRequired().HasDefaultValue(false);
+        builder.Property(x => x.BillingMode).IsRequired().HasConversion<string>().HasMaxLength(20)
+            .HasDefaultValue(MonthlyServiceBillingMode.MonthEnd);
+        builder.Ignore(x => x.IsDailyWallet);
         builder.Property(x => x.VisitStartTime).IsRequired();
         builder.Property(x => x.StartDate).IsRequired();
         builder.Property(x => x.EndDate);
@@ -131,6 +139,10 @@ public class MonthlyServiceAttendanceConfiguration : IEntityTypeConfiguration<Mo
         builder.HasKey(x => x.Id);
         builder.Ignore(x => x.VisitStartLocal);
         builder.Ignore(x => x.IsInvoiced);
+        builder.Ignore(x => x.IsPrepaid);
+        builder.Property(x => x.PrepaidAmount).HasPrecision(12, 2);
+        builder.Property(x => x.PrepaidWalletEntryId);
+        builder.Property(x => x.PrepaidRefundedAtUtc);
 
         builder.Property(x => x.ContractId).IsRequired();
         builder.HasOne<MonthlyServiceContract>().WithMany().HasForeignKey(x => x.ContractId).OnDelete(DeleteBehavior.Restrict);

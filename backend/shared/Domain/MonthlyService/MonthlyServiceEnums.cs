@@ -7,7 +7,14 @@ public enum MonthlyServicePlanBasis
     Hourly,
 
     /// <summary>A fixed list of tasks per visit (e.g. sweeping, mopping, dishes).</summary>
-    TaskBased
+    TaskBased,
+
+    /// <summary>
+    /// A cook: each contract's rate and visit length come from the service's
+    /// meal rates for the meals and persons the customer chose
+    /// (docs/MEAL-SERVICE.md), so the plan itself carries no rate.
+    /// </summary>
+    MealBased
 }
 
 /// <summary>
@@ -126,7 +133,20 @@ public enum MonthlyServiceAttendanceStatus
     CustomerSkipped,
     ProviderLeave,
     CustomerUnavailable,
-    Absent
+    Absent,
+
+    /// <summary>Daily wallet billing: the wallet could not pay for the day, so the visit is off. Not charged.</summary>
+    WalletShortfall
+}
+
+/// <summary>How a contract's visits are paid for (docs/MONTHLY-SERVICE.md BILLING / DAILY WALLET).</summary>
+public enum MonthlyServiceBillingMode
+{
+    /// <summary>Postpaid: one bill at month end for the visits that happened.</summary>
+    MonthEnd,
+
+    /// <summary>Prepaid per day from the wallet: a visit is on only once the wallet has paid for it.</summary>
+    DailyWallet
 }
 
 public enum MonthlyServiceAttendanceActor
@@ -157,5 +177,8 @@ public enum MonthlyServicePaymentMethod
     Online,
     Cash,
     Upi,
-    BankTransfer
+    BankTransfer,
+
+    /// <summary>Debited from the customer's Glavyx wallet - by the customer, or automatically when the contract pays from wallet.</summary>
+    Wallet
 }

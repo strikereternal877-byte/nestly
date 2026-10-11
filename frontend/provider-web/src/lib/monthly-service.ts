@@ -13,6 +13,8 @@ import { API_V1, apiFetch } from "./api";
 export enum MonthlyServicePlanBasis {
   Hourly = 0,
   TaskBased = 1,
+  /** A cook: meals and people (see includedTasks and persons). */
+  MealBased = 2,
 }
 
 export enum MonthlyServiceFrequency {
@@ -35,6 +37,8 @@ export enum MonthlyServiceAttendanceStatus {
   ProviderLeave = 3,
   CustomerUnavailable = 4,
   Absent = 5,
+  /** The customer's wallet couldn't pay for the day: the visit is off - don't go. */
+  WalletShortfall = 6,
 }
 
 export enum MonthlyServiceDisputeStatus {
@@ -110,6 +114,8 @@ export interface MonthlyContract {
   frequency: MonthlyServiceFrequency;
   timesPerPeriod: number | null;
   monthDates: number[];
+  /** Cook contracts only: how many people to cook for (the meals are `includedTasks`). */
+  persons: number | null;
 }
 
 export interface MonthlyVisit {
@@ -120,6 +126,8 @@ export interface MonthlyVisit {
   includedTasks: string[];
   customerName: string;
   address: MonthlyAddress | null;
+  /** Cook contracts only: how many people to cook for. */
+  persons: number | null;
 }
 
 export interface MonthlyAttendanceMonth {
@@ -194,6 +202,7 @@ export const ATTENDANCE_LABEL: Record<MonthlyServiceAttendanceStatus, string> = 
   [MonthlyServiceAttendanceStatus.ProviderLeave]: "Your leave",
   [MonthlyServiceAttendanceStatus.CustomerUnavailable]: "Customer not available",
   [MonthlyServiceAttendanceStatus.Absent]: "Absent",
+  [MonthlyServiceAttendanceStatus.WalletShortfall]: "Not booked - don't go",
 };
 
 const BASE = `${API_V1}/monthly-service`;

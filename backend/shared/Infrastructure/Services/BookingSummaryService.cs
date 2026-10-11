@@ -10,6 +10,8 @@ using Nestly.Application.Slots;
 using Nestly.Application.Subscriptions;
 using Nestly.Application.Wallet;
 using Nestly.BuildingBlocks.Results;
+using Nestly.Domain;
+using Nestly.Domain.Meals;
 using Nestly.Infrastructure.Options;
 
 namespace Nestly.Infrastructure.Services;
@@ -145,8 +147,19 @@ public class BookingSummaryService : IBookingSummaryService
                 : Error.Business("Booking.SlotNotAvailable", DescribeSlotUnavailability(availability.Value.Reason));
         }
 
+        // A cook's slot must sit in the meals' session - no dinner at 8 am
+        // (docs/MEAL-SERVICE.md). Meals spanning both sessions are rejected by
+        // pricing just below with its own message.
+        if (service.PricingType == ServicePricingType.MealBased
+            && request.Meals is { } meals
+            && !meals.Meals.All(m => m.Session().Contains(TimeOnly.FromTimeSpan(slot.StartTime))))
+        {
+            return Error.Validation("Booking.MealSlotMismatch",
+                $"Morning meals (breakfast, lunch) need a slot starting before {MealTypeExtensions.EveningStartsAt:HH:mm}, evening meals (snacks, dinner) one starting from then.");
+        }
+
         var priceResult = await _priceCalculationService.CalculateAsync(
-            new PriceCalculationRequest(request.ServiceId, request.CityId, request.Quantity, request.AddOns, request.ServiceVariantId));
+            new PriceCalculationRequest(request.ServiceId, request.CityId, request.Quantity, request.AddOns, request.ServiceVariantId, request.Meals));
         if (priceResult.IsFailure)
         {
             return priceResult.Error;

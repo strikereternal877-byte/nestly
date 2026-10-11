@@ -1,10 +1,12 @@
 using Nestly.Application;
 using Nestly.Application.Abstractions.Caching;
+using Nestly.Application.Meals;
 using Nestly.Application.Pricing;
 using Nestly.Application.Serviceability;
 using Nestly.Application.Settings;
 using Nestly.BuildingBlocks.Results;
 using Nestly.Domain;
+using Nestly.Domain.Meals;
 
 namespace Nestly.Infrastructure.Services;
 
@@ -85,7 +87,8 @@ public class PriceCalculationService : IPriceCalculationService
             request.CityId,
             request.ServiceVariantId,
             request.Quantity,
-            request.AddOns.Select(a => (a.AddOnId, a.Quantity)));
+            request.AddOns.Select(a => (a.AddOnId, a.Quantity)),
+            request.Meals?.Key());
 
         var cached = await _cache.GetAsync<PriceBreakdownResponse>(cacheKey);
         if (cached is not null)
@@ -117,13 +120,31 @@ public class PriceCalculationService : IPriceCalculationService
         // for a flat-rate service - a UI bug or deliberate tampering - must
         // never be able to multiply the base price. Allowed quantities are
         // still capped so a runaway value can't inflate a total unbounded.
-        int effectiveQuantity = service.IsQuantityAllowed
+        int effectiveQuantity = service.IsQuantityAllowed && service.PricingType != ServicePricingType.MealBased
             ? Math.Min(request.Quantity, MaxQuantity)
             : 1;
 
         if (!await _serviceabilityRepository.CityExistsAsync(request.CityId))
         {
             return Error.NotFound("Pricing.CityNotFound", "The specified city does not exist.");
+        }
+
+        // A cook (docs/MEAL-SERVICE.md): the meals and persons, not a
+        // variant or quantity, set the visit's price and length.
+        MealVisitQuote? mealQuote = null;
+        if (service.PricingType == ServicePricingType.MealBased)
+        {
+            var quote = QuoteOneVisit(service, request.Meals);
+            if (quote.IsFailure)
+            {
+                return quote.Error;
+            }
+
+            mealQuote = quote.Value;
+        }
+        else if (request.Meals is not null)
+        {
+            return Error.Validation("Pricing.MealsNotApplicable", "This service is not priced by meals.");
         }
 
         // Phase 3 catalog redesign: a selected variant's own price/duration
@@ -179,7 +200,11 @@ public class PriceCalculationService : IPriceCalculationService
         // 3 catalog redesign scope boundary) - a selected variant's own
         // price is definitive and is never adjusted per city.
         decimal basePrice;
-        if (selectedVariant is not null)
+        if (mealQuote is not null)
+        {
+            basePrice = mealQuote.Rate;
+        }
+        else if (selectedVariant is not null)
         {
             basePrice = selectedVariant.Price;
         }
@@ -223,7 +248,35 @@ public class PriceCalculationService : IPriceCalculationService
             platformFee,
             totalPayable,
             selectedVariant?.Id,
-            selectedVariant?.Name,
-            selectedVariant?.DurationMinutes);
+            // A meal quote rides the variant name/duration: that is what the
+            // booking snapshots and every booking screen already shows, so
+            // "Lunch + Dinner · 4 persons" reaches the cook unchanged.
+            mealQuote?.Describe() ?? selectedVariant?.Name,
+            mealQuote?.DurationMinutes ?? selectedVariant?.DurationMinutes);
+    }
+
+    private static Result<MealVisitQuote> QuoteOneVisit(Service service, MealSelection? selection)
+    {
+        if (selection is null)
+        {
+            return Error.Validation("Pricing.MealsRequired", "Choose the meals and how many people to cook for.");
+        }
+
+        IReadOnlyList<MealVisitQuote> quotes;
+        try
+        {
+            quotes = MealPricing.Quote(service.MealOptions, selection.Meals, selection.Persons);
+        }
+        catch (ArgumentException ex)
+        {
+            return Error.Validation("Pricing.InvalidMeals", ex.Message);
+        }
+
+        // One booking is one visit; a morning-and-evening day is two bookings
+        // (or a monthly plan, which handles both sessions).
+        return quotes.Count == 1
+            ? quotes[0]
+            : Error.Validation("Pricing.MealsSpanSessions",
+                "A one-time booking is a single visit: choose morning meals (breakfast, lunch) or evening meals (snacks, dinner).");
     }
 }

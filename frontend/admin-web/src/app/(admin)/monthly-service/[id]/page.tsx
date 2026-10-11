@@ -16,6 +16,7 @@ import {
   MonthlyServiceContractStatus,
   MonthlyServiceDisputeStatus,
   MonthlyServiceInvoiceStatus,
+  MonthlyServiceBillingMode,
   MonthlyServicePlanBasis,
   assignMonthlyProvider,
   cancelMonthlyContract,
@@ -103,12 +104,21 @@ export default function MonthlyServiceContractPage() {
                 {
                   label: "Visit",
                   value:
-                    detail.basis === MonthlyServicePlanBasis.Hourly && detail.hoursPerVisit
-                      ? `${detail.hoursPerVisit} hours`
-                      : "Task-based",
+                    detail.basis === MonthlyServicePlanBasis.MealBased
+                      ? `Cook${detail.persons ? `, for ${detail.persons} people` : ""}`
+                      : detail.basis === MonthlyServicePlanBasis.Hourly && detail.hoursPerVisit
+                        ? `${detail.hoursPerVisit} hours`
+                        : "Task-based",
                 },
-                { label: "Tasks", value: detail.includedTasks.length ? detail.includedTasks.join(", ") : "—" },
+                { label: detail.basis === MonthlyServicePlanBasis.MealBased ? "Meals" : "Tasks", value: detail.includedTasks.length ? detail.includedTasks.join(", ") : "—" },
                 { label: "Rate / commission", value: `${formatCurrency(detail.ratePerVisit)} per visit · ${detail.commissionPercent}%` },
+                {
+                  label: "Billing",
+                  value:
+                    detail.billingMode === MonthlyServiceBillingMode.DailyWallet
+                      ? "Paid daily from the customer's wallet"
+                      : "Month-end bill",
+                },
                 { label: "Period", value: `${formatDay(c.startDate)}${c.endDate ? ` → ${formatDay(c.endDate)}` : " onwards"}` },
                 { label: "Customer note", value: detail.customerNote ?? "—" },
                 ...(detail.cancelledAtUtc

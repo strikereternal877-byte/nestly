@@ -420,11 +420,14 @@ public class BookingService : IBookingService
             // with no variants and an add-on with no group produce exactly
             // the same BookingItem/BookingAddOnItem rows as before this field
             // existed.
-            var item = summary.Service.VariantId is Guid variantId
+            // A meal-priced service carries its "Lunch + Dinner · 4 persons"
+            // quote as a variant name with no variant id (see
+            // PriceCalculationService), snapshotted the same way.
+            var item = summary.Service.VariantId is not null || summary.Service.VariantName is not null
                 ? booking.AddItem(
                     Guid.NewGuid(), summary.Service.Id, summary.Service.Name, summary.Service.Slug,
                     summary.Price.BasePrice, summary.Price.Quantity,
-                    variantId, summary.Service.VariantName, summary.Service.VariantDurationMinutes,
+                    summary.Service.VariantId, summary.Service.VariantName, summary.Service.VariantDurationMinutes,
                     summary.Service.GroupId, summary.Service.GroupName)
                 : summary.Service.GroupId is Guid serviceGroupId
                     ? booking.AddItem(

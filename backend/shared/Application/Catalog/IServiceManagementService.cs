@@ -1,3 +1,4 @@
+using Nestly.Application.Meals;
 using Nestly.BuildingBlocks.Results;
 
 namespace Nestly.Application.Catalog;
@@ -17,6 +18,9 @@ public interface IServiceManagementService
     Task<Result<ServiceAdminResponse>> UpdateAsync(Guid id, ServiceUpdateRequest request);
     Task<Result> SetActiveAsync(Guid id, bool isActive);
     Task<Result> SetFeaturedAsync(Guid id, bool isFeatured);
+
+    /// <summary>Replaces the meal rates of a <c>MealBased</c> service (docs/MEAL-SERVICE.md); its listing price follows the cheapest meal.</summary>
+    Task<Result<ServiceAdminResponse>> SetMealOptionsAsync(Guid id, MealOptionsUpdateRequest request);
 
     /// <summary>Gallery images attached to a service (SRS 12.6.2).</summary>
     Task<Result<IReadOnlyList<ServiceMediaResponse>>> ListMediaAsync(Guid serviceId);

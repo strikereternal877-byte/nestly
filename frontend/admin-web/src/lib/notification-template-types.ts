@@ -68,6 +68,11 @@ export enum NotificationEventType {
   MonthlyInvoiceIssued = 37,
   MonthlyServicePaused = 38,
   MonthlyClientCancelled = 39,
+  MonthlyVisitNotBooked = 40,
+  MonthlyClientNotBooked = 41,
+  MonthlyVisitRebooked = 42,
+  MonthlyWalletLow = 43,
+  MonthlyAutopayFailed = 44,
 }
 
 /** Mirrors Nestly.Domain.NotificationChannel's declaration order exactly. */
@@ -118,6 +123,11 @@ export const NOTIFICATION_EVENT_TYPE_LABELS: Record<NotificationEventType, strin
   [NotificationEventType.MonthlyInvoiceIssued]: "Monthly: bill issued (customer)",
   [NotificationEventType.MonthlyServicePaused]: "Monthly: paused for unpaid bill (customer)",
   [NotificationEventType.MonthlyClientCancelled]: "Monthly: home stopped (professional)",
+  [NotificationEventType.MonthlyVisitNotBooked]: "Monthly: visit not booked, wallet short (customer)",
+  [NotificationEventType.MonthlyClientNotBooked]: "Monthly: visit not booked (professional)",
+  [NotificationEventType.MonthlyVisitRebooked]: "Monthly: visit booked again (professional)",
+  [NotificationEventType.MonthlyWalletLow]: "Monthly: wallet running low (customer)",
+  [NotificationEventType.MonthlyAutopayFailed]: "Monthly: bill not paid from wallet (customer)",
 };
 
 export const NOTIFICATION_CHANNEL_LABELS: Record<NotificationChannel, string> = {

@@ -14,6 +14,7 @@ import type {
   CategoryGroupUpdateRequest,
   CategoryResponse,
   CategoryUpdateRequest,
+  MealOptionDto,
   ServiceAddOnAdminResponse,
   ServiceAddOnCreateRequest,
   ServiceAddOnGroupAdminResponse,
@@ -103,6 +104,14 @@ export const updateService = (id: string, request: ServiceUpdateRequest) =>
     method: "PUT",
     authenticated: true,
     body: JSON.stringify(request),
+  });
+
+/** Replaces every meal rate of a MealBased service; its listing price follows the cheapest meal. */
+export const setServiceMealOptions = (id: string, options: MealOptionDto[]) =>
+  apiFetch<ServiceAdminResponse>(`${SERVICES_BASE}/${id}/meal-options`, {
+    method: "PUT",
+    authenticated: true,
+    body: JSON.stringify({ options }),
   });
 
 export const setServiceActive = (id: string, isActive: boolean) =>

@@ -129,19 +129,77 @@ attendance is locked.
   `OverdueGraceDays` (default 7) unpaid, the contract is paused and its future
   schedule removed; paying the invoice resumes it.
 - Payment: customer pays online (same sandbox gateway seam every other
-  module uses today, see "Open decisions") or an admin records an offline
-  payment (cash / UPI / bank transfer) with a reference.
+  module uses today, see "Open decisions"), pays from their wallet, or an
+  admin records an offline payment (cash / UPI / bank transfer) with a
+  reference. Admins cannot record `Wallet` or `Online` by hand.
+- **Wallet.** `POST me/monthly-service-invoices/{id}/pay-from-wallet` pays a
+  bill in full from the wallet (`WalletSourceType.MonthlyServiceInvoice`,
+  payment method `Wallet`); a short balance fails with
+  `MonthlyService.WalletBalanceLow` and charges nothing - a bill is never
+  part-paid. A contract with `PayFromWallet` on (chosen at request, or
+  `POST me/monthly-service-contracts/{id}/wallet-autopay`) is paid this way
+  automatically: the daily job retries every unpaid bill of such contracts,
+  before overdue handling, so a bill is paid the day the customer tops up.
+  The debit, the bill turning Paid and the professional's credit commit in
+  one Serializable transaction.
 - On payment the professional's earning ledger is credited with the net
   amount (`ProviderEarningSourceType.MonthlyServiceInvoice`), idempotently.
   Existing payout batches pick these credits up unchanged.
+
+## DAILY WALLET
+
+The Country Delight model, chosen per contract at request time
+(`BillingMode = DailyWallet`; the alternative `MonthEnd` is the postpaid bill
+above). It is the default the customer site offers for new requests.
+
+- **Paid before it happens.** The daily job (00:30 IST) pays for each of
+  today's visits from the wallet (`WalletSourceType.MonthlyServiceVisitCharge`,
+  reference = the attendance row). Assignment and resume pay for today's visit
+  straight away rather than waiting for the night.
+- **No money, no visit.** A day the wallet can't cover becomes
+  `WalletShortfall` (not charged). The customer gets "visit not booked", the
+  professional "don't go". The customer can add money and **Book today's
+  visit** (`POST me/monthly-service-attendance/{id}/rebook`) until the skip
+  cutoff; the professional is then told it is on again.
+- **Refunds.** A paid day that ends without a charged visit goes back to the
+  wallet (`MonthlyServiceVisitRefund`): skipped by the customer, professional
+  on leave, nobody recorded (closed as absent), dispute upheld, admin
+  correction, or the schedule removed (pause, cancel, replacement).
+- **Check-in on an unpaid day** (e.g. the contract was assigned after the
+  nightly run) pays for it at that moment; if the wallet can't, check-in is
+  refused - the professional is told the visit isn't paid for.
+- **Low-balance warning.** Once a day, a customer whose wallet won't cover
+  their daily-wallet visits over the next two days is warned, with how many
+  visits it does cover.
+- **Month end.** The month's invoice is a statement created already paid
+  (method `Wallet`), which credits the professional exactly like any other
+  payment; no "bill issued" message is sent.
+- One rule keeps the money right: every attendance change on a daily-wallet
+  contract goes through `MonthlyServiceEngine.ChangeAttendanceAsync`, which
+  in one Serializable transaction pays for a day that is (now) on and due, or
+  refunds a paid day that ended uncharged - and refuses the change if the
+  wallet can't pay.
+
+## NOTIFICATIONS (wallet)
+
+| Event | To | When |
+|---|---|---|
+| `MonthlyVisitNotBooked` | Customer | Today's visit couldn't be paid from the wallet |
+| `MonthlyClientNotBooked` | Professional | Same moment - don't go |
+| `MonthlyVisitRebooked` | Professional | The customer paid and booked the day again |
+| `MonthlyWalletLow` | Customer | Daily run: wallet won't cover the next two days |
+| `MonthlyAutopayFailed` | Customer | Month-end auto-pay (MonthEnd contracts) fell short on the day the bill is issued |
+
+SMS, email and push templates for each are seeded by
+`SeedDailyWalletNotificationTemplates`.
 
 ## DATA MODEL
 
 | Table | Purpose |
 |---|---|
 | `monthly_service_plan` | Admin catalog: service, city, name, description, basis (Hourly/TaskBased), hours per visit, included tasks, rate per visit, commission %, schedule (frequency + times per period), active flag |
-| `monthly_service_contract` | Aggregate root: customer, plan + term snapshots (incl. frequency), address, weekdays (bitmask), month dates (bitmask, per-month plans), visit start time, start/end date, assigned professional, status (PendingAssignment/Active/Paused/Cancelled), pause reason |
-| `monthly_service_attendance` | One row per contract per date: status, day code, check-in/out time and coordinates, note, dispute fields, invoice id once invoiced |
+| `monthly_service_contract` | Aggregate root: customer, plan + term snapshots (incl. frequency), address, weekdays (bitmask), month dates (bitmask, per-month plans), visit start time, start/end date, assigned professional, status (PendingAssignment/Active/Paused/Cancelled), pause reason, billing mode (MonthEnd/DailyWallet), month-end wallet auto-pay flag |
+| `monthly_service_attendance` | One row per contract per date: status (incl. WalletShortfall), day code, check-in/out time and coordinates, note, dispute fields, invoice id once invoiced, daily-wallet prepaid amount / wallet entry / refund time |
 | `monthly_service_invoice` | One per contract per month: visit counts by status, rate, amount, commission, net, status (Issued/Overdue/Paid), due date, payment method/reference |
 
 ## API SURFACE
@@ -152,7 +210,10 @@ Customer (`consumer-api`):
 `GET me/monthly-service-contracts/{id}/attendance?year&month`,
 `POST me/monthly-service-contracts/{id}/cancel`,
 `POST me/monthly-service-attendance/{id}/skip|unskip|confirm|dispute`,
-`GET me/monthly-service-invoices`, `POST me/monthly-service-invoices/{id}/pay`.
+`GET me/monthly-service-invoices`, `POST me/monthly-service-invoices/{id}/pay`,
+`POST me/monthly-service-invoices/{id}/pay-from-wallet`,
+`POST me/monthly-service-contracts/{id}/wallet-autopay`,
+`POST monthly-service/meal-contracts` (a cook, docs/MEAL-SERVICE.md).
 
 Professional (`provider-api`):
 `GET monthly-service/contracts`, `GET monthly-service/contracts/{id}/attendance?year&month`,

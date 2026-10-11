@@ -585,7 +585,7 @@ public class ProviderJobService : IProviderJobService
             booking.SlotDate,
             booking.SlotStartTimeSnapshot,
             booking.SlotEndTimeSnapshot,
-            booking.Items.Select(i => new ProviderJobItemResponse(i.NameSnapshot, i.Quantity, i.UnitPriceSnapshot)).ToList(),
+            booking.Items.Select(i => new ProviderJobItemResponse(i.NameSnapshot, i.Quantity, i.UnitPriceSnapshot, i.VariantNameSnapshot)).ToList(),
             booking.TotalPayableSnapshot,
             assignment.AssignedAt,
             assignment.RespondedAt,

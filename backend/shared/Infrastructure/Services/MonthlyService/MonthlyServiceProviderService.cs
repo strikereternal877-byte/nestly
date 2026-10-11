@@ -65,7 +65,8 @@ public class MonthlyServiceProviderService : IMonthlyServiceProviderService
             _engine.Summarize(monthRows[c.Id], NetPerVisit(c)),
             c.FrequencySnapshot,
             c.TimesPerPeriodSnapshot,
-            MonthlyServiceEngine.MonthDates(c))).ToList();
+            MonthlyServiceEngine.MonthDates(c),
+            c.PersonsSnapshot)).ToList();
     }
 
     public async Task<Result<MonthlyServiceAttendanceMonthResponse>> GetAttendanceAsync(Guid providerId, Guid contractId, int year, int month)
@@ -114,7 +115,8 @@ public class MonthlyServiceProviderService : IMonthlyServiceProviderService
                     c.HoursPerVisitSnapshot,
                     c.IncludedTasksSnapshot,
                     customers.TryGetValue(r.CustomerId, out var cu) ? cu.Name : string.Empty,
-                    MonthlyServiceEngine.ToAddress(addresses.GetValueOrDefault(c.AddressId)));
+                    MonthlyServiceEngine.ToAddress(addresses.GetValueOrDefault(c.AddressId)),
+                    c.PersonsSnapshot);
             })
             .ToList();
     }
@@ -149,16 +151,16 @@ public class MonthlyServiceProviderService : IMonthlyServiceProviderService
             return Error.NotFound("MonthlyService.AttendanceNotFound", "Visit not found.");
         }
 
-        try
+        // Through the engine so a daily-wallet day's payment follows the change
+        // (leave refunds the day; check-in on a not-yet-paid day pays for it).
+        var changed = await _engine.ChangeAttendanceAsync(row, change);
+        if (changed.IsFailure)
         {
-            change(row);
-        }
-        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
-        {
-            return Error.Business("MonthlyService.AttendanceActionNotAllowed", MonthlyServiceEngine.UserMessage(ex));
+            return changed.Error.Code == MonthlyServiceEngine.WalletBalanceLowCode
+                ? Error.Business(MonthlyServiceEngine.WalletBalanceLowCode, "This visit isn't paid for: the customer's wallet balance is too low. Please don't start the work.")
+                : changed.Error;
         }
 
-        await _attendanceRepository.UpdateAsync(row);
         _logger.LogInformation("Monthly service attendance {AttendanceId}: provider {Action}.", row.Id, action);
         return _engine.ToItem(row, MonthlyServiceViewer.Provider);
     }

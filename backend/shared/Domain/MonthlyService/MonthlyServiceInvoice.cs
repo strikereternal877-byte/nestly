@@ -80,7 +80,8 @@ public class MonthlyServiceInvoice : AggregateRoot<Guid>
         bool billCustomerUnavailable,
         DateOnly issueDate,
         int dueDays,
-        DateTime nowUtc)
+        DateTime nowUtc,
+        bool prepaidDaily = false)
         : base(id)
     {
         ArgumentNullException.ThrowIfNull(contract);
@@ -121,8 +122,18 @@ public class MonthlyServiceInvoice : AggregateRoot<Guid>
         Status = MonthlyServiceInvoiceStatus.Issued;
         IssuedAtUtc = nowUtc;
         DueDate = issueDate.AddDays(dueDays);
-        RaiseDomainEvent(new MonthlyServiceInvoiceIssuedEvent(Id, ContractId, CustomerId, Amount, PeriodStart, DueDate));
+
+        // A daily-wallet month is already paid day by day: its invoice is a
+        // statement (marked paid straight after), not a bill to chase.
+        if (!prepaidDaily)
+        {
+            RaiseDomainEvent(new MonthlyServiceInvoiceIssuedEvent(Id, ContractId, CustomerId, Amount, PeriodStart, DueDate));
+        }
     }
+
+    /// <summary>Tells the customer an auto-pay from wallet fell short (the daily job raises it once, on the day the bill is issued).</summary>
+    public void ReportAutopayFailed(decimal walletBalance) =>
+        RaiseDomainEvent(new MonthlyServiceAutopayFailedEvent(Id, ContractId, CustomerId, Amount, walletBalance));
 
     public bool IsPaid => Status == MonthlyServiceInvoiceStatus.Paid;
 

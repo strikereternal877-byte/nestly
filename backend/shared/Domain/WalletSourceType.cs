@@ -62,5 +62,18 @@ public enum WalletSourceType
     /// Credited back when a late-reschedule fee was taken but the reschedule then failed to be saved, so the customer is
     /// not charged for a move that never happened. SourceReferenceId is the id the fee debit carried.
     /// </summary>
-    RescheduleFeeReversal
+    RescheduleFeeReversal,
+
+    /// <summary>
+    /// Debited to pay a month-end <see cref="MonthlyService.MonthlyServiceInvoice"/> (docs/MONTHLY-SERVICE.md
+    /// BILLING), by the customer or automatically for a contract that pays from wallet. SourceReferenceId is the
+    /// invoice's id.
+    /// </summary>
+    MonthlyServiceInvoice,
+
+    /// <summary>Debited to pay one day's visit of a daily-wallet monthly contract before it happens. SourceReferenceId is the <see cref="MonthlyService.MonthlyServiceAttendance"/>'s id.</summary>
+    MonthlyServiceVisitCharge,
+
+    /// <summary>Credited back when a paid-for day did not happen (skipped, leave, missed, dispute upheld, schedule removed). SourceReferenceId is the attendance row's id.</summary>
+    MonthlyServiceVisitRefund
 }

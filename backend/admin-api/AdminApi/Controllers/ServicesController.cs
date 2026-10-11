@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Nestly.Application.Catalog;
+using Nestly.Application.Meals;
 using Nestly.BuildingBlocks.Extensions;
 using Nestly.Domain;
 using Nestly.Infrastructure;
@@ -30,17 +31,20 @@ public class ServicesController : ControllerBase
     private readonly IValidator<ServiceCreateRequest> _createValidator;
     private readonly IValidator<ServiceUpdateRequest> _updateValidator;
     private readonly IValidator<ServiceMediaCreateRequest> _mediaCreateValidator;
+    private readonly IValidator<MealOptionsUpdateRequest> _mealOptionsValidator;
 
     public ServicesController(
         IServiceManagementService serviceManagementService,
         IValidator<ServiceCreateRequest> createValidator,
         IValidator<ServiceUpdateRequest> updateValidator,
-        IValidator<ServiceMediaCreateRequest> mediaCreateValidator)
+        IValidator<ServiceMediaCreateRequest> mediaCreateValidator,
+        IValidator<MealOptionsUpdateRequest> mealOptionsValidator)
     {
         _serviceManagementService = serviceManagementService;
         _createValidator = createValidator;
         _updateValidator = updateValidator;
         _mediaCreateValidator = mediaCreateValidator;
+        _mealOptionsValidator = mealOptionsValidator;
     }
 
     [HttpGet]
@@ -99,6 +103,21 @@ public class ServicesController : ControllerBase
         if (!validation.IsValid) return ValidationProblem(ToModelState(validation));
 
         var result = await _serviceManagementService.UpdateAsync(id, request);
+        return result.IsSuccess ? Ok(result.Value) : result.ToProblemResult();
+    }
+
+    /// <summary>Meal rates of a MealBased service (docs/MEAL-SERVICE.md), replaced as a whole.</summary>
+    [HttpPut("{id:guid}/meal-options")]
+    [Authorize(Policy = WritePolicy)]
+    [ProducesResponseType(typeof(ServiceAdminResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status422UnprocessableEntity)]
+    public async Task<IActionResult> SetMealOptions(Guid id, [FromBody] MealOptionsUpdateRequest request)
+    {
+        var validation = await _mealOptionsValidator.ValidateAsync(request);
+        if (!validation.IsValid) return ValidationProblem(ToModelState(validation));
+
+        var result = await _serviceManagementService.SetMealOptionsAsync(id, request);
         return result.IsSuccess ? Ok(result.Value) : result.ToProblemResult();
     }
 

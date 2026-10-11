@@ -35,6 +35,7 @@ export const attendanceTone: Record<MonthlyServiceAttendanceStatus, BadgeTone> =
   [MonthlyServiceAttendanceStatus.ProviderLeave]: "warning",
   [MonthlyServiceAttendanceStatus.CustomerUnavailable]: "accent",
   [MonthlyServiceAttendanceStatus.Absent]: "danger",
+  [MonthlyServiceAttendanceStatus.WalletShortfall]: "warning",
 };
 
 export function InvoiceStatusBadge({ status }: { status: MonthlyServiceInvoiceStatus }) {

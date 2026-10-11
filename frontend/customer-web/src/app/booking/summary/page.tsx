@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { BookingHelpLink } from "@/components/BookingHelpLink";
 import { CitySelector } from "@/components/CitySelector";
@@ -42,6 +42,7 @@ import {
 import { useSelectedCity } from "@/hooks/useSelectedCity";
 import { API_V1, ApiError, apiFetch, describeError, errorCode } from "@/lib/api";
 import { useFeatureFlags } from "@/lib/feature-flags";
+import { MEAL_LABELS, formatDuration, mealsFromParam, mealsToParam, quoteMeals, sessionContains } from "@/lib/meals";
 import { type BookingDraft, type RepeatPlanKind, readDraft, writeDraft } from "@/lib/booking-draft";
 import { addRecurrenceInterval, openEndedCycleVisitCount, todayIsoDate } from "@/lib/date";
 import { PAUSE_AFTER_UNPAID_VISITS, WALLET_LOW_BALANCE_VISITS } from "@/lib/recurring-plan";
@@ -105,6 +106,9 @@ function BookingSummaryScreen() {
   const searchParams = useSearchParams();
   const serviceSlug = searchParams.get("serviceSlug");
   const { city, locality } = useSelectedCity();
+  // A cook's meals and people arrive from its service page (docs/MEAL-SERVICE.md).
+  const mealsParam = searchParams.get("meals");
+  const personsParam = searchParams.get("persons");
 
   const [quantity, setQuantity] = useState(1);
   const [selectedAddOnIds, setSelectedAddOnIds] = useState<Set<string>>(new Set());
@@ -217,7 +221,9 @@ function BookingSummaryScreen() {
   // default: the /wallet page used to promise this happened automatically,
   // which was never true - now that it's real, it's an opt-in the customer
   // sees and can change their mind about, not a silent default.
-  const [applyWalletCredit, setApplyWalletCredit] = useState(false);
+  // Starts on only when the customer already chose "use wallet" on the page
+  // that sent them here (a cook's meal flow passes `wallet=1`).
+  const [applyWalletCredit, setApplyWalletCredit] = useState(() => searchParams.get("wallet") === "1");
 
   const serviceQuery = useQuery({
     queryKey: ["service", serviceSlug],
@@ -419,8 +425,28 @@ function BookingSummaryScreen() {
   };
 
   const service = serviceQuery.data;
+  const isMealBased = service?.pricingType === "MealBased";
+  const mealQuote = useMemo(() => {
+    const persons = Number(personsParam);
+    if (!isMealBased || !Number.isInteger(persons) || persons < 1) return null;
+    const quotes = quoteMeals(service?.mealOptions ?? [], mealsFromParam(mealsParam), persons);
+    return quotes.length === 1 ? { ...quotes[0], persons } : null;
+  }, [isMealBased, service?.mealOptions, mealsParam, personsParam]);
+  const mealSlotFilter = useCallback(
+    (startTime: string) => (mealQuote ? sessionContains(mealQuote.session, startTime.slice(0, 5)) : true),
+    [mealQuote],
+  );
+  // Keeps the meals on every round trip out of this page (new address, wallet top-up).
+  const summaryPath = `/booking/summary?serviceSlug=${serviceSlug ?? ""}${
+    mealQuote ? `&meals=${mealsToParam(mealQuote.meals)}&persons=${mealQuote.persons}` : ""
+  }${applyWalletCredit ? "&wallet=1" : ""}`;
   const requestReady =
-    !!service && !!city && !!locality && !!selectedAddressId && !!selectedSlotWindowId;
+    !!service &&
+    !!city &&
+    !!locality &&
+    !!selectedAddressId &&
+    !!selectedSlotWindowId &&
+    (!isMealBased || mealQuote !== null);
 
   const request: BookingSummaryRequestBody | null = requestReady
     ? {
@@ -442,6 +468,7 @@ function BookingSummaryScreen() {
         // whether wallet credit applies.
         applyWalletCredit,
         serviceVariantId: selectedVariantId,
+        meals: mealQuote ? { meals: mealQuote.meals, persons: mealQuote.persons } : null,
       }
     : null;
 
@@ -772,12 +799,12 @@ function BookingSummaryScreen() {
   // Carries this exact review page as the return trip for the "add a new
   // address" detour below - see the newAddressId effect above and
   // addresses/new/page.tsx's returnTo handling.
-  const addNewAddressHref = `/addresses/new?returnTo=${encodeURIComponent(`/booking/summary?serviceSlug=${service.slug}`)}`;
+  const addNewAddressHref = `/addresses/new?returnTo=${encodeURIComponent(summaryPath)}`;
 
   // Adding money is a detour too: this page's draft survives it (see booking-draft.ts), and the wallet's
   // result screen offers a way back here.
   const addMoneyHref = canAddMoney
-    ? `/wallet?addMoney=1&returnTo=${encodeURIComponent(`/booking/summary?serviceSlug=${service.slug}`)}`
+    ? `/wallet?addMoney=1&returnTo=${encodeURIComponent(summaryPath)}`
     : null;
 
   return (
@@ -832,10 +859,37 @@ function BookingSummaryScreen() {
 
         {/* Cart: service + add-ons (task 62a). */}
         <Card title="Service">
-          <div className="flex items-baseline justify-between gap-4">
-            <span className="text-sm font-medium text-fg">{service.name}</span>
-            <span className="nums text-sm text-fg-muted">{inr(service.price)}</span>
-          </div>
+          {isMealBased ? (
+            mealQuote ? (
+              <div className="flex items-baseline justify-between gap-4">
+                <span className="flex flex-col">
+                  <span className="text-sm font-medium text-fg">{service.name}</span>
+                  <span className="text-sm text-fg-muted">
+                    {mealQuote.meals.map((m) => MEAL_LABELS[m]).join(" and ")} for {mealQuote.persons}{" "}
+                    {mealQuote.persons === 1 ? "person" : "people"}, about {formatDuration(mealQuote.durationMinutes)}
+                  </span>
+                </span>
+                <span className="nums text-sm text-fg-muted">{inr(mealQuote.rate)}</span>
+              </div>
+            ) : (
+              <Alert
+                tone="warning"
+                title="Choose your meals first"
+                action={
+                  <LinkButton size="sm" variant="secondary" href={`/services/${service.slug}`}>
+                    Choose meals
+                  </LinkButton>
+                }
+              >
+                A cook is booked for morning meals or evening meals, for a number of people.
+              </Alert>
+            )
+          ) : (
+            <div className="flex items-baseline justify-between gap-4">
+              <span className="text-sm font-medium text-fg">{service.name}</span>
+              <span className="nums text-sm text-fg-muted">{inr(service.price)}</span>
+            </div>
+          )}
 
           {/* Quantity only for unit-measured services (AC units, rooms,
               seats). A flat-rate service stays at quantity 1 and hides the
@@ -1015,13 +1069,16 @@ function BookingSummaryScreen() {
               onDateChange={setSelectedDate}
               selectedSlotWindowId={selectedSlotWindowId}
               onSlotChange={(id) => setSelectedSlotWindowId(id)}
+              slotFilter={mealQuote ? mealSlotFilter : undefined}
             />
           )}
         </Card>
 
         {/* "Repeat this booking" opt-in (task 298). Sits directly under the
             slot it repeats, so the frequency and the day it lands on are read
-            together. */}
+            together. Not for a cook: its repeat is the monthly plan, booked
+            from its own page. */}
+        {isMealBased ? null : (
         <Card
           title="Auto-schedule this service"
           description="Set it once — we book every visit for you. Pay day by day with a Daily plan, or all at once with a Prepaid plan."
@@ -1135,6 +1192,7 @@ function BookingSummaryScreen() {
           ) : null}
           </div>
         </Card>
+        )}
 
         {/* Coupon (task 62d, 77; SRS 11.10.3). */}
         {couponsEnabled ? (
@@ -1303,9 +1361,11 @@ function BookingSummaryScreen() {
             to do the same thing. LinkButton rather than <Link><Button/></Link>:
             a button inside an anchor is invalid HTML and gives assistive tech
             two nested controls for one action. */}
-        <LinkButton href={`/recurring-bookings/new?serviceSlug=${service.slug}`} variant="secondary" fullWidth>
-          Schedule for later without booking now
-        </LinkButton>
+        {isMealBased ? null : (
+          <LinkButton href={`/recurring-bookings/new?serviceSlug=${service.slug}`} variant="secondary" fullWidth>
+            Schedule for later without booking now
+          </LinkButton>
+        )}
 
         <BookingHelpLink />
       </aside>

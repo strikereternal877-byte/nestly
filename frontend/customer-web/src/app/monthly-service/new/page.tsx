@@ -7,6 +7,7 @@ import { BannerBreadcrumb, STICKY_BAR_SPACER, inr } from "@/components/patterns"
 import { Reveal, RevealItem } from "@/components/motion";
 import { PageBanner } from "@/components/PageBanner";
 import { RequireAuth } from "@/components/RequireAuth";
+import { SegmentedChoice } from "@/components/SegmentedChoice";
 import {
   Alert,
   Button,
@@ -25,7 +26,9 @@ import { API_V1, apiFetch, describeError } from "@/lib/api";
 import { isoDateOffsetFromToday, todayIsoDate } from "@/lib/date";
 import {
   MAX_MONTH_DATE,
+  MonthlyServiceBillingMode,
   MonthlyServiceFrequency,
+  MonthlyServicePlanBasis,
   WEEKDAYS,
   describeFrequency,
   browseMonthlyPlans,
@@ -84,6 +87,7 @@ function NewMonthlyServiceScreen() {
   const [monthDates, setMonthDates] = useState<number[]>([]);
   const [visitTime, setVisitTime] = useState("08:00");
   const [startDate, setStartDate] = useState(isoDateOffsetFromToday(1));
+  const [billingMode, setBillingMode] = useState<MonthlyServiceBillingMode>(MonthlyServiceBillingMode.DailyWallet);
   const [note, setNote] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -124,6 +128,12 @@ function NewMonthlyServiceScreen() {
   }, [plan, days.length]);
 
   const choosePlan = (next: MonthlyServicePlan) => {
+    // A cook is chosen by meals and people, which this form doesn't ask -
+    // its own page does (docs/MEAL-SERVICE.md).
+    if (next.basis === MonthlyServicePlanBasis.MealBased && next.serviceSlug) {
+      router.push(`/services/${next.serviceSlug}`);
+      return;
+    }
     setPlan(next);
     // Start each plan from a valid-looking default rather than a leftover
     // selection that no longer fits its "N times" rule.
@@ -171,6 +181,7 @@ function NewMonthlyServiceScreen() {
       startDate,
       endDate: null,
       note: note.trim() || null,
+      billingMode,
     });
   };
 
@@ -350,6 +361,26 @@ function NewMonthlyServiceScreen() {
               </div>
             </Card>
 
+            <Card title="How will you pay?">
+              <div className="flex flex-col gap-3">
+                <SegmentedChoice
+                  label="How will you pay"
+                  layoutId="monthly-billing-pill"
+                  value={String(billingMode)}
+                  onChange={(next) => setBillingMode(Number(next) as MonthlyServiceBillingMode)}
+                  options={[
+                    { value: String(MonthlyServiceBillingMode.DailyWallet), label: "Pay daily from wallet", hint: "Each visit paid before it happens" },
+                    { value: String(MonthlyServiceBillingMode.MonthEnd), label: "Monthly bill", hint: "Pay at month end" },
+                  ]}
+                />
+                <p className="text-sm text-fg-muted">
+                  {billingMode === MonthlyServiceBillingMode.DailyWallet
+                    ? "A day your wallet can't pay for isn't booked; we warn you a day ahead when it's running low. Skipped days come back to your wallet."
+                    : "One bill at the start of each month, only for the visits that happened."}
+                </p>
+              </div>
+            </Card>
+
             <Card title="Anything we should know?">
               <Textarea
                 label="Note for the professional (optional)"
@@ -372,7 +403,11 @@ function NewMonthlyServiceScreen() {
                   </p>
                   <p className="nums text-base font-semibold text-fg">
                     about {inr(monthlyEstimate)}
-                    <span className="text-sm font-normal text-fg-muted"> / month · billed for actual visits</span>
+                    <span className="text-sm font-normal text-fg-muted">
+                      {" "}
+                      / month ·{" "}
+                      {billingMode === MonthlyServiceBillingMode.DailyWallet ? "paid daily from wallet" : "billed for actual visits"}
+                    </span>
                   </p>
                 </div>
                 <Button type="button" size="lg" loading={requestMutation.isPending} onClick={submit}>

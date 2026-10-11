@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import { MealBookingFlow } from "@/components/meals/MealBookingFlow";
 import { PriceCalculator } from "@/components/PriceCalculator";
 import { ReviewsSummary } from "@/components/ReviewsSummary";
 import { ServiceAvailability } from "@/components/ServiceAvailability";
@@ -64,6 +65,12 @@ export default function ServiceDetailPage({
   }
 
   const service = query.data;
+
+  // A cook is booked by meals and people, not variants and quantity: it gets
+  // its own focused flow instead of the generic detail layout.
+  if (service.pricingType === "MealBased" && (service.mealOptions?.length ?? 0) > 0) {
+    return <MealBookingFlow service={service} />;
+  }
 
   return (
     <div className={cx("mx-auto w-full max-w-7xl px-4 py-10 sm:px-6 sm:py-14", STICKY_BAR_SPACER)}>

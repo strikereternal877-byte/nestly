@@ -15,6 +15,7 @@ using Nestly.Application.Slots;
 using Nestly.Application.Wallet;
 using Nestly.BuildingBlocks.Results;
 using Nestly.Domain;
+using Nestly.Domain.Meals;
 using Nestly.Infrastructure.Persistence;
 
 namespace Nestly.Infrastructure.Services;
@@ -175,6 +176,12 @@ public class RescheduleService : IRescheduleService
     /// transition, and records the <see cref="BookingReschedule"/> history
     /// row attributed to <paramref name="actor"/>.
     /// </summary>
+    private Task<bool> IsMealPricedAsync(Guid serviceId) =>
+        _context.Set<Service>().AsNoTracking().AnyAsync(s => s.Id == serviceId && s.PricingType == ServicePricingType.MealBased);
+
+    private static MealSession SessionOf(TimeSpan start) =>
+        MealSession.Morning.Contains(TimeOnly.FromTimeSpan(start)) ? MealSession.Morning : MealSession.Evening;
+
     private async Task<Result<RescheduleOutcomeResponse>> ExecuteRescheduleAsync(Booking booking, RescheduleBookingRequest request, RescheduleActor actor)
     {
         Guid serviceId = booking.Items.Count > 0
@@ -194,6 +201,18 @@ public class RescheduleService : IRescheduleService
         if (!availability.Value.IsServiceable || chosenSlot is null)
         {
             return Error.Business("Reschedule.SlotNotAvailable", "The selected slot is no longer available.");
+        }
+
+        // A cook's meals belong to one visit of the day (docs/MEAL-SERVICE.md):
+        // lunch can move to another morning slot, never to the evening. The
+        // booking was created in the right session, so its own slot says which.
+        if (await IsMealPricedAsync(serviceId)
+            && SessionOf(booking.SlotStartTimeSnapshot) != SessionOf(chosenSlot.StartTime))
+        {
+            return Error.Business("Reschedule.MealSessionMismatch",
+                SessionOf(booking.SlotStartTimeSnapshot) == MealSession.Morning
+                    ? $"These are morning meals: choose a slot starting before {MealTypeExtensions.EveningStartsAt:HH:mm}."
+                    : $"These are evening meals: choose a slot starting at {MealTypeExtensions.EveningStartsAt:HH:mm} or later.");
         }
 
         var previousSlot = new BookingSlotSummary(booking.SlotWindowId, booking.SlotWindowNameSnapshot, booking.SlotDate, booking.SlotStartTimeSnapshot, booking.SlotEndTimeSnapshot);

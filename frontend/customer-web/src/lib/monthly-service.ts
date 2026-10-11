@@ -13,6 +13,8 @@ import { API_V1, apiFetch } from "./api";
 export enum MonthlyServicePlanBasis {
   Hourly = 0,
   TaskBased = 1,
+  /** A cook: each request is priced by its meals and people (docs/MEAL-SERVICE.md). */
+  MealBased = 2,
 }
 
 export enum MonthlyServiceFrequency {
@@ -45,6 +47,16 @@ export enum MonthlyServiceAttendanceStatus {
   ProviderLeave = 3,
   CustomerUnavailable = 4,
   Absent = 5,
+  /** Daily wallet: the wallet couldn't pay for the day, so the visit is off (not charged). */
+  WalletShortfall = 6,
+}
+
+/** How a monthly service's visits are paid for (docs/MONTHLY-SERVICE.md DAILY WALLET). */
+export enum MonthlyServiceBillingMode {
+  /** One bill at month end for the visits that happened. */
+  MonthEnd = 0,
+  /** Each day paid from the wallet before the visit; a day the wallet can't pay for is off. */
+  DailyWallet = 1,
 }
 
 export enum MonthlyServiceAttendanceActor {
@@ -72,6 +84,8 @@ export enum MonthlyServicePaymentMethod {
   Cash = 1,
   Upi = 2,
   BankTransfer = 3,
+  /** Taken from the customer's Glavyx wallet. */
+  Wallet = 4,
 }
 
 export interface MonthlyServicePlan {
@@ -88,6 +102,10 @@ export interface MonthlyServicePlan {
   ratePerVisit: number;
   frequency: MonthlyServiceFrequency;
   timesPerPeriod: number | null;
+  /** Lets a MealBased plan send the customer to its service's meal picker. */
+  serviceSlug: string | null;
+  /** MealBased plans: how much cheaper each monthly visit is than the same meals booked once (0-50). */
+  monthlyDiscountPercent: number;
 }
 
 export interface MonthlyServiceAddressSummary {
@@ -134,6 +152,8 @@ export interface MonthlyServiceAttendanceItem {
   isInvoiced: boolean;
   dayCode: string | null;
   allowedActions: string[];
+  /** Daily wallet: what the wallet paid for this day; null when unpaid or refunded. */
+  prepaidAmount: number | null;
 }
 
 export interface MonthlyServiceAttendanceMonth {
@@ -173,6 +193,11 @@ export interface MonthlyServiceContract {
   monthDates: number[];
   /** Next day a visit is still due (today included); null unless active. */
   nextVisitDate: string | null;
+  /** Meal plans only: how many people the cook cooks for (the meals are `includedTasks`). */
+  persons: number | null;
+  /** Month-end bills are paid from the wallet automatically when the balance covers them. */
+  payFromWallet: boolean;
+  billingMode: MonthlyServiceBillingMode;
 }
 
 export interface MonthlyServiceInvoice {
@@ -212,6 +237,23 @@ export interface MonthlyServiceContractRequestBody {
   endDate: string | null;
   note: string | null;
   monthDates?: number[];
+  billingMode?: MonthlyServiceBillingMode;
+}
+
+/** A cook on a MealBased plan - one contract per meal session chosen (docs/MEAL-SERVICE.md). */
+export interface MonthlyMealRequestBody {
+  planId: string;
+  addressId: string;
+  days: number[];
+  startDate: string;
+  endDate: string | null;
+  note: string | null;
+  meals: number[];
+  persons: number;
+  morningVisitTime: string | null;
+  eveningVisitTime: string | null;
+  payFromWallet: boolean;
+  billingMode: MonthlyServiceBillingMode;
 }
 
 export const MONTHLY_SERVICE_ACTIONS = {
@@ -219,6 +261,7 @@ export const MONTHLY_SERVICE_ACTIONS = {
   unskip: "unskip",
   confirm: "confirm",
   dispute: "dispute",
+  rebook: "rebook",
 } as const;
 
 /** Monday-first, the order a weekly schedule is read in India. */
@@ -261,7 +304,18 @@ export function describeSchedule(contract: { frequency: MonthlyServiceFrequency;
   return contract.frequency === MonthlyServiceFrequency.TimesPerWeek ? `${describeFrequency(contract)} (${days})` : days;
 }
 
-export function describeVisit(plan: { basis: MonthlyServicePlanBasis; hoursPerVisit: number | null }): string {
+export function describeVisit(plan: {
+  basis: MonthlyServicePlanBasis;
+  hoursPerVisit: number | null;
+  includedTasks?: string[];
+  persons?: number | null;
+}): string {
+  if (plan.basis === MonthlyServicePlanBasis.MealBased) {
+    // A contract knows its meals and people; a plan only how it is priced.
+    return plan.persons && plan.includedTasks?.length
+      ? `${plan.includedTasks.join(" and ")} for ${plan.persons} ${plan.persons === 1 ? "person" : "people"}`
+      : "Priced by meals and people";
+  }
   return plan.basis === MonthlyServicePlanBasis.Hourly && plan.hoursPerVisit
     ? `${plan.hoursPerVisit} hour${plan.hoursPerVisit === 1 ? "" : "s"} per visit`
     : "Fixed tasks per visit";
@@ -282,6 +336,7 @@ export const attendanceLabel: Record<MonthlyServiceAttendanceStatus, string> = {
   [MonthlyServiceAttendanceStatus.ProviderLeave]: "On leave",
   [MonthlyServiceAttendanceStatus.CustomerUnavailable]: "You were not available",
   [MonthlyServiceAttendanceStatus.Absent]: "Did not come",
+  [MonthlyServiceAttendanceStatus.WalletShortfall]: "Not booked, wallet low",
 };
 
 const MY_CONTRACTS = `${API_V1}/me/monthly-service-contracts`;
@@ -293,6 +348,13 @@ export const browseMonthlyPlans = (cityId?: string) =>
 
 export const requestMonthlyService = (body: MonthlyServiceContractRequestBody) =>
   apiFetch<MonthlyServiceContract>(`${API_V1}/monthly-service/contracts`, {
+    method: "POST",
+    authenticated: true,
+    body: JSON.stringify(body),
+  });
+
+export const requestMonthlyMealService = (body: MonthlyMealRequestBody) =>
+  apiFetch<MonthlyServiceContract[]>(`${API_V1}/monthly-service/meal-contracts`, {
     method: "POST",
     authenticated: true,
     body: JSON.stringify(body),
@@ -316,7 +378,7 @@ export const cancelMyMonthlyService = (id: string, reason: string | null) =>
     body: JSON.stringify({ reason }),
   });
 
-export const actOnAttendance = (attendanceId: string, action: "skip" | "unskip" | "confirm") =>
+export const actOnAttendance = (attendanceId: string, action: "skip" | "unskip" | "confirm" | "rebook") =>
   apiFetch<MonthlyServiceAttendanceItem>(`${MY_ATTENDANCE}/${attendanceId}/${action}`, {
     method: "POST",
     authenticated: true,
@@ -331,6 +393,17 @@ export const disputeAttendance = (attendanceId: string, reason: string) =>
 
 export const listMyMonthlyInvoices = () =>
   apiFetch<MonthlyServiceInvoice[]>(MY_INVOICES, { authenticated: true });
+
+/** Pays the whole bill from the wallet; fails without charging (MonthlyService.WalletBalanceLow) when the balance is short. */
+export const payMonthlyInvoiceFromWallet = (invoiceId: string) =>
+  apiFetch<MonthlyServiceInvoice>(`${MY_INVOICES}/${invoiceId}/pay-from-wallet`, { method: "POST", authenticated: true });
+
+export const setMonthlyWalletAutopay = (contractId: string, enabled: boolean) =>
+  apiFetch<MonthlyServiceContract>(`${MY_CONTRACTS}/${contractId}/wallet-autopay`, {
+    method: "POST",
+    authenticated: true,
+    body: JSON.stringify({ enabled }),
+  });
 
 export const payMonthlyInvoice = (invoiceId: string) =>
   apiFetch<MonthlyServiceInvoice>(`${MY_INVOICES}/${invoiceId}/pay`, {

@@ -22,17 +22,20 @@ public class MonthlyServiceController : ControllerBase
 {
     private readonly IMonthlyServiceCustomerService _service;
     private readonly IValidator<MonthlyServiceContractRequest> _requestValidator;
+    private readonly IValidator<MonthlyServiceMealContractRequest> _mealRequestValidator;
     private readonly IValidator<MonthlyServiceCancelRequest> _cancelValidator;
     private readonly IValidator<MonthlyServiceDisputeRequest> _disputeValidator;
 
     public MonthlyServiceController(
         IMonthlyServiceCustomerService service,
         IValidator<MonthlyServiceContractRequest> requestValidator,
+        IValidator<MonthlyServiceMealContractRequest> mealRequestValidator,
         IValidator<MonthlyServiceCancelRequest> cancelValidator,
         IValidator<MonthlyServiceDisputeRequest> disputeValidator)
     {
         _service = service;
         _requestValidator = requestValidator;
+        _mealRequestValidator = mealRequestValidator;
         _cancelValidator = cancelValidator;
         _disputeValidator = disputeValidator;
     }
@@ -60,6 +63,24 @@ public class MonthlyServiceController : ControllerBase
         return result.IsSuccess
             ? CreatedAtAction(nameof(GetContract), new { id = result.Value.Id }, result.Value)
             : result.ToProblemResult();
+    }
+
+    /// <summary>A cook on a MealBased plan (docs/MEAL-SERVICE.md): one contract per meal session chosen, all or none.</summary>
+    [HttpPost("api/v{version:apiVersion}/monthly-service/meal-contracts")]
+    [ProducesResponseType(typeof(IReadOnlyList<MonthlyServiceContractResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> RequestMealContracts([FromBody] MonthlyServiceMealContractRequest request)
+    {
+        var validation = await _mealRequestValidator.ValidateAsync(request);
+        if (!validation.IsValid)
+        {
+            return ValidationProblem(ToModelState(validation));
+        }
+
+        var result = await _service.RequestMealContractsAsync(CurrentCustomerId(), request);
+        return result.IsSuccess ? Ok(result.Value) : result.ToProblemResult();
     }
 
     [HttpGet("api/v{version:apiVersion}/me/monthly-service-contracts")]
@@ -118,6 +139,13 @@ public class MonthlyServiceController : ControllerBase
     public async Task<IActionResult> Unskip(Guid id) =>
         ToResult(await _service.UnskipAsync(CurrentCustomerId(), id));
 
+    /// <summary>Daily wallet: books today's visit that was off for low balance, paying for it from the wallet now.</summary>
+    [HttpPost("api/v{version:apiVersion}/me/monthly-service-attendance/{id:guid}/rebook")]
+    [ProducesResponseType(typeof(MonthlyServiceAttendanceItem), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status422UnprocessableEntity)]
+    public async Task<IActionResult> Rebook(Guid id) => ToResult(await _service.RebookAsync(CurrentCustomerId(), id));
+
     [HttpPost("api/v{version:apiVersion}/me/monthly-service-attendance/{id:guid}/confirm")]
     [ProducesResponseType(typeof(MonthlyServiceAttendanceItem), StatusCodes.Status200OK)]
     public async Task<IActionResult> Confirm(Guid id) =>
@@ -149,6 +177,28 @@ public class MonthlyServiceController : ControllerBase
     public async Task<IActionResult> PayInvoice(Guid id)
     {
         var result = await _service.PayInvoiceAsync(CurrentCustomerId(), id);
+        return result.IsSuccess ? Ok(result.Value) : result.ToProblemResult();
+    }
+
+    /// <summary>Pays an invoice in full from the wallet; 422 MonthlyService.WalletBalanceLow when the balance is short (nothing is charged).</summary>
+    [HttpPost("api/v{version:apiVersion}/me/monthly-service-invoices/{id:guid}/pay-from-wallet")]
+    [ProducesResponseType(typeof(MonthlyServiceInvoiceResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status422UnprocessableEntity)]
+    public async Task<IActionResult> PayInvoiceFromWallet(Guid id)
+    {
+        var result = await _service.PayInvoiceFromWalletAsync(CurrentCustomerId(), id);
+        return result.IsSuccess ? Ok(result.Value) : result.ToProblemResult();
+    }
+
+    /// <summary>Turns automatic wallet payment of month-end invoices on or off for one contract.</summary>
+    [HttpPost("api/v{version:apiVersion}/me/monthly-service-contracts/{id:guid}/wallet-autopay")]
+    [ProducesResponseType(typeof(MonthlyServiceContractResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status422UnprocessableEntity)]
+    public async Task<IActionResult> SetWalletAutopay(Guid id, [FromBody] MonthlyServiceWalletAutopayRequest request)
+    {
+        var result = await _service.SetWalletAutopayAsync(CurrentCustomerId(), id, request.Enabled);
         return result.IsSuccess ? Ok(result.Value) : result.ToProblemResult();
     }
 
