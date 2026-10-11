@@ -122,6 +122,8 @@ function BookingSuccessScreen() {
         <Card title="Booking summary">
           <DetailList>
             <DetailRow label="Service">{booking.service.name}</DetailRow>
+            {/* What exactly was booked - a variant, or a cook's "Lunch · 4 persons". */}
+            {booking.service.variantName ? <DetailRow label="Booked for">{booking.service.variantName}</DetailRow> : null}
             <DetailRow label="Date">{formatCalendarDate(booking.slot.date)}</DetailRow>
             <DetailRow label="Time" numeric>
               {booking.slot.name} · {formatTimeRange(booking.slot.startTime, booking.slot.endTime)}

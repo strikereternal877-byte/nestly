@@ -132,6 +132,7 @@ function BookingDetailScreen() {
 
         <Card title="Slot">
           <DetailList>
+            {booking.service.variantName ? <DetailRow label="Booked for">{booking.service.variantName}</DetailRow> : null}
             <DetailRow label="Date">{formatCalendarDate(booking.slot.date)}</DetailRow>
             <DetailRow label="Time window" numeric>
               {booking.slot.name} · {formatTimeRange(booking.slot.startTime, booking.slot.endTime)}

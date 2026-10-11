@@ -9,6 +9,7 @@ import { RequireAuth } from "@/components/RequireAuth";
 import { Alert, Button, Card, EmptyState, LinkButton } from "@/components/ui";
 import { describeError } from "@/lib/api";
 import {
+  MonthlyServiceBillingMode,
   MonthlyServiceContractStatus,
   describeSchedule,
   describeVisit,
@@ -46,7 +47,7 @@ function MonthlyServicesScreen() {
     <main className="flex w-full flex-col">
       <PageBanner
         title="Monthly services"
-        description="The same trusted professional on your chosen days. You pay at month end, only for the days they came."
+        description="The same trusted professional on your chosen days. Pay day by day from your wallet, or once at month end for the days they came."
         breadcrumb={<BannerBreadcrumb items={[{ label: "Home", href: "/" }, { label: "Monthly services" }]} />}
       />
 
@@ -98,6 +99,7 @@ function ContractCard({ contract }: { contract: MonthlyServiceContract }) {
           <p className="text-sm font-semibold text-fg">{contract.planName}</p>
           <p className="mt-0.5 text-xs text-fg-muted">
             {describeSchedule(contract)} · {formatClock(contract.visitStartTime)} · {describeVisit(contract)}
+            {contract.billingMode === MonthlyServiceBillingMode.DailyWallet ? " · Paid daily from wallet" : ""}
           </p>
         </div>
         <ContractStatusBadge contract={contract} />

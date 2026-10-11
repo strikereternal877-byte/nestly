@@ -267,7 +267,7 @@ function BookingPaymentScreen() {
     <main className="flex w-full flex-col animate-rise">
       <PageBanner
         title="Confirm and pay"
-        description={booking.service.name}
+        description={booking.service.variantName ? `${booking.service.name} · ${booking.service.variantName}` : booking.service.name}
         breadcrumb={
           <BannerBreadcrumb
             items={[{ label: "Home", href: "/" }, { label: "My bookings", href: "/bookings" }, { label: "Confirm and pay" }]}
