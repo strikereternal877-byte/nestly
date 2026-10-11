@@ -33,6 +33,7 @@ import {
 import type { MonthlyServiceAttendanceItem, MonthlyServiceContractDetail, MonthlyServiceInvoice } from "../_lib/monthly-service-api";
 import { ATTENDANCE_TONE, ContractStatusBadge, InvoiceStatusBadge, KpiIcons, MONTHLY_KEYS, RecordPaymentModal } from "../_components/shared";
 import { AttendanceActionModal } from "../_components/AttendanceActionModal";
+import { describePreferences } from "@/lib/meal-preferences";
 
 /**
  * One engagement (docs/MONTHLY-SERVICE.md): terms and address, the assigned
@@ -111,6 +112,8 @@ export default function MonthlyServiceContractPage() {
                         : "Task-based",
                 },
                 { label: detail.basis === MonthlyServicePlanBasis.MealBased ? "Meals" : "Tasks", value: detail.includedTasks.length ? detail.includedTasks.join(", ") : "—" },
+                ...(detail.mealPreferences ? [{ label: "Food", value: describePreferences(detail.mealPreferences) }] : []),
+                ...(detail.preferredProvider ? [{ label: "Customer asked for", value: `${detail.preferredProvider.displayName} (cooked for them before)` }] : []),
                 { label: "Rate / commission", value: `${formatCurrency(detail.ratePerVisit)} per visit · ${detail.commissionPercent}%` },
                 {
                   label: "Billing",
@@ -213,7 +216,7 @@ function ProfessionalCard({ detail, canWrite }: { detail: MonthlyServiceContract
   });
 
   const assign = useMutation({
-    mutationFn: () => assignMonthlyProvider(c.id, selected),
+    mutationFn: () => assignMonthlyProvider(c.id, pick),
     onSuccess: (updated) => {
       toast("success", `${updated.contract.providerName} assigned. Upcoming visits are scheduled.`);
       setPicking(false);
@@ -224,7 +227,11 @@ function ProfessionalCard({ detail, canWrite }: { detail: MonthlyServiceContract
     },
   });
 
-  const chosen = eligible.data?.find((p) => p.id === selected);
+  // "Keep this cook monthly": the cook the customer asked for comes first and is pre-picked.
+  const preferredId = c.providerId === null ? (detail.preferredProvider?.id ?? null) : null;
+  const options = [...(eligible.data ?? [])].sort((a, b) => Number(b.id === preferredId) - Number(a.id === preferredId));
+  const pick = selected || (preferredId && options.some((p) => p.id === preferredId) ? preferredId : "");
+  const chosen = eligible.data?.find((p) => p.id === pick);
 
   return (
     <Card
@@ -249,24 +256,29 @@ function ProfessionalCard({ detail, canWrite }: { detail: MonthlyServiceContract
           <EmptyState title="No eligible professionals" description="No active professional has this skill or serves this city yet." />
         ) : (
           <div className="flex flex-col gap-3">
+            {detail.preferredProvider && preferredId ? (
+              <Alert tone="info">
+                The customer asked for {detail.preferredProvider.displayName}, who cooked for them before.
+              </Alert>
+            ) : null}
             <Select
               label="Choose professional"
-              value={selected}
+              value={pick}
               onChange={(e) => setSelected(e.target.value)}
               options={[
                 { value: "", label: "Select…" },
-                ...eligible.data
+                ...options
                   .filter((p) => p.id !== c.providerId)
                   .map((p) => ({
                     value: p.id,
-                    label: `${p.displayName} · ${p.activeContractCount} home(s)${p.hasSkill && p.servesCity ? "" : !p.hasSkill ? " · no skill mapped" : " · outside city"}${p.conflict ? " · CONFLICT" : ""}`,
+                    label: `${p.id === preferredId ? "★ Asked for · " : ""}${p.displayName} · ${p.activeContractCount} home(s)${p.hasSkill && p.servesCity ? "" : !p.hasSkill ? " · no skill mapped" : " · outside city"}${p.conflict ? " · CONFLICT" : ""}`,
                   })),
               ]}
             />
             {chosen?.conflict ? <Alert tone="warning">{chosen.conflict}</Alert> : null}
             {assign.isError ? <Alert tone="error">{describeError(assign.error)}</Alert> : null}
             <div className="flex gap-2">
-              <Button size="sm" disabled={!selected || Boolean(chosen?.conflict)} loading={assign.isPending} onClick={() => assign.mutate()}>
+              <Button size="sm" disabled={!pick || Boolean(chosen?.conflict)} loading={assign.isPending} onClick={() => assign.mutate()}>
                 {c.providerId ? "Replace professional" : "Assign"}
               </Button>
               {c.providerId ? (

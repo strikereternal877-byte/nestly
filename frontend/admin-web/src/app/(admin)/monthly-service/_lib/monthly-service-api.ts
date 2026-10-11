@@ -9,6 +9,7 @@
  * values are .NET DayOfWeek (Sunday = 0).
  */
 import { API_V1, apiFetch } from "@/lib/api";
+import type { MealPreferences } from "@/lib/meal-preferences";
 
 export enum MonthlyServicePlanBasis {
   Hourly = 0,
@@ -260,6 +261,10 @@ export interface MonthlyServiceContractDetail {
   /** Meal plans only: how many people the cook cooks for. */
   persons: number | null;
   billingMode: MonthlyServiceBillingMode;
+  /** Meal plans only: how the household likes its food. */
+  mealPreferences?: MealPreferences | null;
+  /** "Keep this cook monthly": the cook the customer asked for - offer them first. */
+  preferredProvider?: { id: string; displayName: string; photoUrl: string | null } | null;
 }
 
 export interface MonthlyServiceAttendanceItem {

@@ -1,3 +1,4 @@
+import type { MealPreferences } from "./meal-preferences";
 /**
  * Response/request shapes for the Provider API's jobs surface (`/api/v1/jobs`,
  * docs/PROVIDER.md's `booking_provider_assignment` bridge table).
@@ -121,6 +122,8 @@ export interface JobLineItem {
   unitPriceSnapshot: number;
   /** The option booked, e.g. a cook's "Lunch · 4 persons"; null when none. */
   variantNameSnapshot: string | null;
+  /** A cook job only: how the household likes its food. */
+  mealPreferences?: MealPreferences | null;
 }
 
 /** Detail view of a single assignment (GET /jobs/{bookingId}). */

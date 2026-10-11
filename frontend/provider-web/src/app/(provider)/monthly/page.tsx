@@ -26,6 +26,7 @@ import {
   markVisit,
 } from "@/lib/monthly-service";
 import type { MonthlyContract, MonthlyInvoice, MonthlyVisit } from "@/lib/monthly-service";
+import { describePreferences } from "@/lib/meal-preferences";
 
 type Tab = "visits" | "clients" | "bills";
 
@@ -207,6 +208,11 @@ function VisitCard({ visit }: { visit: MonthlyVisit }) {
             {visit.persons ? (
               <li className="rounded-full bg-brand-50 px-2.5 py-1 text-xs font-medium text-brand-700 dark:bg-brand-500/15 dark:text-brand-200">
                 Cooking for {visit.persons} {visit.persons === 1 ? "person" : "people"}
+              </li>
+            ) : null}
+            {visit.mealPreferences ? (
+              <li className="rounded-full bg-brand-50 px-2.5 py-1 text-xs font-medium text-brand-700 dark:bg-brand-500/15 dark:text-brand-200">
+                {describePreferences(visit.mealPreferences)}
               </li>
             ) : null}
             {visit.includedTasks.map((task) => (

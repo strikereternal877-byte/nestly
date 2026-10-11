@@ -9,6 +9,7 @@
  * .NET DayOfWeek (Sunday = 0), same as `Date.getDay()`.
  */
 import { API_V1, apiFetch } from "./api";
+import type { MealPreferences } from "./meal-preferences";
 
 export enum MonthlyServicePlanBasis {
   Hourly = 0,
@@ -116,6 +117,8 @@ export interface MonthlyContract {
   monthDates: number[];
   /** Cook contracts only: how many people to cook for (the meals are `includedTasks`). */
   persons: number | null;
+  /** Cook contracts only: how the household likes its food. */
+  mealPreferences?: MealPreferences | null;
 }
 
 export interface MonthlyVisit {
@@ -128,6 +131,8 @@ export interface MonthlyVisit {
   address: MonthlyAddress | null;
   /** Cook contracts only: how many people to cook for. */
   persons: number | null;
+  /** Cook contracts only: how the household likes its food. */
+  mealPreferences?: MealPreferences | null;
 }
 
 export interface MonthlyAttendanceMonth {

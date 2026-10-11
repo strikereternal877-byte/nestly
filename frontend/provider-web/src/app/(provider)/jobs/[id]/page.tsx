@@ -46,6 +46,7 @@ import { JobStatus, jobStatusLabel } from "@/lib/jobs-types";
 import { JobStatusBadge } from "../_components/JobStatusBadge";
 import type { BookingCompletionProofResponse, CompletionChecklistAnswer } from "@/lib/jobs-types";
 import type { LocationSharingStatus } from "@/hooks/useLocationSharing";
+import { describePreferences } from "@/lib/meal-preferences";
 
 /**
  * Statuses whose job can actually have completion evidence to read. The
@@ -456,6 +457,11 @@ export default function JobDetailPage() {
                       <span className="nums text-fg-subtle"> × {item.quantity}</span>
                       {item.variantNameSnapshot ? (
                         <span className="block text-xs text-fg-muted">{item.variantNameSnapshot}</span>
+                      ) : null}
+                      {item.mealPreferences ? (
+                        <span className="block text-xs text-fg-muted">
+                          Food: {describePreferences(item.mealPreferences)}
+                        </span>
                       ) : null}
                     </span>
                     <span className="nums shrink-0 text-fg-muted">
