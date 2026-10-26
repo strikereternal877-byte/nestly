@@ -16,7 +16,7 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
     <!-- Pinned to 7.x: FluentAssertions 8.0 requires a paid licence for commercial use. -->
-    <PackageReference Include="FluentAssertions" Version="7.2.0" />
+    <PackageReference Include="FluentAssertions" Version="8.11.0" />
     <!--
       SQLite rather than the EF in-memory provider: these tests assert on
       unique-index enforcement, and the in-memory provider ignores indexes
