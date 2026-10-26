@@ -16,7 +16,7 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
     <!-- Pinned to 7.x: FluentAssertions 8.0 requires a paid licence for commercial use (see Catalog.Tests.csproj). -->
-    <PackageReference Include="FluentAssertions" Version="7.2.0" />
+    <PackageReference Include="FluentAssertions" Version="8.11.0" />
     <!--
       SQLite rather than the EF in-memory provider: these are concurrency/load
       tests that assert on real relational behaviour (unique-index
